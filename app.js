@@ -118,6 +118,7 @@ document.querySelectorAll('[data-go]').forEach(button => button.onclick = () => 
 $('#header-action').onclick = () => $('.view.active').id === 'products' ? $('#product-dialog').showModal() : view('movement');
 $('#add-product').onclick = () => $('#product-dialog').showModal();
 $('#add-user').onclick = () => $('#user-dialog').showModal();
+document.querySelectorAll('[data-close-dialog]').forEach(button => button.onclick = () => button.closest('dialog').close());
 $('#product-search').oninput = renderProducts;
 
 $('#product-form').onsubmit = async event => {
