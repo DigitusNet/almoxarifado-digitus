@@ -1,7 +1,7 @@
 import { createClient } from '@supabase/supabase-js';
 
 const supabase = createClient(import.meta.env.VITE_SUPABASE_URL, import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY);
-let state = { products: [], movements: [], users: [], collaborators: [], vehicles: [], locations: [], serialItems: [], serialMovements: [], toolLoans: [], productFilter: 'all' };
+let state = { products: [], movements: [], users: [], collaborators: [], vehicles: [], locations: [], serialItems: [], serialMovements: [], toolLoans: [], inventorySessions: [], inventoryCounts: [], productFilter: 'all' };
 let currentUser = null;
 const $ = selector => document.querySelector(selector);
 const esc = value => String(value ?? '').replace(/[&<>'"]/g, char => ({ '&':'&amp;','<':'&lt;','>':'&gt;',"'":'&#039;','"':'&quot;' }[char]));
@@ -94,7 +94,7 @@ function render() {
   $('#low-stock').textContent = lows.length;
   $('#low-stock-list').innerHTML = lows.length ? lows.map(item => `<div class="compact-row"><div><b>${esc(item.name)}</b><small>${esc(item.code)} · mínimo: ${stockLabel({ ...item, stock: item.minimum })}</small></div><span class="badge low">${stockLabel(item)}</span></div>`).join('') : '<p class="empty">Nenhum item precisa de reposição.</p>';
   $('#recent-movements').innerHTML = state.movements.slice(0, 5).map(item => `<div class="compact-row"><div><b>${movementName(item)} · ${esc(product(item.productId)?.name || 'Produto')}</b><small>${esc(item.person)} · ${item.date}</small></div><span class="badge ${item.type}">${item.type === 'entrada' ? '+' : '-'}${quantity(item.quantity)} ${unitName(product(item.productId)?.unit_of_measure)}</span></div>`).join('') || '<p class="empty">Sem movimentações.</p>';
-  renderProducts(); renderMovement(); renderFieldStock(); renderUsers(); renderRegistry(); renderSerials(); renderLoans();
+  renderProducts(); renderMovement(); renderFieldStock(); renderUsers(); renderRegistry(); renderSerials(); renderLoans(); renderInventory();
 }
 
 function renderProducts() {
@@ -260,6 +260,101 @@ function openLoanReturn(id) {
   $('#return-loan-dialog').showModal();
 }
 
+const activeInventory = () => state.inventorySessions.find(item => item.status === 'aberto');
+const inventoryDifference = item => item.counted_stock === null || item.counted_stock === undefined ? null : Number(item.counted_stock) - Number(item.expected_stock);
+
+function updateInventoryMetrics() {
+  const active = activeInventory();
+  if (!active) return;
+  const rows = state.inventoryCounts.filter(item => item.inventory_id === active.id);
+  const inputs = [...document.querySelectorAll('[data-inventory-count]')];
+  const values = new Map(inputs.filter(input => input.value !== '').map(input => [input.dataset.inventoryCount, Number(input.value)]));
+  const counted = rows.filter(item => values.has(item.product_id) || item.counted_stock !== null && item.counted_stock !== undefined).length;
+  const differences = rows.filter(item => {
+    const value = values.has(item.product_id) ? values.get(item.product_id) : item.counted_stock;
+    return value !== null && value !== undefined && Number(value) !== Number(item.expected_stock);
+  }).length;
+  $('#inventory-counted-total').textContent = `${counted} / ${rows.length}`;
+  $('#inventory-difference-total').textContent = differences;
+}
+
+function renderInventory() {
+  const table = $('#inventory-counts-table');
+  if (!table) return;
+
+  const categorySelect = $('#inventory-category');
+  const selectedCategory = categorySelect.value;
+  const categories = [...new Set(state.products.map(item => item.category).filter(Boolean))].sort((a, b) => a.localeCompare(b, 'pt-BR'));
+  categorySelect.innerHTML = '<option value="">Todo o almoxarifado</option>' + categories.map(category => `<option value="${esc(category)}">${esc(category)}</option>`).join('');
+  categorySelect.value = categories.includes(selectedCategory) ? selectedCategory : '';
+
+  const session = activeInventory();
+  $('#inventory-empty').hidden = Boolean(session);
+  $('#inventory-session').hidden = !session;
+  $('#start-inventory').disabled = Boolean(session);
+
+  if (session) {
+    const counts = state.inventoryCounts.filter(item => item.inventory_id === session.id).sort((a, b) => a.product_name.localeCompare(b.product_name, 'pt-BR'));
+    $('#inventory-title').textContent = session.title;
+    $('#inventory-subtitle').textContent = `${session.category ? `Categoria: ${session.category} · ` : 'Todo o almoxarifado · '}iniciado em ${date(session.started_at)}`;
+    table.innerHTML = counts.map(item => {
+      const difference = inventoryDifference(item);
+      const differenceText = difference === null ? '—' : `${difference > 0 ? '+' : ''}${quantity(difference)} ${unitName(item.unit_of_measure)}`;
+      const differenceClass = difference === null || difference === 0 ? '' : difference > 0 ? 'positive' : 'negative';
+      return `<tr><td><b>${esc(item.product_name)}</b><small>${esc(item.product_code)}</small></td><td>${quantity(item.expected_stock)} ${unitName(item.unit_of_measure)}</td><td><input class="inventory-count-input" data-inventory-count="${item.product_id}" type="number" min="0" step="0.001" value="${item.counted_stock ?? ''}" aria-label="Quantidade física de ${esc(item.product_name)}" /></td><td class="inventory-difference ${differenceClass}" data-inventory-difference="${item.product_id}">${differenceText}</td><td><input class="inventory-count-note" data-inventory-note="${item.product_id}" value="${esc(item.note || '')}" placeholder="Opcional" aria-label="Observação de ${esc(item.product_name)}" /></td></tr>`;
+    }).join('') || '<tr><td colspan="5" class="empty">Nenhum item nesta conferência.</td></tr>';
+    document.querySelectorAll('[data-inventory-count]').forEach(input => input.oninput = () => {
+      const line = state.inventoryCounts.find(item => item.product_id === input.dataset.inventoryCount && item.inventory_id === session.id);
+      const difference = line && input.value !== '' ? Number(input.value) - Number(line.expected_stock) : null;
+      const target = document.querySelector(`[data-inventory-difference="${input.dataset.inventoryCount}"]`);
+      if (target) {
+        target.textContent = difference === null ? '—' : `${difference > 0 ? '+' : ''}${quantity(difference)} ${unitName(line.unit_of_measure)}`;
+        target.className = `inventory-difference ${difference === null || difference === 0 ? '' : difference > 0 ? 'positive' : 'negative'}`;
+      }
+      updateInventoryMetrics();
+    });
+    updateInventoryMetrics();
+  }
+
+  const history = state.inventorySessions.filter(item => item.status === 'finalizado').slice(0, 8);
+  $('#inventory-history-table').innerHTML = history.map(item => `<tr><td><b>${esc(item.title)}</b><small>${esc(item.final_note || 'Sem observação')}</small></td><td>${esc(item.category || 'Todo o almoxarifado')}</td><td>${date(item.started_at)}</td><td>${item.closed_at ? date(item.closed_at) : '—'}</td><td><span class="badge ok">Finalizado</span></td></tr>`).join('') || '<tr><td colspan="5" class="empty">Nenhum inventário finalizado ainda.</td></tr>';
+}
+
+async function saveInventoryCounts(silent = false) {
+  const session = activeInventory();
+  if (!session) throw new Error('Não há inventário em aberto.');
+  const counts = [...document.querySelectorAll('[data-inventory-count]')].filter(input => input.value !== '').map(input => ({
+    product_id: input.dataset.inventoryCount,
+    counted_stock: Number(input.value),
+    note: document.querySelector(`[data-inventory-note="${input.dataset.inventoryCount}"]`)?.value.trim() || null
+  }));
+  if (!counts.length) throw new Error('Informe pelo menos uma quantidade física antes de salvar.');
+  const { error } = await supabase.rpc('save_inventory_counts', { p_inventory_id: session.id, p_counts: counts });
+  if (error) throw error;
+  await load();
+  if (!silent) alert('Contagens salvas. Você pode continuar a conferência depois.');
+}
+
+async function finishInventory() {
+  try {
+    await saveInventoryCounts(true);
+    const session = activeInventory();
+    const counts = state.inventoryCounts.filter(item => item.inventory_id === session?.id);
+    if (counts.some(item => item.counted_stock === null || item.counted_stock === undefined)) throw new Error('Informe a quantidade física de todos os itens antes de finalizar.');
+    const hasDifferences = counts.some(item => inventoryDifference(item) !== 0);
+    const note = $('#inventory-final-note').value.trim();
+    if (hasDifferences && !note) throw new Error('Informe uma justificativa para os ajustes encontrados.');
+    if (!confirm('Finalizar o inventário? Os ajustes serão registrados como movimentações e não poderão ser desfeitos por esta tela.')) return;
+    const { error } = await supabase.rpc('finish_inventory', { p_inventory_id: session.id, p_final_note: note || null });
+    if (error) throw error;
+    $('#inventory-final-note').value = '';
+    await load();
+    alert('Inventário finalizado e estoque ajustado com sucesso.');
+  } catch (error) {
+    alert(error.message);
+  }
+}
+
 function renderUsers() {
   const table = $('#users-table');
   if (!table) return;
@@ -277,7 +372,7 @@ async function loadUsers() {
 }
 
 async function load() {
-  const [products, movements, collaborators, vehicles, locations, serialItems, serialMovements, toolLoans] = await Promise.all([
+  const [products, movements, collaborators, vehicles, locations, serialItems, serialMovements, toolLoans, inventorySessions, inventoryCounts] = await Promise.all([
     supabase.from('products').select('*').order('name'),
     supabase.from('movements').select('*').order('created_at', { ascending: false }),
     supabase.from('collaborators').select('*').order('name'),
@@ -285,9 +380,11 @@ async function load() {
     supabase.from('stock_locations').select('*').order('name'),
     supabase.from('serial_items').select('*').order('created_at', { ascending: false }),
     supabase.from('serial_movements').select('*').order('created_at', { ascending: false }),
-    supabase.from('tool_loans').select('*').order('issued_at', { ascending: false })
+    supabase.from('tool_loans').select('*').order('issued_at', { ascending: false }),
+    supabase.from('inventory_sessions').select('*').order('started_at', { ascending: false }),
+    supabase.from('inventory_counts').select('*').order('created_at', { ascending: false })
   ]);
-  if (products.error || movements.error || collaborators.error || vehicles.error || locations.error || serialItems.error || serialMovements.error || toolLoans.error) throw products.error || movements.error || collaborators.error || vehicles.error || locations.error || serialItems.error || serialMovements.error || toolLoans.error;
+  if (products.error || movements.error || collaborators.error || vehicles.error || locations.error || serialItems.error || serialMovements.error || toolLoans.error || inventorySessions.error || inventoryCounts.error) throw products.error || movements.error || collaborators.error || vehicles.error || locations.error || serialItems.error || serialMovements.error || toolLoans.error || inventorySessions.error || inventoryCounts.error;
   state.products = products.data.map(item => ({ ...item, minimum: item.minimum_stock }));
   state.movements = movements.data.map(item => ({ id:item.id, type:item.movement_type, productId:item.product_id, quantity:item.quantity, person:item.recipient, holderType:item.holder_type || 'cliente', workOrder:item.work_order, fieldUsage:item.field_usage || false, note:item.note, createdAt:item.created_at, date:date(item.created_at) }));
   state.collaborators = collaborators.data;
@@ -296,6 +393,8 @@ async function load() {
   state.serialItems = serialItems.data;
   state.serialMovements = serialMovements.data;
   state.toolLoans = toolLoans.data;
+  state.inventorySessions = inventorySessions.data;
+  state.inventoryCounts = inventoryCounts.data;
   try {
     await loadUsers();
   } catch (error) {
@@ -400,8 +499,8 @@ function view(id) {
   document.querySelectorAll('.view').forEach(element => element.classList.toggle('active', element.id === id));
   document.querySelectorAll('.nav-link').forEach(button => button.classList.toggle('active', button.dataset.view === id));
   document.querySelector('main').classList.toggle('dashboard-mode', id === 'dashboard');
-  $('#page-title').textContent = ({ dashboard:'Visão geral', products:'Produtos', movement:'Movimentações', serials:'Serial / MAC', loans:'Cautelas', registry:'Cadastros', users:'Usuários' })[id];
-  $('#header-action').hidden = id === 'users' || id === 'products' || id === 'serials' || id === 'loans' || id === 'registry';
+  $('#page-title').textContent = ({ dashboard:'Visão geral', products:'Produtos', movement:'Movimentações', serials:'Serial / MAC', loans:'Cautelas', inventory:'Inventário', registry:'Cadastros', users:'Usuários' })[id];
+  $('#header-action').hidden = id === 'users' || id === 'products' || id === 'serials' || id === 'loans' || id === 'inventory' || id === 'registry';
   $('#header-action').textContent = id === 'products' ? '+ Cadastrar produto' : '+ Nova movimentação';
 }
 
@@ -451,6 +550,7 @@ async function start(session) {
   $('#users').hidden = !isAdmin;
   $('#serials').hidden = !canManage;
   $('#loans').hidden = !canManage;
+  $('#inventory').hidden = !isAdmin;
   $('#registry').hidden = !canManage;
   try { await load(); } catch (error) { alert(error.message); }
 }
@@ -468,6 +568,16 @@ $('#add-loan').onclick = () => {
   if (!state.serialItems.some(item => item.status === 'disponivel' && ['ferramentas', 'patrimônio', 'patrimonio'].includes(String(product(item.product_id)?.category || '').toLowerCase()))) return alert('Cadastre uma ferramenta ou patrimônio rastreável e disponível antes de registrar uma cautela.');
   $('#loan-dialog').showModal();
 };
+$('#start-inventory').onclick = () => {
+  if (activeInventory()) return alert('Já existe um inventário em aberto. Finalize-o antes de iniciar outro.');
+  $('#inventory-start-form').reset();
+  renderInventory();
+  $('#inventory-start-dialog').showModal();
+};
+$('#save-inventory-counts').onclick = async () => {
+  try { await saveInventoryCounts(); } catch (error) { alert(error.message); }
+};
+$('#finish-inventory').onclick = finishInventory;
 $('#add-collaborator').onclick = () => $('#collaborator-dialog').showModal();
 $('#add-vehicle').onclick = () => $('#vehicle-dialog').showModal();
 $('#add-location').onclick = () => $('#location-dialog').showModal();
@@ -476,7 +586,7 @@ $('#logout').onclick = async () => {
   const { error } = await supabase.auth.signOut();
   if (error) return alert(error.message);
   currentUser = null;
-  state = { products: [], movements: [], users: [], collaborators: [], vehicles: [], locations: [], serialItems: [], serialMovements: [], toolLoans: [], productFilter: 'all' };
+  state = { products: [], movements: [], users: [], collaborators: [], vehicles: [], locations: [], serialItems: [], serialMovements: [], toolLoans: [], inventorySessions: [], inventoryCounts: [], productFilter: 'all' };
   $('#login-form').reset();
   $('#auth-gate').hidden = false;
 };
@@ -667,6 +777,22 @@ $('#return-loan-form').onsubmit = async event => {
   });
   if (error) return alert(error.message);
   $('#return-loan-dialog').close(); await load(); view('loans');
+};
+
+$('#inventory-start-form').onsubmit = async event => {
+  event.preventDefault();
+  try {
+    const { error } = await supabase.rpc('start_inventory', {
+      p_title: $('#inventory-name').value.trim(),
+      p_category: $('#inventory-category').value || null
+    });
+    if (error) throw error;
+    $('#inventory-start-dialog').close();
+    await load();
+    view('inventory');
+  } catch (error) {
+    alert(error.message);
+  }
 };
 
 $('#user-form').onsubmit = async event => {
