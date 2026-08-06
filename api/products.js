@@ -26,8 +26,26 @@ export default async function handler(req, res) {
     if (productError) throw productError;
     if (!product) return res.status(404).json({ error: 'Produto não encontrado.' });
 
+    const { data: serialItems, error: serialItemsError } = await admin.from('serial_items').select('id').eq('product_id', id);
+    if (serialItemsError) throw serialItemsError;
+    const serialIds = serialItems.map(item => item.id);
+
+    if (serialIds.length) {
+      const { error: loansError } = await admin.from('tool_loans').delete().in('serial_item_id', serialIds);
+      if (loansError) throw loansError;
+
+      const { error: serialMovementsError } = await admin.from('serial_movements').delete().in('serial_item_id', serialIds);
+      if (serialMovementsError) throw serialMovementsError;
+
+      const { error: serialDeleteError } = await admin.from('serial_items').delete().in('id', serialIds);
+      if (serialDeleteError) throw serialDeleteError;
+    }
+
     const { error: movementsError } = await admin.from('movements').delete().eq('product_id', id);
     if (movementsError) throw movementsError;
+
+    const { error: inventoryCountsError } = await admin.from('inventory_counts').delete().eq('product_id', id);
+    if (inventoryCountsError) throw inventoryCountsError;
 
     const { error: deleteError } = await admin.from('products').delete().eq('id', id);
     if (deleteError) throw deleteError;
