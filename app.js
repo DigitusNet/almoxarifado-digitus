@@ -1,7 +1,7 @@
 import { createClient } from '@supabase/supabase-js';
 
 const supabase = createClient(import.meta.env.VITE_SUPABASE_URL, import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY);
-let state = { products: [], movements: [], users: [], collaborators: [], vehicles: [], locations: [], serialItems: [], serialMovements: [], toolLoans: [], receipts: [], receiptItems: [], inventorySessions: [], inventoryCounts: [], productFilter: 'all' };
+let state = { products: [], movements: [], users: [], collaborators: [], vehicles: [], locations: [], suppliers: [], serialItems: [], serialMovements: [], toolLoans: [], receipts: [], receiptItems: [], inventorySessions: [], inventoryCounts: [], productFilter: 'all' };
 let currentUser = null;
 const $ = selector => document.querySelector(selector);
 const esc = value => String(value ?? '').replace(/[&<>'"]/g, char => ({ '&':'&amp;','<':'&lt;','>':'&gt;',"'":'&#039;','"':'&quot;' }[char]));
@@ -131,7 +131,9 @@ function addReceiptLine(selected = '') {
 
 function openReceiptDialog() {
   if (!receiptProducts().length) return alert('Cadastre um material controlado por quantidade antes de registrar um recebimento. Itens por Serial/MAC devem ser cadastrados na tela Serial / MAC.');
+  if (!state.suppliers.some(item => item.active)) return alert('Cadastre um fornecedor ativo em Cadastros antes de registrar um recebimento.');
   $('#receipt-form').reset();
+  populateReceiptSuppliers();
   $('#receipt-lines').innerHTML = '';
   addReceiptLine();
   $('#receipt-dialog').showModal();
@@ -150,6 +152,7 @@ function openReceiptDetails(id) {
 function renderReceipts() {
   const table = $('#receipts-table');
   if (!table) return;
+  populateReceiptSuppliers();
   table.innerHTML = state.receipts.map(receipt => {
     const items = state.receiptItems.filter(item => item.receipt_id === receipt.id);
     const summary = items.length ? `${items.slice(0, 2).map(item => esc(item.product_name)).join(', ')}${items.length > 2 ? ` +${items.length - 2}` : ''}` : 'Sem materiais';
@@ -158,18 +161,30 @@ function renderReceipts() {
   document.querySelectorAll('[data-receipt-details]').forEach(button => button.onclick = () => openReceiptDetails(button.dataset.receiptDetails));
 }
 
+function populateReceiptSuppliers() {
+  const select = $('#receipt-supplier');
+  if (!select) return;
+  const selected = select.value;
+  select.innerHTML = '<option value="">Selecione o fornecedor</option>' + state.suppliers
+    .filter(item => item.active)
+    .map(item => `<option value="${item.id}">${esc(item.name)}</option>`)
+    .join('');
+  select.value = state.suppliers.some(item => item.id === selected && item.active) ? selected : '';
+}
+
 function renderFieldStock() {
   const items = getFieldStockItems();
   $('#field-stock-list').innerHTML = items.length ? items.map(item => `<div class="compact-row"><div><b>${esc(item.person)} · ${esc(product(item.productId)?.name || 'Produto')}</b><small>${holderTypeName(item.holderType)} · código: ${esc(product(item.productId)?.code || '—')}</small></div><span class="badge entrada">${quantity(item.balance)} ${unitName(product(item.productId)?.unit_of_measure)}</span></div>`).join('') : '<p class="empty">Nenhum material está registrado com técnicos ou veículos.</p>';
 }
 
 function renderRegistry() {
-  const collaboratorsTable = $('#collaborators-table'), vehiclesTable = $('#vehicles-table'), locationsTable = $('#locations-table');
-  if (!collaboratorsTable || !vehiclesTable || !locationsTable) return;
+  const collaboratorsTable = $('#collaborators-table'), vehiclesTable = $('#vehicles-table'), locationsTable = $('#locations-table'), suppliersTable = $('#suppliers-table');
+  if (!collaboratorsTable || !vehiclesTable || !locationsTable || !suppliersTable) return;
   const collaborators = state.collaborators;
   collaboratorsTable.innerHTML = collaborators.map(item => `<tr><td><b>${esc(item.name)}</b><small>${esc(item.job_title || 'Sem cargo informado')}</small></td><td>${esc(item.department || '—')}</td><td>${esc(item.phone || '—')}</td><td>${item.active ? '<span class="badge ok">Ativo</span>' : '<span class="badge out">Inativo</span>'}</td><td><div class="table-actions"><button class="secondary-button" data-toggle-collaborator="${item.id}">${item.active ? 'Desativar' : 'Reativar'}</button><button class="danger-button" data-delete-collaborator="${item.id}">Remover</button></div></td></tr>`).join('') || '<tr><td colspan="5" class="empty">Nenhum colaborador cadastrado.</td></tr>';
   vehiclesTable.innerHTML = state.vehicles.map(item => `<tr><td><b>${esc(item.name)}</b><small>${esc(item.plate || 'Sem placa informada')}</small></td><td>${esc(state.collaborators.find(collaborator => collaborator.id === item.responsible_id)?.name || '—')}</td><td>${item.active ? '<span class="badge ok">Ativo</span>' : '<span class="badge out">Inativo</span>'}</td><td><div class="table-actions"><button class="secondary-button" data-toggle-vehicle="${item.id}">${item.active ? 'Desativar' : 'Reativar'}</button><button class="danger-button" data-delete-vehicle="${item.id}">Remover</button></div></td></tr>`).join('') || '<tr><td colspan="4" class="empty">Nenhum veículo cadastrado.</td></tr>';
   locationsTable.innerHTML = state.locations.map(item => `<tr><td><b>${esc(item.name)}</b></td><td>${esc(({ central:'Almoxarifado central', laboratorio:'Laboratório', outro:'Outro', colaborador:'Colaborador', veiculo:'Veículo', cliente:'Cliente' })[item.location_type] || item.location_type)}</td><td>${item.active ? '<span class="badge ok">Ativo</span>' : '<span class="badge out">Inativo</span>'}</td><td>${item.location_type === 'central' ? '—' : `<button class="secondary-button" data-toggle-location="${item.id}">${item.active ? 'Desativar' : 'Reativar'}</button>`}</td></tr>`).join('') || '<tr><td colspan="4" class="empty">Nenhum local cadastrado.</td></tr>';
+  suppliersTable.innerHTML = state.suppliers.map(item => `<tr><td><b>${esc(item.name)}</b><small>${esc(item.email || 'Sem e-mail informado')}</small></td><td>${esc(item.cnpj || '—')}</td><td>${esc([item.contact_name, item.phone].filter(Boolean).join(' · ') || '—')}</td><td>${item.active ? '<span class="badge ok">Ativo</span>' : '<span class="badge out">Inativo</span>'}</td><td><div class="table-actions"><button class="secondary-button" data-toggle-supplier="${item.id}">${item.active ? 'Desativar' : 'Reativar'}</button><button class="danger-button" data-delete-supplier="${item.id}">Remover</button></div></td></tr>`).join('') || '<tr><td colspan="5" class="empty">Nenhum fornecedor cadastrado.</td></tr>';
   $('#collaborator-options').innerHTML = collaborators.filter(item => item.active).map(item => `<option value="${esc(item.name)}"></option>`).join('');
   $('#vehicle-options').innerHTML = state.vehicles.filter(item => item.active).map(item => `<option value="${esc(item.name)}">${esc(item.plate || '')}</option>`).join('');
   $('#vehicle-responsible').innerHTML = '<option value="">Sem responsável definido</option>' + collaborators.filter(item => item.active).map(item => `<option value="${item.id}">${esc(item.name)}</option>`).join('');
@@ -178,6 +193,8 @@ function renderRegistry() {
   document.querySelectorAll('[data-delete-collaborator]').forEach(button => button.onclick = () => deleteCollaborator(button.dataset.deleteCollaborator));
   document.querySelectorAll('[data-delete-vehicle]').forEach(button => button.onclick = () => deleteVehicle(button.dataset.deleteVehicle));
   document.querySelectorAll('[data-toggle-location]').forEach(button => button.onclick = () => toggleLocation(button.dataset.toggleLocation));
+  document.querySelectorAll('[data-toggle-supplier]').forEach(button => button.onclick = () => toggleSupplier(button.dataset.toggleSupplier));
+  document.querySelectorAll('[data-delete-supplier]').forEach(button => button.onclick = () => deleteSupplier(button.dataset.deleteSupplier));
 }
 
 function renderSerials() {
@@ -476,12 +493,13 @@ async function loadUsers() {
 }
 
 async function load() {
-  const [products, movements, collaborators, vehicles, locations, serialItems, serialMovements, toolLoans, receipts, receiptItems, inventorySessions, inventoryCounts] = await Promise.all([
+  const [products, movements, collaborators, vehicles, locations, suppliers, serialItems, serialMovements, toolLoans, receipts, receiptItems, inventorySessions, inventoryCounts] = await Promise.all([
     supabase.from('products').select('*').order('name'),
     supabase.from('movements').select('*').order('created_at', { ascending: false }),
     supabase.from('collaborators').select('*').order('name'),
     supabase.from('vehicles').select('*').order('name'),
     supabase.from('stock_locations').select('*').order('name'),
+    supabase.from('suppliers').select('*').order('name'),
     supabase.from('serial_items').select('*').order('created_at', { ascending: false }),
     supabase.from('serial_movements').select('*').order('created_at', { ascending: false }),
     supabase.from('tool_loans').select('*').order('issued_at', { ascending: false }),
@@ -490,12 +508,13 @@ async function load() {
     supabase.from('inventory_sessions').select('*').order('started_at', { ascending: false }),
     supabase.from('inventory_counts').select('*').order('created_at', { ascending: false })
   ]);
-  if (products.error || movements.error || collaborators.error || vehicles.error || locations.error || serialItems.error || serialMovements.error || toolLoans.error || receipts.error || receiptItems.error || inventorySessions.error || inventoryCounts.error) throw products.error || movements.error || collaborators.error || vehicles.error || locations.error || serialItems.error || serialMovements.error || toolLoans.error || receipts.error || receiptItems.error || inventorySessions.error || inventoryCounts.error;
+  if (products.error || movements.error || collaborators.error || vehicles.error || locations.error || suppliers.error || serialItems.error || serialMovements.error || toolLoans.error || receipts.error || receiptItems.error || inventorySessions.error || inventoryCounts.error) throw products.error || movements.error || collaborators.error || vehicles.error || locations.error || suppliers.error || serialItems.error || serialMovements.error || toolLoans.error || receipts.error || receiptItems.error || inventorySessions.error || inventoryCounts.error;
   state.products = products.data.map(item => ({ ...item, minimum: item.minimum_stock }));
   state.movements = movements.data.map(item => ({ id:item.id, type:item.movement_type, productId:item.product_id, quantity:item.quantity, person:item.recipient, holderType:item.holder_type || 'cliente', workOrder:item.work_order, fieldUsage:item.field_usage || false, note:item.note, createdAt:item.created_at, date:date(item.created_at) }));
   state.collaborators = collaborators.data;
   state.vehicles = vehicles.data;
   state.locations = locations.data;
+  state.suppliers = suppliers.data;
   state.serialItems = serialItems.data;
   state.serialMovements = serialMovements.data;
   state.toolLoans = toolLoans.data;
@@ -544,6 +563,24 @@ async function deleteVehicle(id) {
   const vehicle = state.vehicles.find(item => item.id === id);
   if (!vehicle || !confirm(`Remover definitivamente o veículo ${vehicle.name}? Os registros anteriores serão preservados, mas o cadastro não poderá ser recuperado.`)) return;
   const { error } = await supabase.rpc('delete_vehicle', { p_vehicle_id: id });
+  if (error) return alert(error.message);
+  await load();
+}
+
+async function toggleSupplier(id) {
+  const supplier = state.suppliers.find(item => item.id === id);
+  if (!supplier) return;
+  const action = supplier.active ? 'desativar' : 'reativar';
+  if (!confirm(`${action[0].toUpperCase() + action.slice(1)} ${supplier.name}? Os recebimentos anteriores serão preservados.`)) return;
+  const { error } = await supabase.from('suppliers').update({ active: !supplier.active, updated_at: new Date().toISOString() }).eq('id', id);
+  if (error) return alert(error.message);
+  await load();
+}
+
+async function deleteSupplier(id) {
+  const supplier = state.suppliers.find(item => item.id === id);
+  if (!supplier || !confirm(`Remover definitivamente ${supplier.name}? Os recebimentos anteriores continuarão mostrando o nome do fornecedor.`)) return;
+  const { error } = await supabase.from('suppliers').delete().eq('id', id);
   if (error) return alert(error.message);
   await load();
 }
@@ -695,12 +732,13 @@ $('#finish-inventory').onclick = finishInventory;
 $('#add-collaborator').onclick = () => $('#collaborator-dialog').showModal();
 $('#add-vehicle').onclick = () => $('#vehicle-dialog').showModal();
 $('#add-location').onclick = () => $('#location-dialog').showModal();
+$('#add-supplier').onclick = () => $('#supplier-dialog').showModal();
 $('#logout').onclick = async () => {
   if (!confirm('Deseja sair da conta?')) return;
   const { error } = await supabase.auth.signOut();
   if (error) return alert(error.message);
   currentUser = null;
-  state = { products: [], movements: [], users: [], collaborators: [], vehicles: [], locations: [], serialItems: [], serialMovements: [], toolLoans: [], receipts: [], receiptItems: [], inventorySessions: [], inventoryCounts: [], productFilter: 'all' };
+  state = { products: [], movements: [], users: [], collaborators: [], vehicles: [], locations: [], suppliers: [], serialItems: [], serialMovements: [], toolLoans: [], receipts: [], receiptItems: [], inventorySessions: [], inventoryCounts: [], productFilter: 'all' };
   $('#login-form').reset();
   $('#auth-gate').hidden = false;
 };
@@ -815,7 +853,7 @@ $('#receipt-form').onsubmit = async event => {
     }));
     if (!lines.length || lines.some(line => !line.product_id || !Number.isFinite(line.quantity) || line.quantity <= 0)) throw new Error('Preencha o material e a quantidade em todas as linhas.');
     const { error } = await supabase.rpc('record_receipt', {
-      p_supplier: $('#receipt-supplier').value.trim(),
+      p_supplier_id: $('#receipt-supplier').value || null,
       p_invoice_number: $('#receipt-invoice').value.trim() || null,
       p_note: $('#receipt-note').value.trim() || null,
       p_items: lines
@@ -840,6 +878,26 @@ $('#collaborator-form').onsubmit = async event => {
   });
   if (error) return alert(error.message);
   event.target.reset(); $('#collaborator-dialog').close(); await load(); view('registry');
+};
+
+$('#supplier-form').onsubmit = async event => {
+  event.preventDefault();
+  try {
+    const { error } = await supabase.from('suppliers').insert({
+      name: $('#supplier-name').value.trim(),
+      cnpj: $('#supplier-cnpj').value.trim() || null,
+      contact_name: $('#supplier-contact').value.trim() || null,
+      phone: $('#supplier-phone').value.trim() || null,
+      email: $('#supplier-email').value.trim() || null
+    });
+    if (error) throw error;
+    event.target.reset();
+    $('#supplier-dialog').close();
+    await load();
+    view('registry');
+  } catch (error) {
+    alert(`Não foi possível cadastrar o fornecedor: ${error.message}`);
+  }
 };
 
 $('#vehicle-form').onsubmit = async event => {
