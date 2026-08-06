@@ -23,7 +23,9 @@ function render() {
 
 function renderProducts() {
   const query = $('#product-search').value.toLowerCase();
-  $('#products-table').innerHTML = state.products.filter(item => `${item.name} ${item.code} ${item.category}`.toLowerCase().includes(query)).map(item => `<tr><td><b>${esc(item.name)}</b></td><td>${esc(item.code)}</td><td>${esc(item.category)}</td><td><b>${item.stock}</b><small>mínimo: ${item.minimum}</small></td><td>${status(item)}</td></tr>`).join('') || '<tr><td colspan="5" class="empty">Nenhum produto encontrado.</td></tr>';
+  const canDelete = currentUser?.role === 'admin';
+  $('#products-table').innerHTML = state.products.filter(item => `${item.name} ${item.code} ${item.category}`.toLowerCase().includes(query)).map(item => `<tr><td><b>${esc(item.name)}</b></td><td>${esc(item.code)}</td><td>${esc(item.category)}</td><td><b>${item.stock}</b><small>mínimo: ${item.minimum}</small></td><td>${status(item)}</td><td>${canDelete ? `<button class="danger-button" data-delete-product="${item.id}">Apagar</button>` : '—'}</td></tr>`).join('') || '<tr><td colspan="6" class="empty">Nenhum produto encontrado.</td></tr>';
+  document.querySelectorAll('[data-delete-product]').forEach(button => button.onclick = () => deleteProduct(button.dataset.deleteProduct));
 }
 
 function renderMovement() {
@@ -63,6 +65,22 @@ async function load() {
     state.users = [];
   }
   render();
+}
+
+async function deleteProduct(id) {
+  const item = product(id);
+  if (!item || !confirm(`Apagar o produto “${item.name}”? Esta ação não pode ser desfeita.`)) return;
+  try {
+    const { data: { session } } = await supabase.auth.getSession();
+    const response = await fetch(`/api/products?id=${encodeURIComponent(id)}`, { method:'DELETE', headers:{ Authorization:`Bearer ${session.access_token}` } });
+    if (!response.ok) {
+      const data = await response.json();
+      throw new Error(data.error || 'Não foi possível apagar o produto.');
+    }
+    await load();
+  } catch (error) {
+    alert(error.message);
+  }
 }
 
 function view(id) {
