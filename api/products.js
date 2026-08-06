@@ -22,9 +22,8 @@ export default async function handler(req, res) {
     if (profileError || profile?.role !== 'admin') return res.status(403).json({ error: 'Apenas administradores podem apagar produtos.' });
     const admin = createClient(url, serviceKey);
 
-    const { count, error: countError } = await admin.from('movements').select('id', { count: 'exact', head: true }).eq('product_id', id);
-    if (countError) throw countError;
-    if (count > 0) return res.status(409).json({ error: 'Este produto possui movimentações registradas e não pode ser apagado.' });
+    const { error: movementsError } = await admin.from('movements').delete().eq('product_id', id);
+    if (movementsError) throw movementsError;
 
     const { error: deleteError } = await admin.from('products').delete().eq('id', id);
     if (deleteError) throw deleteError;

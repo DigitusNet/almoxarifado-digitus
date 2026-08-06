@@ -71,10 +71,15 @@ async function load() {
 
 async function deleteProduct(id) {
   const item = product(id);
-  if (!item || !confirm(`Apagar o produto “${item.name}”? Esta ação não pode ser desfeita.`)) return;
+  if (!item || !confirm(`Apagar o produto “${item.name}” e todas as movimentações dele? Esta ação não pode ser desfeita.`)) return;
   try {
-    const { error } = await supabase.from('products').delete().eq('id', id);
-    if (error) throw error;
+    const { data: { session } } = await supabase.auth.getSession();
+    if (!session) throw new Error('Sessão inválida. Entre novamente no sistema.');
+    const response = await fetch(`/api/products?id=${encodeURIComponent(id)}`, { method: 'DELETE', headers: { Authorization: `Bearer ${session.access_token}` } });
+    if (!response.ok) {
+      const data = await response.json().catch(() => ({}));
+      throw new Error(data.error || 'Não foi possível apagar o produto.');
+    }
     await load();
   } catch (error) {
     alert(error.message);
