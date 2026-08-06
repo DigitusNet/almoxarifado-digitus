@@ -15,6 +15,17 @@ const movementName = item => item.fieldUsage ? 'Uso em OS' : item.type === 'entr
 const unitName = unit => ({ unidade: 'un.', metro: 'm', par: 'par', caixa: 'cx.' }[unit] || 'un.');
 const quantity = value => Number(value || 0).toLocaleString('pt-BR', { maximumFractionDigits: 3 });
 const stockLabel = item => `${quantity(item.stock)} ${unitName(item.unit_of_measure)}`;
+function caAlert(item) {
+  if (!item.requires_ca || !item.ca_expiry_date) return null;
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+  const expiry = new Date(`${item.ca_expiry_date}T00:00:00`);
+  const days = Math.ceil((expiry - today) / 86400000);
+  if (days < 0) return { type: 'expired', label: 'CA vencido' };
+  if (days === 0) return { type: 'expired', label: 'CA vence hoje' };
+  if (days <= 30) return { type: 'warning', label: `CA vence em ${days} dia${days === 1 ? '' : 's'}` };
+  return null;
+}
 const serialStatusName = status => ({ disponivel:'Disponível', com_colaborador:'Com colaborador', com_veiculo:'Com veículo', instalado_cliente:'Instalado no cliente', emprestado:'Emprestado', aguardando_triagem:'Aguardando triagem', laboratorio:'Laboratório', manutencao:'Em manutenção', defeito:'Defeito', baixado:'Baixado' })[status] || status;
 const serialStatusClass = status => ({ disponivel:'ok', com_colaborador:'saida', com_veiculo:'saida', instalado_cliente:'saida', emprestado:'saida', aguardando_triagem:'low', laboratorio:'low', manutencao:'low', defeito:'out', baixado:'out' })[status] || 'low';
 const serialActionName = action => ({ transferencia:'Transferência', instalacao:'Instalação em cliente', laboratorio:'Envio ao laboratório', retorno:'Retorno ao almoxarifado', baixa:'Baixa / sucata' })[action] || action;
@@ -88,7 +99,7 @@ async function exportExcelReport() {
 }
 
 function render() {
-  const lows = state.products.filter(low), total = state.products.filter(item => Number(item.stock) > 0).length;
+  const lows = state.products.filter(low), total = state.products.filter(item => Number(item.stock) > 0).length, caAlerts = state.products.filter(caAlert);
   const overdueLoans = state.toolLoans.filter(loanOverdue).length;
   const laboratoryItems = state.serialItems.filter(item => {
     const location = state.locations.find(entry => entry.id === item.current_location_id);
@@ -97,6 +108,7 @@ function render() {
   $('#product-count').textContent = state.products.length;
   $('#stock-total').textContent = total.toLocaleString('pt-BR');
   $('#low-stock').textContent = lows.length;
+  $('#ca-alert-total').textContent = caAlerts.length;
   $('#dashboard-overdue-loans').textContent = overdueLoans;
   $('#dashboard-lab-total').textContent = laboratoryItems;
   $('#low-stock-list').innerHTML = lows.length ? lows.map(item => `<div class="compact-row"><div><b>${esc(item.name)}</b><small>${esc(item.code)} · mínimo: ${stockLabel({ ...item, stock: item.minimum })}</small></div><span class="badge low">${stockLabel(item)}</span></div>`).join('') : '<p class="empty">Nenhum item precisa de reposição.</p>';
@@ -108,8 +120,11 @@ function renderProducts() {
   const query = $('#product-search').value.toLowerCase();
   const canDelete = currentUser?.role === 'admin';
   const canEdit = ['admin', 'operador'].includes(currentUser?.role);
-  const products = state.products.filter(item => (state.productFilter !== 'low' || low(item)) && `${item.name} ${item.code} ${item.category}`.toLowerCase().includes(query));
-  $('#products-table').innerHTML = products.map(item => `<tr><td><b>${esc(item.name)}</b><small>${esc([item.brand, item.model].filter(Boolean).join(' · ') || (item.tracking_mode === 'serializado' ? 'Rastreável por serial/MAC' : 'Controle por quantidade'))}</small></td><td>${esc(item.code)}</td><td>${esc(item.category)}</td><td><b>${stockLabel(item)}</b><small>mínimo: ${quantity(item.minimum)} ${unitName(item.unit_of_measure)}</small></td><td>${status(item)}</td><td><div class="table-actions">${canEdit ? `<button class="secondary-button" data-edit-product="${item.id}">Editar</button>` : ''}${canDelete ? `<button class="danger-button" data-delete-product="${item.id}">Apagar</button>` : ''}${!canEdit && !canDelete ? '—' : ''}</div></td></tr>`).join('') || '<tr><td colspan="6" class="empty">Nenhum produto encontrado.</td></tr>';
+  const products = state.products.filter(item => (state.productFilter !== 'low' || low(item)) && (state.productFilter !== 'ca' || caAlert(item)) && `${item.name} ${item.code} ${item.category}`.toLowerCase().includes(query));
+  $('#products-table').innerHTML = products.map(item => {
+    const ca = caAlert(item);
+    return `<tr><td><b>${esc(item.name)}</b><small>${esc([item.brand, item.model].filter(Boolean).join(' · ') || (item.tracking_mode === 'serializado' ? 'Rastreável por serial/MAC' : 'Controle por quantidade'))}</small></td><td>${esc(item.code)}</td><td>${esc(item.category)}</td><td><b>${stockLabel(item)}</b><small>mínimo: ${quantity(item.minimum)} ${unitName(item.unit_of_measure)}</small></td><td>${status(item)}${ca ? `<small class="ca-status ${ca.type}">${esc(ca.label)} · validade: ${new Date(`${item.ca_expiry_date}T00:00:00`).toLocaleDateString('pt-BR')}</small>` : ''}</td><td><div class="table-actions">${canEdit ? `<button class="secondary-button" data-edit-product="${item.id}">Editar</button>` : ''}${canDelete ? `<button class="danger-button" data-delete-product="${item.id}">Apagar</button>` : ''}${!canEdit && !canDelete ? '—' : ''}</div></td></tr>`;
+  }).join('') || '<tr><td colspan="6" class="empty">Nenhum produto encontrado.</td></tr>';
   document.querySelectorAll('[data-edit-product]').forEach(button => button.onclick = () => openProductEditor(button.dataset.editProduct));
   document.querySelectorAll('[data-delete-product]').forEach(button => button.onclick = () => deleteProduct(button.dataset.deleteProduct));
 }
@@ -702,6 +717,7 @@ $('#logout').onclick = async () => {
 };
 document.querySelectorAll('[data-close-dialog]').forEach(button => button.onclick = () => button.closest('dialog').close());
 $('#low-stock-card').onclick = () => showProducts('low');
+$('#ca-alert-card').onclick = () => showProducts('ca');
 $('#overdue-loans-card').onclick = () => view('loans');
 $('#laboratory-card').onclick = () => view('laboratory');
 $('#product-search').oninput = () => { state.productFilter = 'all'; renderProducts(); };
