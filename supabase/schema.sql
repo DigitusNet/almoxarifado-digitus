@@ -1,0 +1,112 @@
+-- Almoxarifado Digitus Net: execute este arquivo no SQL Editor do Supabase.
+-- O script pode ser executado uma única vez em um projeto novo.
+
+do $$ begin
+  create type public.user_role as enum ('admin', 'operador', 'tecnico');
+exception when duplicate_object then null;
+end $$;
+
+do $$ begin
+  create type public.movement_type as enum ('entrada', 'saida');
+exception when duplicate_object then null;
+end $$;
+
+create table if not exists public.profiles (
+  id uuid primary key references auth.users(id) on delete cascade,
+  full_name text not null default '',
+  role public.user_role not null default 'tecnico',
+  created_at timestamptz not null default now()
+);
+
+create table if not exists public.products (
+  id uuid primary key default gen_random_uuid(),
+  name text not null,
+  code text not null unique,
+  category text not null,
+  stock integer not null default 0 check (stock >= 0),
+  minimum_stock integer not null default 0 check (minimum_stock >= 0),
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now()
+);
+
+create table if not exists public.movements (
+  id uuid primary key default gen_random_uuid(),
+  product_id uuid not null references public.products(id) on delete restrict,
+  movement_type public.movement_type not null,
+  quantity integer not null check (quantity > 0),
+  recipient text not null,
+  note text,
+  created_by uuid references public.profiles(id) on delete set null,
+  created_at timestamptz not null default now()
+);
+
+alter table public.profiles enable row level security;
+alter table public.products enable row level security;
+alter table public.movements enable row level security;
+
+create or replace function public.current_user_role()
+returns public.user_role
+language sql
+stable
+security definer
+set search_path = public
+as $$ select role from public.profiles where id = auth.uid() $$;
+
+drop policy if exists "Authenticated users can view profiles" on public.profiles;
+create policy "Authenticated users can view profiles" on public.profiles
+  for select to authenticated using (true);
+drop policy if exists "Users can update their own profile name" on public.profiles;
+create policy "Users can update their own profile name" on public.profiles
+  for update to authenticated using (id = auth.uid()) with check (id = auth.uid());
+drop policy if exists "Authenticated users can view products" on public.products;
+create policy "Authenticated users can view products" on public.products
+  for select to authenticated using (true);
+drop policy if exists "Admins and operators can add products" on public.products;
+create policy "Admins and operators can add products" on public.products
+  for insert to authenticated with check (public.current_user_role() in ('admin', 'operador'));
+drop policy if exists "Admins and operators can edit products" on public.products;
+create policy "Admins and operators can edit products" on public.products
+  for update to authenticated using (public.current_user_role() in ('admin', 'operador')) with check (public.current_user_role() in ('admin', 'operador'));
+drop policy if exists "Authenticated users can view movements" on public.movements;
+create policy "Authenticated users can view movements" on public.movements
+  for select to authenticated using (true);
+
+create or replace function public.record_movement(
+  p_product_id uuid,
+  p_type public.movement_type,
+  p_quantity integer,
+  p_recipient text,
+  p_note text default null
+) returns public.movements
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  movement public.movements;
+  current_stock integer;
+begin
+  if auth.uid() is null then raise exception 'Usuário não autenticado'; end if;
+  if p_quantity <= 0 then raise exception 'A quantidade deve ser maior que zero'; end if;
+  select stock into current_stock from public.products where id = p_product_id for update;
+  if not found then raise exception 'Produto não encontrado'; end if;
+  if p_type = 'saida' and current_stock < p_quantity then raise exception 'Estoque insuficiente'; end if;
+
+  update public.products
+  set stock = stock + case when p_type = 'entrada' then p_quantity else -p_quantity end,
+      updated_at = now()
+  where id = p_product_id;
+
+  insert into public.movements (product_id, movement_type, quantity, recipient, note, created_by)
+  values (p_product_id, p_type, p_quantity, p_recipient, p_note, auth.uid())
+  returning * into movement;
+  return movement;
+end;
+$$;
+
+grant execute on function public.record_movement(uuid, public.movement_type, integer, text, text) to authenticated;
+
+-- Após criar seu primeiro usuário pelo menu Authentication > Users,
+-- substitua o e-mail abaixo pelo e-mail do administrador e execute esta linha:
+-- insert into public.profiles (id, full_name, role)
+-- select id, 'Administrador Digitus', 'admin' from auth.users where email = 'admin@empresa.com';

@@ -1,0 +1,20 @@
+{
+  "name": "almoxarifado-digitus-net",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "vite",
+    "preview": "vite preview"
+  },
+  "devDependencies": {
+    "vite": "^7.1.0"
+  },
+  "dependencies": {
+    "@supabase/supabase-js": "^2.57.0"
+  },
+  "allowScripts": {
+    "esbuild@0.28.1": true
+  }
+}

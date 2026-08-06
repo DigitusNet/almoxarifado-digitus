@@ -1,0 +1,67 @@
+<!doctype html>
+<html lang="pt-BR">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Digitus Net | Almoxarifado</title>
+    <link rel="stylesheet" href="styles.css" />
+    <link rel="stylesheet" href="auth-fix.css" />
+  </head>
+  <body>
+    <div class="app-shell">
+      <aside class="sidebar">
+        <div class="brand"><span class="brand-mark">D</span><span>Digitus Net<small>Almoxarifado</small></span></div>
+        <nav aria-label="Navegação principal">
+          <button class="nav-link active" data-view="dashboard">▦ <span>Painel</span></button>
+          <button class="nav-link" data-view="products">▤ <span>Produtos</span></button>
+          <button class="nav-link" data-view="movement">⇄ <span>Movimentações</span></button>
+        </nav>
+        <div class="sidebar-footer">Versão inicial<br />Dados salvos neste navegador</div>
+      </aside>
+
+      <main>
+        <header class="topbar">
+          <div><p class="eyebrow" id="today"></p><h1 id="page-title">Visão geral</h1></div>
+          <button class="primary" id="header-action">+ Nova movimentação</button>
+        </header>
+
+        <section id="dashboard" class="view active">
+          <div class="cards">
+            <article class="metric"><span>Itens cadastrados</span><strong id="product-count">0</strong><small>Produtos no catálogo</small></article>
+            <article class="metric"><span>Unidades em estoque</span><strong id="stock-total">0</strong><small>Somatório do estoque atual</small></article>
+            <article class="metric warning"><span>Estoque baixo</span><strong id="low-stock">0</strong><small>Precisam de reposição</small></article>
+          </div>
+          <div class="grid-2">
+            <section class="panel"><div class="panel-heading"><h2>Itens com estoque baixo</h2><button class="text-button" data-go="products">Ver produtos</button></div><div id="low-stock-list" class="compact-list"></div></section>
+            <section class="panel"><div class="panel-heading"><h2>Últimas movimentações</h2><button class="text-button" data-go="movement">Ver histórico</button></div><div id="recent-movements" class="compact-list"></div></section>
+          </div>
+        </section>
+
+        <section id="products" class="view">
+          <div class="toolbar"><label class="search"><span>⌕</span><input id="product-search" placeholder="Buscar por nome, categoria ou código" /></label><button class="primary" id="add-product">+ Cadastrar produto</button></div>
+          <section class="panel table-panel"><div class="table-wrap"><table><thead><tr><th>Produto</th><th>Código</th><th>Categoria</th><th>Estoque</th><th>Status</th></tr></thead><tbody id="products-table"></tbody></table></div></section>
+        </section>
+
+        <section id="movement" class="view">
+          <div class="movement-layout">
+            <section class="panel form-panel"><h2>Registrar movimentação</h2><p class="muted">Toda saída e entrada fica registrada no histórico.</p>
+              <form id="movement-form">
+                <label>Tipo <select id="movement-type"><option value="saida">Saída de material</option><option value="entrada">Entrada de material</option></select></label>
+                <label>Produto <select id="movement-product" required></select></label>
+                <label>Quantidade <input id="movement-quantity" type="number" min="1" required value="1" /></label>
+                <label>Responsável / destino <input id="movement-person" required placeholder="Ex.: João Silva — Equipe externa" /></label>
+                <label>Observação <textarea id="movement-note" rows="3" placeholder="Opcional"></textarea></label>
+                <button class="primary full" type="submit">Salvar movimentação</button>
+              </form>
+            </section>
+            <section class="panel"><div class="panel-heading"><div><h2>Histórico</h2><p class="muted">Movimentações registradas recentemente</p></div></div><div id="movement-history" class="history"></div></section>
+          </div>
+        </section>
+      </main>
+    </div>
+
+    <dialog id="product-dialog"><form method="dialog" id="product-form" class="dialog-card"><div class="panel-heading"><h2>Cadastrar produto</h2><button class="icon-button" value="cancel" aria-label="Fechar">×</button></div><label>Nome do produto <input id="new-name" required placeholder="Ex.: ONU FiberHome" /></label><label>Código <input id="new-code" required placeholder="Ex.: ONU-001" /></label><label>Categoria <input id="new-category" required placeholder="Ex.: Equipamentos" /></label><div class="split"><label>Estoque inicial <input id="new-stock" required type="number" min="0" value="0" /></label><label>Estoque mínimo <input id="new-minimum" required type="number" min="0" value="1" /></label></div><button class="primary full" type="submit" value="default">Salvar produto</button></form></dialog>
+    <div id="auth-gate" class="auth-gate" hidden><form id="login-form" class="login-card"><div class="brand login-brand"><span class="brand-mark">D</span><span>Digitus Net<small>Almoxarifado</small></span></div><h1>Acesse sua conta</h1><p>Use o e-mail e a senha cadastrados no Supabase.</p><label>E-mail <input id="login-email" type="email" required autocomplete="email" /></label><label>Senha <input id="login-password" type="password" required autocomplete="current-password" /></label><p id="login-error" class="form-error" hidden></p><button class="primary full" type="submit">Entrar</button></form></div>
+    <script type="module" src="app.js"></script>
+  </body>
+</html>
