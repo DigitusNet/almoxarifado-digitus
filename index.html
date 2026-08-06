@@ -51,7 +51,7 @@
         </section>
 
         <section id="products" class="view">
-          <div class="toolbar"><label class="search"><span>⌕</span><input id="product-search" placeholder="Buscar por nome, categoria ou código" /></label><button class="primary" id="add-product">+ Cadastrar produto</button></div>
+          <div class="toolbar"><div class="product-filter-controls"><label class="search"><span>⌕</span><input id="product-search" placeholder="Buscar por nome, categoria ou código" /></label><select id="product-category-filter" aria-label="Filtrar por categoria"><option value="">Todas as categorias</option></select><select id="product-status-filter" aria-label="Filtrar por situação"><option value="">Todas as situações</option><option value="available">Disponível</option><option value="low">Estoque baixo</option><option value="out">Sem estoque</option><option value="ca">CA em atenção</option></select></div><button class="primary" id="add-product">+ Cadastrar produto</button></div>
           <section class="panel table-panel"><div class="table-wrap"><table><thead><tr><th>Produto</th><th>Código</th><th>Categoria</th><th>Estoque</th><th>Status</th><th>Ações</th></tr></thead><tbody id="products-table"></tbody></table></div></section>
         </section>
 

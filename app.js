@@ -77,7 +77,22 @@ function renderProducts() {
   const query = $('#product-search').value.toLowerCase();
   const canDelete = currentUser?.role === 'admin';
   const canEdit = ['admin', 'operador'].includes(currentUser?.role);
-  const products = state.products.filter(item => (state.productFilter !== 'low' || low(item)) && (state.productFilter !== 'ca' || caAlert(item)) && `${item.name} ${item.code} ${item.category}`.toLowerCase().includes(query));
+  const categorySelect = $('#product-category-filter'), statusSelect = $('#product-status-filter');
+  const selectedCategory = categorySelect.value;
+  const categories = [...new Set(state.products.map(item => item.category).filter(Boolean))].sort((a, b) => a.localeCompare(b, 'pt-BR'));
+  categorySelect.innerHTML = '<option value="">Todas as categorias</option>' + categories.map(category => `<option value="${esc(category)}">${esc(category)}</option>`).join('');
+  categorySelect.value = categories.includes(selectedCategory) ? selectedCategory : '';
+  const category = categorySelect.value, statusFilter = statusSelect.value;
+  const products = state.products.filter(item => {
+    const matchesPreset = (state.productFilter !== 'low' || low(item)) && (state.productFilter !== 'ca' || caAlert(item));
+    const matchesCategory = !category || item.category === category;
+    const matchesStatus = !statusFilter
+      || statusFilter === 'available' && Number(item.stock) > 0 && !low(item)
+      || statusFilter === 'low' && low(item) && Number(item.stock) > 0
+      || statusFilter === 'out' && Number(item.stock) === 0
+      || statusFilter === 'ca' && Boolean(caAlert(item));
+    return matchesPreset && matchesCategory && matchesStatus && `${item.name} ${item.code} ${item.category}`.toLowerCase().includes(query);
+  });
   $('#products-table').innerHTML = products.map(item => {
     const ca = caAlert(item);
     return `<tr><td><b>${esc(item.name)}</b><small>${esc([item.brand, item.model].filter(Boolean).join(' · ') || (item.tracking_mode === 'serializado' ? 'Rastreável por serial/MAC' : 'Controle por quantidade'))}</small></td><td>${esc(item.code)}</td><td>${esc(item.category)}</td><td><b>${stockLabel(item)}</b><small>mínimo: ${quantity(item.minimum)} ${unitName(item.unit_of_measure)}</small></td><td>${status(item)}${ca ? `<small class="ca-status ${ca.type}">${esc(ca.label)} · validade: ${new Date(`${item.ca_expiry_date}T00:00:00`).toLocaleDateString('pt-BR')}</small>` : ''}</td><td><div class="table-actions">${canEdit ? `<button class="secondary-button" data-edit-product="${item.id}">Editar</button>` : ''}${canDelete ? `<button class="danger-button" data-delete-product="${item.id}">Apagar</button>` : ''}${!canEdit && !canDelete ? '—' : ''}</div></td></tr>`;
@@ -602,6 +617,8 @@ document.querySelector('main').classList.add('dashboard-mode');
 function showProducts(filter = 'all') {
   state.productFilter = filter;
   $('#product-search').value = '';
+  $('#product-category-filter').value = '';
+  $('#product-status-filter').value = filter === 'low' ? 'low' : filter === 'ca' ? 'ca' : '';
   view('products');
   renderProducts();
 }
@@ -693,6 +710,8 @@ $('#ca-alert-card').onclick = () => showProducts('ca');
 $('#overdue-loans-card').onclick = () => view('loans');
 $('#laboratory-card').onclick = () => view('laboratory');
 $('#product-search').oninput = () => { state.productFilter = 'all'; renderProducts(); };
+$('#product-category-filter').onchange = () => { state.productFilter = 'all'; renderProducts(); };
+$('#product-status-filter').onchange = () => { state.productFilter = 'all'; renderProducts(); };
 $('#serial-search').oninput = renderSerials;
 $('#lab-search').oninput = renderLaboratory;
 document.querySelectorAll('[data-history-filter]').forEach(element => { element.oninput = renderMovement; element.onchange = renderMovement; });
