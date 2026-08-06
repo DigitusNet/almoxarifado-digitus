@@ -63,7 +63,7 @@ function view(id) {
   document.querySelectorAll('.view').forEach(element => element.classList.toggle('active', element.id === id));
   document.querySelectorAll('.nav-link').forEach(button => button.classList.toggle('active', button.dataset.view === id));
   $('#page-title').textContent = ({ dashboard:'Visão geral', products:'Produtos', movement:'Movimentações', users:'Usuários' })[id];
-  $('#header-action').hidden = id === 'users';
+  $('#header-action').hidden = id === 'users' || id === 'products';
   $('#header-action').textContent = id === 'products' ? '+ Cadastrar produto' : '+ Nova movimentação';
 }
 
