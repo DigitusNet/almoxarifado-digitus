@@ -1,7 +1,7 @@
 import { createClient } from '@supabase/supabase-js';
 
 const supabase = createClient(import.meta.env.VITE_SUPABASE_URL, import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY);
-let state = { products: [], movements: [], users: [] };
+let state = { products: [], movements: [], users: [], productFilter: 'all' };
 let currentUser = null;
 const $ = selector => document.querySelector(selector);
 const esc = value => String(value ?? '').replace(/[&<>'"]/g, char => ({ '&':'&amp;','<':'&lt;','>':'&gt;',"'":'&#039;','"':'&quot;' }[char]));
@@ -24,7 +24,8 @@ function render() {
 function renderProducts() {
   const query = $('#product-search').value.toLowerCase();
   const canDelete = currentUser?.role === 'admin';
-  $('#products-table').innerHTML = state.products.filter(item => `${item.name} ${item.code} ${item.category}`.toLowerCase().includes(query)).map(item => `<tr><td><b>${esc(item.name)}</b></td><td>${esc(item.code)}</td><td>${esc(item.category)}</td><td><b>${item.stock}</b><small>mínimo: ${item.minimum}</small></td><td>${status(item)}</td><td>${canDelete ? `<button class="danger-button" data-delete-product="${item.id}">Apagar</button>` : '—'}</td></tr>`).join('') || '<tr><td colspan="6" class="empty">Nenhum produto encontrado.</td></tr>';
+  const products = state.products.filter(item => (state.productFilter !== 'low' || low(item)) && `${item.name} ${item.code} ${item.category}`.toLowerCase().includes(query));
+  $('#products-table').innerHTML = products.map(item => `<tr><td><b>${esc(item.name)}</b></td><td>${esc(item.code)}</td><td>${esc(item.category)}</td><td><b>${item.stock}</b><small>mínimo: ${item.minimum}</small></td><td>${status(item)}</td><td>${canDelete ? `<button class="danger-button" data-delete-product="${item.id}">Apagar</button>` : '—'}</td></tr>`).join('') || '<tr><td colspan="6" class="empty">Nenhum produto encontrado.</td></tr>';
   document.querySelectorAll('[data-delete-product]').forEach(button => button.onclick = () => deleteProduct(button.dataset.deleteProduct));
 }
 
@@ -107,6 +108,13 @@ function view(id) {
 
 document.querySelector('main').classList.add('dashboard-mode');
 
+function showProducts(filter = 'all') {
+  state.productFilter = filter;
+  $('#product-search').value = '';
+  view('products');
+  renderProducts();
+}
+
 async function start(session) {
   const { data: profile } = await supabase.from('profiles').select('full_name, role').eq('id', session.user.id).maybeSingle();
   currentUser = { id: session.user.id, email: session.user.email, role: profile?.role || 'tecnico' };
@@ -116,13 +124,14 @@ async function start(session) {
   try { await load(); } catch (error) { alert(error.message); }
 }
 
-document.querySelectorAll('.nav-link').forEach(button => button.onclick = () => view(button.dataset.view));
-document.querySelectorAll('[data-go]').forEach(button => button.onclick = () => view(button.dataset.go));
+document.querySelectorAll('.nav-link').forEach(button => button.onclick = () => button.dataset.view === 'products' ? showProducts() : view(button.dataset.view));
+document.querySelectorAll('[data-go]').forEach(button => button.onclick = () => button.dataset.go === 'products' ? showProducts() : view(button.dataset.go));
 $('#header-action').onclick = () => $('.view.active').id === 'products' ? $('#product-dialog').showModal() : view('movement');
 $('#add-product').onclick = () => $('#product-dialog').showModal();
 $('#add-user').onclick = () => $('#user-dialog').showModal();
 document.querySelectorAll('[data-close-dialog]').forEach(button => button.onclick = () => button.closest('dialog').close());
-$('#product-search').oninput = renderProducts;
+$('#low-stock-card').onclick = () => showProducts('low');
+$('#product-search').oninput = () => { state.productFilter = 'all'; renderProducts(); };
 
 $('#product-form').onsubmit = async event => {
   event.preventDefault();
