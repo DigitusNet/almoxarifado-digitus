@@ -99,10 +99,13 @@ async function deleteUser(id) {
 function view(id) {
   document.querySelectorAll('.view').forEach(element => element.classList.toggle('active', element.id === id));
   document.querySelectorAll('.nav-link').forEach(button => button.classList.toggle('active', button.dataset.view === id));
+  document.querySelector('main').classList.toggle('dashboard-mode', id === 'dashboard');
   $('#page-title').textContent = ({ dashboard:'Visão geral', products:'Produtos', movement:'Movimentações', users:'Usuários' })[id];
   $('#header-action').hidden = id === 'users' || id === 'products';
   $('#header-action').textContent = id === 'products' ? '+ Cadastrar produto' : '+ Nova movimentação';
 }
+
+document.querySelector('main').classList.add('dashboard-mode');
 
 async function start(session) {
   const { data: profile } = await supabase.from('profiles').select('full_name, role').eq('id', session.user.id).maybeSingle();
