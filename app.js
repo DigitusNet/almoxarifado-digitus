@@ -94,7 +94,7 @@ function render() {
   $('#low-stock').textContent = lows.length;
   $('#low-stock-list').innerHTML = lows.length ? lows.map(item => `<div class="compact-row"><div><b>${esc(item.name)}</b><small>${esc(item.code)} · mínimo: ${stockLabel({ ...item, stock: item.minimum })}</small></div><span class="badge low">${stockLabel(item)}</span></div>`).join('') : '<p class="empty">Nenhum item precisa de reposição.</p>';
   $('#recent-movements').innerHTML = state.movements.slice(0, 5).map(item => `<div class="compact-row"><div><b>${movementName(item)} · ${esc(product(item.productId)?.name || 'Produto')}</b><small>${esc(item.person)} · ${item.date}</small></div><span class="badge ${item.type}">${item.type === 'entrada' ? '+' : '-'}${quantity(item.quantity)} ${unitName(product(item.productId)?.unit_of_measure)}</span></div>`).join('') || '<p class="empty">Sem movimentações.</p>';
-  renderProducts(); renderMovement(); renderFieldStock(); renderUsers(); renderRegistry(); renderSerials(); renderLoans(); renderInventory();
+  renderProducts(); renderMovement(); renderFieldStock(); renderUsers(); renderRegistry(); renderSerials(); renderLaboratory(); renderLoans(); renderInventory();
 }
 
 function renderProducts() {
@@ -160,6 +160,54 @@ function renderSerials() {
   $('#serial-location').innerHTML = '<option value="">Almoxarifado central</option>' + locations.map(item => `<option value="${item.id}">${esc(item.name)}</option>`).join('');
   document.querySelectorAll('[data-move-serial]').forEach(button => button.onclick = () => openSerialTransfer(button.dataset.moveSerial));
   document.querySelectorAll('[data-history-serial]').forEach(button => button.onclick = () => openSerialHistory(button.dataset.historySerial));
+}
+
+function renderLaboratory() {
+  const table = $('#laboratory-table');
+  if (!table) return;
+  const search = $('#lab-search').value.trim().toLowerCase();
+  const items = state.serialItems.filter(item => {
+    const location = state.locations.find(entry => entry.id === item.current_location_id);
+    const itemProduct = product(item.product_id);
+    const isLaboratoryItem = location?.location_type === 'laboratorio' && ['laboratorio', 'manutencao', 'defeito', 'aguardando_triagem'].includes(item.status);
+    const text = `${itemProduct?.name || ''} ${itemProduct?.code || ''} ${item.serial_number || ''} ${item.mac_address || ''} ${item.asset_tag || ''}`.toLowerCase();
+    return isLaboratoryItem && (!search || text.includes(search));
+  });
+  const allLaboratoryItems = state.serialItems.filter(item => {
+    const location = state.locations.find(entry => entry.id === item.current_location_id);
+    return location?.location_type === 'laboratorio' && ['laboratorio', 'manutencao', 'defeito', 'aguardando_triagem'].includes(item.status);
+  });
+  $('#lab-total').textContent = allLaboratoryItems.length;
+  $('#lab-pending-total').textContent = allLaboratoryItems.filter(item => ['manutencao', 'defeito'].includes(item.status)).length;
+  table.innerHTML = items.map(item => {
+    const itemProduct = product(item.product_id), location = state.locations.find(entry => entry.id === item.current_location_id);
+    const identifiers = [item.serial_number && `Serial: ${item.serial_number}`, item.mac_address && `MAC: ${item.mac_address}`, item.asset_tag && `Patrimônio: ${item.asset_tag}`].filter(Boolean).join(' · ');
+    return `<tr><td><b>${esc(itemProduct?.name || 'Item removido')}</b><small>${esc(itemProduct?.code || '—')}</small></td><td>${esc(identifiers || 'Sem identificador')}</td><td>${esc(location?.name || 'Laboratório')}</td><td><span class="badge ${serialStatusClass(item.status)}">${esc(serialStatusName(item.status))}</span></td><td><div class="table-actions"><button class="primary small-primary" data-process-laboratory="${item.id}">Processar</button><button class="text-button" data-history-serial="${item.id}">Histórico</button></div></td></tr>`;
+  }).join('') || '<tr><td colspan="5" class="empty">Nenhum equipamento aguardando avaliação no laboratório.</td></tr>';
+  document.querySelectorAll('[data-process-laboratory]').forEach(button => button.onclick = () => openLaboratoryDialog(button.dataset.processLaboratory));
+  document.querySelectorAll('[data-history-serial]').forEach(button => button.onclick = () => openSerialHistory(button.dataset.historySerial));
+}
+
+function updateLaboratoryForm() {
+  const action = $('#laboratory-action').value;
+  const requiresNote = ['manutencao', 'defeito', 'baixar'].includes(action);
+  $('#laboratory-note').required = requiresNote;
+  $('#laboratory-help').textContent = ({
+    aprovar: 'O item será devolvido ao Almoxarifado Central e voltará ao saldo disponível.',
+    manutencao: 'O item continuará no laboratório, marcado como em manutenção.',
+    defeito: 'O item continuará no laboratório, marcado como defeito e fora do saldo disponível.',
+    baixar: 'O item será baixado definitivamente como sucata e não poderá mais ser movimentado.'
+  })[action];
+}
+
+function openLaboratoryDialog(id) {
+  const item = state.serialItems.find(entry => entry.id === id), itemProduct = item && product(item.product_id);
+  if (!item) return;
+  $('#laboratory-form').reset();
+  $('#laboratory-item-id').value = item.id;
+  $('#laboratory-item').innerHTML = `<b>${esc(itemProduct?.name || 'Equipamento')}</b><span>Serial: ${esc(item.serial_number || '—')} · MAC: ${esc(item.mac_address || '—')} · Patrimônio: ${esc(item.asset_tag || '—')}</span>`;
+  updateLaboratoryForm();
+  $('#laboratory-dialog').showModal();
 }
 
 function populateSerialTransferOptions() {
@@ -499,8 +547,8 @@ function view(id) {
   document.querySelectorAll('.view').forEach(element => element.classList.toggle('active', element.id === id));
   document.querySelectorAll('.nav-link').forEach(button => button.classList.toggle('active', button.dataset.view === id));
   document.querySelector('main').classList.toggle('dashboard-mode', id === 'dashboard');
-  $('#page-title').textContent = ({ dashboard:'Visão geral', products:'Produtos', movement:'Movimentações', serials:'Serial / MAC', loans:'Cautelas', inventory:'Inventário', registry:'Cadastros', users:'Usuários' })[id];
-  $('#header-action').hidden = id === 'users' || id === 'products' || id === 'serials' || id === 'loans' || id === 'inventory' || id === 'registry';
+  $('#page-title').textContent = ({ dashboard:'Visão geral', products:'Produtos', movement:'Movimentações', serials:'Serial / MAC', laboratory:'Laboratório', loans:'Cautelas', inventory:'Inventário', registry:'Cadastros', users:'Usuários' })[id];
+  $('#header-action').hidden = id === 'users' || id === 'products' || id === 'serials' || id === 'laboratory' || id === 'loans' || id === 'inventory' || id === 'registry';
   $('#header-action').textContent = id === 'products' ? '+ Cadastrar produto' : '+ Nova movimentação';
 }
 
@@ -549,6 +597,7 @@ async function start(session) {
   document.querySelectorAll('[data-manager-only]').forEach(element => { element.hidden = !canManage; });
   $('#users').hidden = !isAdmin;
   $('#serials').hidden = !canManage;
+  $('#laboratory').hidden = !canManage;
   $('#loans').hidden = !canManage;
   $('#inventory').hidden = !isAdmin;
   $('#registry').hidden = !canManage;
@@ -594,6 +643,7 @@ document.querySelectorAll('[data-close-dialog]').forEach(button => button.onclic
 $('#low-stock-card').onclick = () => showProducts('low');
 $('#product-search').oninput = () => { state.productFilter = 'all'; renderProducts(); };
 $('#serial-search').oninput = renderSerials;
+$('#lab-search').oninput = renderLaboratory;
 document.querySelectorAll('[data-history-filter]').forEach(element => { element.oninput = renderMovement; element.onchange = renderMovement; });
 $('#clear-history-filters').onclick = () => { document.querySelectorAll('[data-history-filter]').forEach(element => { element.value = ''; }); renderMovement(); };
 $('#export-excel').onclick = exportExcelReport;
@@ -631,7 +681,9 @@ $('#serial-status').onchange = updateSerialStockOption;
 updateSerialStockOption();
 $('#serial-transfer-action').onchange = updateSerialTransferForm;
 $('#loan-type').onchange = updateLoanTypeForm;
+$('#laboratory-action').onchange = updateLaboratoryForm;
 updateLoanTypeForm();
+updateLaboratoryForm();
 
 function collectProductData(prefix) {
   return {
@@ -752,6 +804,19 @@ $('#serial-transfer-form').onsubmit = async event => {
   });
   if (error) return alert(error.message);
   $('#serial-transfer-dialog').close(); await load(); view('serials');
+};
+
+$('#laboratory-form').onsubmit = async event => {
+  event.preventDefault();
+  const { error } = await supabase.rpc('process_laboratory_item', {
+    p_serial_item_id: $('#laboratory-item-id').value,
+    p_action: $('#laboratory-action').value,
+    p_note: $('#laboratory-note').value.trim() || null
+  });
+  if (error) return alert(error.message);
+  $('#laboratory-dialog').close();
+  await load();
+  view('laboratory');
 };
 
 $('#loan-form').onsubmit = async event => {
