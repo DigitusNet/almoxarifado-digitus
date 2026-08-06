@@ -89,9 +89,16 @@ async function exportExcelReport() {
 
 function render() {
   const lows = state.products.filter(low), total = state.products.filter(item => Number(item.stock) > 0).length;
+  const overdueLoans = state.toolLoans.filter(loanOverdue).length;
+  const laboratoryItems = state.serialItems.filter(item => {
+    const location = state.locations.find(entry => entry.id === item.current_location_id);
+    return location?.location_type === 'laboratorio' && ['laboratorio', 'manutencao', 'defeito', 'aguardando_triagem'].includes(item.status);
+  }).length;
   $('#product-count').textContent = state.products.length;
   $('#stock-total').textContent = total.toLocaleString('pt-BR');
   $('#low-stock').textContent = lows.length;
+  $('#dashboard-overdue-loans').textContent = overdueLoans;
+  $('#dashboard-lab-total').textContent = laboratoryItems;
   $('#low-stock-list').innerHTML = lows.length ? lows.map(item => `<div class="compact-row"><div><b>${esc(item.name)}</b><small>${esc(item.code)} · mínimo: ${stockLabel({ ...item, stock: item.minimum })}</small></div><span class="badge low">${stockLabel(item)}</span></div>`).join('') : '<p class="empty">Nenhum item precisa de reposição.</p>';
   $('#recent-movements').innerHTML = state.movements.slice(0, 5).map(item => `<div class="compact-row"><div><b>${movementName(item)} · ${esc(product(item.productId)?.name || 'Produto')}</b><small>${esc(item.person)} · ${item.date}</small></div><span class="badge ${item.type}">${item.type === 'entrada' ? '+' : '-'}${quantity(item.quantity)} ${unitName(product(item.productId)?.unit_of_measure)}</span></div>`).join('') || '<p class="empty">Sem movimentações.</p>';
   renderProducts(); renderMovement(); renderFieldStock(); renderUsers(); renderRegistry(); renderReceipts(); renderSerials(); renderLaboratory(); renderLoans(); renderInventory();
@@ -695,6 +702,8 @@ $('#logout').onclick = async () => {
 };
 document.querySelectorAll('[data-close-dialog]').forEach(button => button.onclick = () => button.closest('dialog').close());
 $('#low-stock-card').onclick = () => showProducts('low');
+$('#overdue-loans-card').onclick = () => view('loans');
+$('#laboratory-card').onclick = () => view('laboratory');
 $('#product-search').oninput = () => { state.productFilter = 'all'; renderProducts(); };
 $('#serial-search').oninput = renderSerials;
 $('#lab-search').oninput = renderLaboratory;

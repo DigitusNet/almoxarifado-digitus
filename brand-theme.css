@@ -12,6 +12,7 @@ body{background:radial-gradient(circle at 77% -10%,#f5dfce 0,transparent 28%),#f
 .danger-button{border:1px solid #efb8a5;border-radius:7px;padding:6px 9px;background:#fff7f4;color:#b94b25;font:700 11px 'DM Sans',sans-serif;cursor:pointer}.danger-button:hover{background:#fff0eb}
 .logout-button{display:block;width:100%;margin-top:12px;padding:8px 9px;border:1px solid #ffffff2b;border-radius:8px;background:#ffffff0b;color:#d9e9f4;text-align:left;font:700 11px 'DM Sans',sans-serif;cursor:pointer}.logout-button:hover{background:#ffffff18;color:#fff}
 .metric-button{width:100%;color:inherit;text-align:left;font:inherit;cursor:pointer;transition:transform .15s,box-shadow .15s}.metric-button:hover{transform:translateY(-2px);box-shadow:0 12px 24px #10233a16}
+.cards{grid-template-columns:repeat(auto-fit,minmax(205px,1fr))}
 .field-stock-panel{margin-top:20px}
 .history-item .danger-button{margin-left:auto;align-self:center}
 .secondary-button{border:1px solid #b8d0df;border-radius:7px;padding:6px 9px;background:#f8fbfd;color:#29668a;font:700 11px 'DM Sans',sans-serif;cursor:pointer}.secondary-button:hover{background:#edf6fa}.table-actions{display:flex;gap:6px;align-items:center}.history-filters{display:grid;grid-template-columns:2fr repeat(4,1fr) auto;gap:10px;align-items:end;margin:18px 0 4px}.history-filters label{font-size:11px}.history-filters input,.history-filters select{padding:8px 9px}.history-filters .text-button{padding:9px 0;white-space:nowrap}
