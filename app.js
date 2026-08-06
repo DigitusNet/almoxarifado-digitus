@@ -12,6 +12,7 @@ const status = item => item.stock === 0 ? '<span class="badge out">Sem estoque</
 const roleName = role => ({ admin: 'Administrador', operador: 'Operador', tecnico: 'Técnico' }[role] || 'Técnico');
 const holderTypeName = type => ({ tecnico: 'Técnico', veiculo: 'Veículo', cliente: 'Cliente', outro: 'Outro' }[type] || 'Outro');
 const productImageUrl = path => path ? supabase.storage.from('product-images').getPublicUrl(path).data.publicUrl : '';
+const movementName = item => item.fieldUsage ? 'Uso em OS' : item.type === 'entrada' ? 'Entrada' : 'Saída';
 
 function render() {
   const lows = state.products.filter(low), total = state.products.reduce((sum, item) => sum + item.stock, 0);
@@ -19,7 +20,7 @@ function render() {
   $('#stock-total').textContent = total.toLocaleString('pt-BR');
   $('#low-stock').textContent = lows.length;
   $('#low-stock-list').innerHTML = lows.length ? lows.map(item => `<div class="compact-row"><div><b>${esc(item.name)}</b><small>${esc(item.code)} · mínimo: ${item.minimum}</small></div><span class="badge low">${item.stock} un.</span></div>`).join('') : '<p class="empty">Nenhum item precisa de reposição.</p>';
-  $('#recent-movements').innerHTML = state.movements.slice(0, 5).map(item => `<div class="compact-row"><div><b>${item.type === 'entrada' ? 'Entrada' : 'Saída'} · ${esc(product(item.productId)?.name || 'Produto')}</b><small>${esc(item.person)} · ${item.date}</small></div><span class="badge ${item.type}">${item.type === 'entrada' ? '+' : '-'}${item.quantity}</span></div>`).join('') || '<p class="empty">Sem movimentações.</p>';
+  $('#recent-movements').innerHTML = state.movements.slice(0, 5).map(item => `<div class="compact-row"><div><b>${movementName(item)} · ${esc(product(item.productId)?.name || 'Produto')}</b><small>${esc(item.person)} · ${item.date}</small></div><span class="badge ${item.type}">${item.type === 'entrada' ? '+' : '-'}${item.quantity}</span></div>`).join('') || '<p class="empty">Sem movimentações.</p>';
   renderProducts(); renderMovement(); renderFieldStock(); renderUsers();
 }
 
@@ -44,9 +45,10 @@ function renderMovement() {
   const movements = state.movements.filter(item => {
     const text = `${product(item.productId)?.name || ''} ${item.person} ${item.workOrder || ''} ${item.note || ''}`.toLowerCase();
     const day = item.createdAt?.slice(0, 10) || '';
-    return (!query || text.includes(query)) && (!typeFilter || item.type === typeFilter) && (!holderFilter || item.holderType === holderFilter) && (!from || day >= from) && (!to || day <= to);
+    const matchesType = !typeFilter || (typeFilter === 'uso_os' ? item.fieldUsage : item.type === typeFilter && !item.fieldUsage);
+    return (!query || text.includes(query)) && matchesType && (!holderFilter || item.holderType === holderFilter) && (!from || day >= from) && (!to || day <= to);
   });
-  $('#movement-history').innerHTML = movements.map(item => `<div class="history-item"><span class="history-icon ${item.type === 'saida' ? 'out' : ''}">${item.type === 'entrada' ? '↓' : '↑'}</span><div><b>${item.type === 'entrada' ? 'Entrada' : 'Saída'} de ${item.quantity} un. — ${esc(product(item.productId)?.name || 'Produto')}</b><small>${holderTypeName(item.holderType)}: ${esc(item.person)} · ${item.date}${item.workOrder ? ' · OS: ' + esc(item.workOrder) : ''}${item.note ? ' · ' + esc(item.note) : ''}</small></div>${canDelete ? `<button class="danger-button" data-delete-movement="${item.id}">Apagar</button>` : ''}</div>`).join('') || '<p class="empty">Nenhuma movimentação encontrada.</p>';
+  $('#movement-history').innerHTML = movements.map(item => `<div class="history-item"><span class="history-icon ${item.type === 'saida' ? 'out' : ''}">${item.type === 'entrada' ? '↓' : '↑'}</span><div><b>${movementName(item)} de ${item.quantity} un. — ${esc(product(item.productId)?.name || 'Produto')}</b><small>${holderTypeName(item.holderType)}: ${esc(item.person)} · ${item.date}${item.workOrder ? ' · OS: ' + esc(item.workOrder) : ''}${item.note ? ' · ' + esc(item.note) : ''}</small></div>${canDelete ? `<button class="danger-button" data-delete-movement="${item.id}">Apagar</button>` : ''}</div>`).join('') || '<p class="empty">Nenhuma movimentação encontrada.</p>';
   document.querySelectorAll('[data-delete-movement]').forEach(button => button.onclick = () => deleteMovement(button.dataset.deleteMovement));
 }
 
@@ -55,7 +57,7 @@ function renderFieldStock() {
   state.movements.filter(item => ['tecnico', 'veiculo'].includes(item.holderType)).forEach(item => {
     const key = `${item.holderType}|${item.person}|${item.productId}`;
     const current = balances.get(key) || { ...item, balance: 0 };
-    current.balance += item.type === 'saida' ? item.quantity : -item.quantity;
+    current.balance += item.fieldUsage ? -item.quantity : item.type === 'saida' ? item.quantity : -item.quantity;
     balances.set(key, current);
   });
   const items = [...balances.values()].filter(item => item.balance > 0).sort((a, b) => `${a.person}${a.productId}`.localeCompare(`${b.person}${b.productId}`, 'pt-BR'));
@@ -85,7 +87,7 @@ async function load() {
   ]);
   if (products.error || movements.error) throw products.error || movements.error;
   state.products = products.data.map(item => ({ ...item, minimum: item.minimum_stock, imagePath: item.image_path || null }));
-  state.movements = movements.data.map(item => ({ id:item.id, type:item.movement_type, productId:item.product_id, quantity:item.quantity, person:item.recipient, holderType:item.holder_type || 'cliente', workOrder:item.work_order, note:item.note, createdAt:item.created_at, date:date(item.created_at) }));
+  state.movements = movements.data.map(item => ({ id:item.id, type:item.movement_type, productId:item.product_id, quantity:item.quantity, person:item.recipient, holderType:item.holder_type || 'cliente', workOrder:item.work_order, fieldUsage:item.field_usage || false, note:item.note, createdAt:item.created_at, date:date(item.created_at) }));
   try {
     await loadUsers();
   } catch (error) {
@@ -209,10 +211,25 @@ $('#low-stock-card').onclick = () => showProducts('low');
 $('#product-search').oninput = () => { state.productFilter = 'all'; renderProducts(); };
 document.querySelectorAll('[data-history-filter]').forEach(element => { element.oninput = renderMovement; element.onchange = renderMovement; });
 $('#clear-history-filters').onclick = () => { document.querySelectorAll('[data-history-filter]').forEach(element => { element.value = ''; }); renderMovement(); };
-$('#movement-holder-type').onchange = event => {
+function updateMovementRecipientPlaceholder() {
   const placeholders = { tecnico: 'Ex.: João Silva — Equipe externa', veiculo: 'Ex.: Carro 01 — Equipe Norte', cliente: 'Ex.: Cliente ou endereço', outro: 'Descreva o destino' };
-  $('#movement-person').placeholder = placeholders[event.target.value];
-};
+  $('#movement-person').placeholder = placeholders[$('#movement-holder-type').value];
+}
+function updateMovementMode() {
+  const isFieldUsage = $('#movement-type').value === 'uso_os';
+  const holder = $('#movement-holder-type'), workOrder = $('#movement-work-order');
+  if (isFieldUsage) holder.value = 'tecnico';
+  holder.disabled = isFieldUsage;
+  workOrder.required = isFieldUsage;
+  $('#movement-type-help').textContent = isFieldUsage ? 'Registre o material que o técnico usou em uma instalação. O saldo do técnico será reduzido.' : 'Transfira o material do almoxarifado para um técnico, veículo, cliente ou outro destino.';
+  $('#movement-destination-label').textContent = isFieldUsage ? 'Destino (técnico)' : 'Destino';
+  $('#movement-person-label').textContent = isFieldUsage ? 'Técnico responsável' : 'Responsável / destino';
+  $('#movement-os-label').textContent = isFieldUsage ? 'Número da OS *' : 'Número da OS';
+  updateMovementRecipientPlaceholder();
+}
+$('#movement-type').onchange = updateMovementMode;
+$('#movement-holder-type').onchange = updateMovementRecipientPlaceholder;
+updateMovementMode();
 $('#new-image').onchange = event => previewSelectedImage(event.target, $('#new-image-preview'));
 $('#edit-image').onchange = event => previewSelectedImage(event.target, $('#edit-image-preview'));
 
@@ -255,11 +272,14 @@ $('#edit-product-form').onsubmit = async event => {
 };
 
 $('#movement-form').onsubmit = async event => {
-  event.preventDefault(); const selectedProduct = product($('#movement-product').value), quantity = Number($('#movement-quantity').value), type = $('#movement-type').value;
-  if (type === 'saida' && quantity > selectedProduct.stock) return alert(`Estoque insuficiente. Disponível: ${selectedProduct.stock} unidade(s).`);
-  const { error } = await supabase.rpc('record_movement', { p_product_id:selectedProduct.id, p_type:type, p_quantity:quantity, p_recipient:$('#movement-person').value, p_note:$('#movement-note').value || null, p_holder_type:$('#movement-holder-type').value, p_work_order:$('#movement-work-order').value || null });
+  event.preventDefault(); const selectedProduct = product($('#movement-product').value), quantity = Number($('#movement-quantity').value), operation = $('#movement-type').value, fieldUsage = operation === 'uso_os', type = fieldUsage ? 'saida' : operation, workOrder = $('#movement-work-order').value.trim();
+  if (fieldUsage && !workOrder) return alert('Informe o número da OS para registrar o uso do material.');
+  if (!fieldUsage && type === 'saida' && quantity > selectedProduct.stock) return alert(`Estoque insuficiente. Disponível: ${selectedProduct.stock} unidade(s).`);
+  const movementData = { p_product_id:selectedProduct.id, p_type:type, p_quantity:quantity, p_recipient:$('#movement-person').value, p_note:$('#movement-note').value || null, p_holder_type:$('#movement-holder-type').value, p_work_order:workOrder || null };
+  if (fieldUsage) movementData.p_field_usage = true;
+  const { error } = await supabase.rpc('record_movement', movementData);
   if (error) return alert(error.message);
-  event.target.reset(); $('#movement-quantity').value = 1; await load(); view('dashboard');
+  event.target.reset(); $('#movement-quantity').value = 1; updateMovementMode(); await load(); view('dashboard');
 };
 
 $('#user-form').onsubmit = async event => {

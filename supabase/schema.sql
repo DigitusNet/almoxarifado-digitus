@@ -39,6 +39,7 @@ create table if not exists public.movements (
   note text,
   holder_type text not null default 'cliente' check (holder_type in ('tecnico', 'veiculo', 'cliente', 'outro')),
   work_order text,
+  field_usage boolean not null default false,
   created_by uuid references public.profiles(id) on delete set null,
   created_at timestamptz not null default now()
 );
@@ -84,7 +85,8 @@ create or replace function public.record_movement(
   p_recipient text,
   p_note text default null,
   p_holder_type text default 'cliente',
-  p_work_order text default null
+  p_work_order text default null,
+  p_field_usage boolean default false
 ) returns public.movements
 language plpgsql
 security definer
@@ -93,27 +95,37 @@ as $$
 declare
   movement public.movements;
   current_stock integer;
+  technician_stock integer;
 begin
   if auth.uid() is null then raise exception 'Usuário não autenticado'; end if;
   if p_quantity <= 0 then raise exception 'A quantidade deve ser maior que zero'; end if;
   if p_holder_type not in ('tecnico', 'veiculo', 'cliente', 'outro') then raise exception 'Destino inválido'; end if;
+  if p_field_usage and (p_type <> 'saida' or p_holder_type <> 'tecnico') then raise exception 'Uso em OS deve ser uma saída registrada para um técnico'; end if;
+  if p_field_usage and nullif(trim(coalesce(p_work_order, '')), '') is null then raise exception 'Informe o número da OS'; end if;
   select stock into current_stock from public.products where id = p_product_id for update;
   if not found then raise exception 'Produto não encontrado'; end if;
-  if p_type = 'saida' and current_stock < p_quantity then raise exception 'Estoque insuficiente'; end if;
+  if p_field_usage then
+    select coalesce(sum(case when coalesce(field_usage, false) then -quantity when movement_type = 'saida' then quantity else -quantity end), 0)
+    into technician_stock
+    from public.movements
+    where product_id = p_product_id and holder_type = 'tecnico' and lower(trim(recipient)) = lower(trim(p_recipient));
+    if technician_stock < p_quantity then raise exception 'Saldo insuficiente com este técnico. Disponível: % unidade(s)', technician_stock; end if;
+  else
+    if p_type = 'saida' and current_stock < p_quantity then raise exception 'Estoque insuficiente'; end if;
+    update public.products
+    set stock = stock + case when p_type = 'entrada' then p_quantity else -p_quantity end,
+        updated_at = now()
+    where id = p_product_id;
+  end if;
 
-  update public.products
-  set stock = stock + case when p_type = 'entrada' then p_quantity else -p_quantity end,
-      updated_at = now()
-  where id = p_product_id;
-
-  insert into public.movements (product_id, movement_type, quantity, recipient, note, holder_type, work_order, created_by)
-  values (p_product_id, p_type, p_quantity, p_recipient, p_note, p_holder_type, nullif(trim(p_work_order), ''), auth.uid())
+  insert into public.movements (product_id, movement_type, quantity, recipient, note, holder_type, work_order, field_usage, created_by)
+  values (p_product_id, p_type, p_quantity, p_recipient, p_note, p_holder_type, nullif(trim(p_work_order), ''), p_field_usage, auth.uid())
   returning * into movement;
   return movement;
 end;
 $$;
 
-grant execute on function public.record_movement(uuid, public.movement_type, integer, text, text, text, text) to authenticated;
+grant execute on function public.record_movement(uuid, public.movement_type, integer, text, text, text, text, boolean) to authenticated;
 
 create or replace function public.delete_movement(p_movement_id uuid)
 returns void
@@ -132,6 +144,11 @@ begin
 
   select * into movement from public.movements where id = p_movement_id for update;
   if not found then raise exception 'Movimentação não encontrada'; end if;
+
+  if coalesce(movement.field_usage, false) then
+    delete from public.movements where id = p_movement_id;
+    return;
+  end if;
 
   select stock into current_stock from public.products where id = movement.product_id for update;
   if not found then raise exception 'Produto não encontrado'; end if;
