@@ -54,7 +54,24 @@ export default async function handler(req, res) {
       return res.status(201).json({ id: data.user.id });
     }
 
-    res.setHeader('Allow', 'GET, POST');
+    if (req.method === 'DELETE') {
+      const id = req.query.id;
+      if (!id) return res.status(400).json({ error: 'Usuário inválido.' });
+      if (id === user.id) return res.status(400).json({ error: 'Você não pode remover a própria conta.' });
+
+      const { data: target, error: targetError } = await admin.from('profiles').select('role').eq('id', id).single();
+      if (targetError) throw targetError;
+      if (target.role === 'admin') {
+        const { count, error: countError } = await admin.from('profiles').select('id', { count: 'exact', head: true }).eq('role', 'admin');
+        if (countError) throw countError;
+        if (count <= 1) return res.status(409).json({ error: 'O último administrador não pode ser removido.' });
+      }
+      const { error } = await admin.auth.admin.deleteUser(id);
+      if (error) throw error;
+      return res.status(204).end();
+    }
+
+    res.setHeader('Allow', 'GET, POST, DELETE');
     return res.status(405).json({ error: 'Método não permitido.' });
   } catch (error) {
     return res.status(500).json({ error: error.message || 'Não foi possível concluir a operação.' });

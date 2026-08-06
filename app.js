@@ -38,7 +38,8 @@ function renderMovement() {
 function renderUsers() {
   const table = $('#users-table');
   if (!table) return;
-  table.innerHTML = state.users.map(user => `<tr><td><b>${esc(user.name || 'Sem nome')}</b></td><td>${esc(user.email)}</td><td><span class="badge ok">${roleName(user.role)}</span></td><td>${user.active ? '<span class="badge ok">Ativo</span>' : '<span class="badge out">Desativado</span>'}</td></tr>`).join('') || '<tr><td colspan="4" class="empty">Nenhum usuário cadastrado.</td></tr>';
+  table.innerHTML = state.users.map(user => `<tr><td><b>${esc(user.name || 'Sem nome')}</b></td><td>${esc(user.email)}</td><td><span class="badge ok">${roleName(user.role)}</span></td><td>${user.active ? '<span class="badge ok">Ativo</span>' : '<span class="badge out">Desativado</span>'}</td><td>${user.id === currentUser?.id ? '—' : `<button class="danger-button" data-delete-user="${user.id}">Remover</button>`}</td></tr>`).join('') || '<tr><td colspan="5" class="empty">Nenhum usuário cadastrado.</td></tr>';
+  document.querySelectorAll('[data-delete-user]').forEach(button => button.onclick = () => deleteUser(button.dataset.deleteUser));
 }
 
 async function loadUsers() {
@@ -74,6 +75,22 @@ async function deleteProduct(id) {
     const { error } = await supabase.from('products').delete().eq('id', id);
     if (error) throw error;
     await load();
+  } catch (error) {
+    alert(error.message);
+  }
+}
+
+async function deleteUser(id) {
+  const user = state.users.find(item => item.id === id);
+  if (!user || !confirm(`Remover o acesso de ${user.email}? Esta ação não pode ser desfeita.`)) return;
+  try {
+    const { data: { session } } = await supabase.auth.getSession();
+    const response = await fetch(`/api/users?id=${encodeURIComponent(id)}`, { method:'DELETE', headers:{ Authorization:`Bearer ${session.access_token}` } });
+    if (!response.ok) {
+      const data = await response.json();
+      throw new Error(data.error || 'Não foi possível remover o usuário.');
+    }
+    await loadUsers(); renderUsers();
   } catch (error) {
     alert(error.message);
   }
