@@ -10,6 +10,7 @@ const low = item => item.stock <= item.minimum;
 const date = value => new Date(value).toLocaleString('pt-BR', { dateStyle: 'short', timeStyle: 'short' });
 const status = item => item.stock === 0 ? '<span class="badge out">Sem estoque</span>' : low(item) ? '<span class="badge low">Estoque baixo</span>' : '<span class="badge ok">Disponível</span>';
 const roleName = role => ({ admin: 'Administrador', operador: 'Operador', tecnico: 'Técnico' }[role] || 'Técnico');
+const holderTypeName = type => ({ tecnico: 'Técnico', veiculo: 'Veículo', cliente: 'Cliente', outro: 'Outro' }[type] || 'Outro');
 
 function render() {
   const lows = state.products.filter(low), total = state.products.reduce((sum, item) => sum + item.stock, 0);
@@ -18,7 +19,7 @@ function render() {
   $('#low-stock').textContent = lows.length;
   $('#low-stock-list').innerHTML = lows.length ? lows.map(item => `<div class="compact-row"><div><b>${esc(item.name)}</b><small>${esc(item.code)} · mínimo: ${item.minimum}</small></div><span class="badge low">${item.stock} un.</span></div>`).join('') : '<p class="empty">Nenhum item precisa de reposição.</p>';
   $('#recent-movements').innerHTML = state.movements.slice(0, 5).map(item => `<div class="compact-row"><div><b>${item.type === 'entrada' ? 'Entrada' : 'Saída'} · ${esc(product(item.productId)?.name || 'Produto')}</b><small>${esc(item.person)} · ${item.date}</small></div><span class="badge ${item.type}">${item.type === 'entrada' ? '+' : '-'}${item.quantity}</span></div>`).join('') || '<p class="empty">Sem movimentações.</p>';
-  renderProducts(); renderMovement(); renderUsers();
+  renderProducts(); renderMovement(); renderFieldStock(); renderUsers();
 }
 
 function renderProducts() {
@@ -33,7 +34,19 @@ function renderMovement() {
   const select = $('#movement-product'), selected = select.value;
   select.innerHTML = state.products.map(item => `<option value="${item.id}">${esc(item.name)} (${item.stock} un.)</option>`).join('');
   select.value = selected || state.products[0]?.id;
-  $('#movement-history').innerHTML = state.movements.map(item => `<div class="history-item"><span class="history-icon ${item.type === 'saida' ? 'out' : ''}">${item.type === 'entrada' ? '↓' : '↑'}</span><div><b>${item.type === 'entrada' ? 'Entrada' : 'Saída'} de ${item.quantity} un. — ${esc(product(item.productId)?.name || 'Produto')}</b><small>${esc(item.person)} · ${item.date}${item.note ? ' · ' + esc(item.note) : ''}</small></div></div>`).join('') || '<p class="empty">Nenhuma movimentação registrada.</p>';
+  $('#movement-history').innerHTML = state.movements.map(item => `<div class="history-item"><span class="history-icon ${item.type === 'saida' ? 'out' : ''}">${item.type === 'entrada' ? '↓' : '↑'}</span><div><b>${item.type === 'entrada' ? 'Entrada' : 'Saída'} de ${item.quantity} un. — ${esc(product(item.productId)?.name || 'Produto')}</b><small>${holderTypeName(item.holderType)}: ${esc(item.person)} · ${item.date}${item.workOrder ? ' · OS: ' + esc(item.workOrder) : ''}${item.note ? ' · ' + esc(item.note) : ''}</small></div></div>`).join('') || '<p class="empty">Nenhuma movimentação registrada.</p>';
+}
+
+function renderFieldStock() {
+  const balances = new Map();
+  state.movements.filter(item => ['tecnico', 'veiculo'].includes(item.holderType)).forEach(item => {
+    const key = `${item.holderType}|${item.person}|${item.productId}`;
+    const current = balances.get(key) || { ...item, balance: 0 };
+    current.balance += item.type === 'saida' ? item.quantity : -item.quantity;
+    balances.set(key, current);
+  });
+  const items = [...balances.values()].filter(item => item.balance > 0).sort((a, b) => `${a.person}${a.productId}`.localeCompare(`${b.person}${b.productId}`, 'pt-BR'));
+  $('#field-stock-list').innerHTML = items.length ? items.map(item => `<div class="compact-row"><div><b>${esc(item.person)} · ${esc(product(item.productId)?.name || 'Produto')}</b><small>${holderTypeName(item.holderType)} · código: ${esc(product(item.productId)?.code || '—')}</small></div><span class="badge entrada">${item.balance} un.</span></div>`).join('') : '<p class="empty">Nenhum material está registrado com técnicos ou veículos.</p>';
 }
 
 function renderUsers() {
@@ -59,7 +72,7 @@ async function load() {
   ]);
   if (products.error || movements.error) throw products.error || movements.error;
   state.products = products.data.map(item => ({ ...item, minimum: item.minimum_stock }));
-  state.movements = movements.data.map(item => ({ id:item.id, type:item.movement_type, productId:item.product_id, quantity:item.quantity, person:item.recipient, note:item.note, date:date(item.created_at) }));
+  state.movements = movements.data.map(item => ({ id:item.id, type:item.movement_type, productId:item.product_id, quantity:item.quantity, person:item.recipient, holderType:item.holder_type || 'cliente', workOrder:item.work_order, note:item.note, date:date(item.created_at) }));
   try {
     await loadUsers();
   } catch (error) {
@@ -137,6 +150,10 @@ $('#add-user').onclick = () => $('#user-dialog').showModal();
 document.querySelectorAll('[data-close-dialog]').forEach(button => button.onclick = () => button.closest('dialog').close());
 $('#low-stock-card').onclick = () => showProducts('low');
 $('#product-search').oninput = () => { state.productFilter = 'all'; renderProducts(); };
+$('#movement-holder-type').onchange = event => {
+  const placeholders = { tecnico: 'Ex.: João Silva — Equipe externa', veiculo: 'Ex.: Carro 01 — Equipe Norte', cliente: 'Ex.: Cliente ou endereço', outro: 'Descreva o destino' };
+  $('#movement-person').placeholder = placeholders[event.target.value];
+};
 
 $('#product-form').onsubmit = async event => {
   event.preventDefault();
@@ -148,7 +165,7 @@ $('#product-form').onsubmit = async event => {
 $('#movement-form').onsubmit = async event => {
   event.preventDefault(); const selectedProduct = product($('#movement-product').value), quantity = Number($('#movement-quantity').value), type = $('#movement-type').value;
   if (type === 'saida' && quantity > selectedProduct.stock) return alert(`Estoque insuficiente. Disponível: ${selectedProduct.stock} unidade(s).`);
-  const { error } = await supabase.rpc('record_movement', { p_product_id:selectedProduct.id, p_type:type, p_quantity:quantity, p_recipient:$('#movement-person').value, p_note:$('#movement-note').value || null });
+  const { error } = await supabase.rpc('record_movement', { p_product_id:selectedProduct.id, p_type:type, p_quantity:quantity, p_recipient:$('#movement-person').value, p_note:$('#movement-note').value || null, p_holder_type:$('#movement-holder-type').value, p_work_order:$('#movement-work-order').value || null });
   if (error) return alert(error.message);
   event.target.reset(); $('#movement-quantity').value = 1; await load(); view('dashboard');
 };

@@ -38,6 +38,7 @@
             <section class="panel"><div class="panel-heading"><h2>Itens com estoque baixo</h2></div><div id="low-stock-list" class="compact-list"></div></section>
             <section class="panel"><div class="panel-heading"><h2>Últimas movimentações</h2><button class="text-button" data-go="movement">Ver histórico</button></div><div id="recent-movements" class="compact-list"></div></section>
           </div>
+          <section class="panel field-stock-panel"><div class="panel-heading"><div><h2>Materiais em campo</h2><p class="muted">Estoque atualmente com técnicos e veículos</p></div><button class="text-button" data-go="movement">Registrar movimentação</button></div><div id="field-stock-list" class="compact-list"></div></section>
         </section>
 
         <section id="products" class="view">
@@ -52,7 +53,9 @@
                 <label>Tipo <select id="movement-type"><option value="saida">Saída de material</option><option value="entrada">Entrada de material</option></select></label>
                 <label>Produto <select id="movement-product" required></select></label>
                 <label>Quantidade <input id="movement-quantity" type="number" min="1" required value="1" /></label>
+                <label>Destino <select id="movement-holder-type"><option value="tecnico">Técnico</option><option value="veiculo">Veículo</option><option value="cliente">Cliente</option><option value="outro">Outro</option></select></label>
                 <label>Responsável / destino <input id="movement-person" required placeholder="Ex.: João Silva — Equipe externa" /></label>
+                <label>Número da OS <input id="movement-work-order" placeholder="Opcional — Ex.: OS-1024" /></label>
                 <label>Observação <textarea id="movement-note" rows="3" placeholder="Opcional"></textarea></label>
                 <button class="primary full" type="submit">Salvar movimentação</button>
               </form>
