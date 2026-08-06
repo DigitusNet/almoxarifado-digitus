@@ -13,4 +13,4 @@ body{background:radial-gradient(circle at 77% -10%,#f5dfce 0,transparent 28%),#f
 .metric-button{width:100%;color:inherit;text-align:left;font:inherit;cursor:pointer;transition:transform .15s,box-shadow .15s}.metric-button:hover{transform:translateY(-2px);box-shadow:0 12px 24px #10233a16}
 .field-stock-panel{margin-top:20px}
 main{margin:0 auto}
-@media(min-width:851px){main.dashboard-mode .topbar{margin-top:clamp(24px,9vh,88px);margin-bottom:24px}main.dashboard-mode #dashboard.active{min-height:0;display:block}}
+@media(min-width:851px){main.dashboard-mode .topbar{margin-top:0;margin-bottom:24px}main.dashboard-mode #dashboard.active{min-height:0;display:block}}
