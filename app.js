@@ -1,7 +1,7 @@
 import { createClient } from '@supabase/supabase-js';
 
 const supabase = createClient(import.meta.env.VITE_SUPABASE_URL, import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY);
-let state = { products: [], movements: [], users: [], collaborators: [], vehicles: [], locations: [], serialItems: [], serialMovements: [], toolLoans: [], inventorySessions: [], inventoryCounts: [], productFilter: 'all' };
+let state = { products: [], movements: [], users: [], collaborators: [], vehicles: [], locations: [], serialItems: [], serialMovements: [], toolLoans: [], receipts: [], receiptItems: [], inventorySessions: [], inventoryCounts: [], productFilter: 'all' };
 let currentUser = null;
 const $ = selector => document.querySelector(selector);
 const esc = value => String(value ?? '').replace(/[&<>'"]/g, char => ({ '&':'&amp;','<':'&lt;','>':'&gt;',"'":'&#039;','"':'&quot;' }[char]));
@@ -94,7 +94,7 @@ function render() {
   $('#low-stock').textContent = lows.length;
   $('#low-stock-list').innerHTML = lows.length ? lows.map(item => `<div class="compact-row"><div><b>${esc(item.name)}</b><small>${esc(item.code)} · mínimo: ${stockLabel({ ...item, stock: item.minimum })}</small></div><span class="badge low">${stockLabel(item)}</span></div>`).join('') : '<p class="empty">Nenhum item precisa de reposição.</p>';
   $('#recent-movements').innerHTML = state.movements.slice(0, 5).map(item => `<div class="compact-row"><div><b>${movementName(item)} · ${esc(product(item.productId)?.name || 'Produto')}</b><small>${esc(item.person)} · ${item.date}</small></div><span class="badge ${item.type}">${item.type === 'entrada' ? '+' : '-'}${quantity(item.quantity)} ${unitName(product(item.productId)?.unit_of_measure)}</span></div>`).join('') || '<p class="empty">Sem movimentações.</p>';
-  renderProducts(); renderMovement(); renderFieldStock(); renderUsers(); renderRegistry(); renderSerials(); renderLaboratory(); renderLoans(); renderInventory();
+  renderProducts(); renderMovement(); renderFieldStock(); renderUsers(); renderRegistry(); renderReceipts(); renderSerials(); renderLaboratory(); renderLoans(); renderInventory();
 }
 
 function renderProducts() {
@@ -115,6 +115,53 @@ function renderMovement() {
   const movements = getFilteredMovements();
   $('#movement-history').innerHTML = movements.map(item => `<div class="history-item"><span class="history-icon ${item.type === 'saida' ? 'out' : ''}">${item.type === 'entrada' ? '↓' : '↑'}</span><div><b>${movementName(item)} de ${quantity(item.quantity)} ${unitName(product(item.productId)?.unit_of_measure)} — ${esc(product(item.productId)?.name || 'Produto')}</b><small>${holderTypeName(item.holderType)}: ${esc(item.person)} · ${item.date}${item.workOrder ? ' · OS: ' + esc(item.workOrder) : ''}${item.note ? ' · ' + esc(item.note) : ''}</small></div>${canDelete ? `<button class="danger-button" data-delete-movement="${item.id}">Apagar</button>` : ''}</div>`).join('') || '<p class="empty">Nenhuma movimentação encontrada.</p>';
   document.querySelectorAll('[data-delete-movement]').forEach(button => button.onclick = () => deleteMovement(button.dataset.deleteMovement));
+}
+
+function receiptProducts() {
+  return state.products.filter(item => item.tracking_mode !== 'serializado');
+}
+
+function receiptLineHtml(selected = '') {
+  const products = receiptProducts();
+  return `<div class="receipt-line"><label>Material <select data-receipt-product required><option value="">Selecione</option>${products.map(item => `<option value="${item.id}" ${item.id === selected ? 'selected' : ''}>${esc(item.name)} (${stockLabel(item)})</option>`).join('')}</select></label><label>Quantidade <input data-receipt-quantity type="number" min="0.001" step="0.001" required value="1" /></label><button class="receipt-line-remove" data-remove-receipt-line type="button" aria-label="Remover material">×</button></div>`;
+}
+
+function bindReceiptLineEvents() {
+  document.querySelectorAll('[data-remove-receipt-line]').forEach(button => button.onclick = () => button.closest('.receipt-line').remove());
+}
+
+function addReceiptLine(selected = '') {
+  $('#receipt-lines').insertAdjacentHTML('beforeend', receiptLineHtml(selected));
+  bindReceiptLineEvents();
+}
+
+function openReceiptDialog() {
+  if (!receiptProducts().length) return alert('Cadastre um material controlado por quantidade antes de registrar um recebimento. Itens por Serial/MAC devem ser cadastrados na tela Serial / MAC.');
+  $('#receipt-form').reset();
+  $('#receipt-lines').innerHTML = '';
+  addReceiptLine();
+  $('#receipt-dialog').showModal();
+}
+
+function openReceiptDetails(id) {
+  const receipt = state.receipts.find(item => item.id === id);
+  if (!receipt) return;
+  const items = state.receiptItems.filter(item => item.receipt_id === id);
+  $('#receipt-details-title').textContent = receipt.supplier;
+  $('#receipt-details-subtitle').textContent = `${receipt.invoice_number ? `NF: ${receipt.invoice_number} · ` : ''}${date(receipt.received_at)}${receipt.note ? ` · ${receipt.note}` : ''}`;
+  $('#receipt-details-list').innerHTML = items.map(item => `<div class="serial-history-item"><b>${esc(item.product_name)}</b><small>${quantity(item.quantity)} ${unitName(item.unit_of_measure)} · Código: ${esc(item.product_code)}</small></div>`).join('') || '<p class="empty">Nenhum material encontrado neste recebimento.</p>';
+  $('#receipt-details-dialog').showModal();
+}
+
+function renderReceipts() {
+  const table = $('#receipts-table');
+  if (!table) return;
+  table.innerHTML = state.receipts.map(receipt => {
+    const items = state.receiptItems.filter(item => item.receipt_id === receipt.id);
+    const summary = items.length ? `${items.slice(0, 2).map(item => esc(item.product_name)).join(', ')}${items.length > 2 ? ` +${items.length - 2}` : ''}` : 'Sem materiais';
+    return `<tr><td><b>${esc(receipt.supplier)}</b><small>${esc(receipt.note || 'Sem observação')}</small></td><td>${esc(receipt.invoice_number || '—')}</td><td>${summary}</td><td>${date(receipt.received_at)}</td><td><button class="secondary-button" data-receipt-details="${receipt.id}">Detalhes</button></td></tr>`;
+  }).join('') || '<tr><td colspan="5" class="empty">Nenhum recebimento registrado.</td></tr>';
+  document.querySelectorAll('[data-receipt-details]').forEach(button => button.onclick = () => openReceiptDetails(button.dataset.receiptDetails));
 }
 
 function renderFieldStock() {
@@ -420,7 +467,7 @@ async function loadUsers() {
 }
 
 async function load() {
-  const [products, movements, collaborators, vehicles, locations, serialItems, serialMovements, toolLoans, inventorySessions, inventoryCounts] = await Promise.all([
+  const [products, movements, collaborators, vehicles, locations, serialItems, serialMovements, toolLoans, receipts, receiptItems, inventorySessions, inventoryCounts] = await Promise.all([
     supabase.from('products').select('*').order('name'),
     supabase.from('movements').select('*').order('created_at', { ascending: false }),
     supabase.from('collaborators').select('*').order('name'),
@@ -429,10 +476,12 @@ async function load() {
     supabase.from('serial_items').select('*').order('created_at', { ascending: false }),
     supabase.from('serial_movements').select('*').order('created_at', { ascending: false }),
     supabase.from('tool_loans').select('*').order('issued_at', { ascending: false }),
+    supabase.from('receipts').select('*').order('received_at', { ascending: false }),
+    supabase.from('receipt_items').select('*').order('created_at', { ascending: false }),
     supabase.from('inventory_sessions').select('*').order('started_at', { ascending: false }),
     supabase.from('inventory_counts').select('*').order('created_at', { ascending: false })
   ]);
-  if (products.error || movements.error || collaborators.error || vehicles.error || locations.error || serialItems.error || serialMovements.error || toolLoans.error || inventorySessions.error || inventoryCounts.error) throw products.error || movements.error || collaborators.error || vehicles.error || locations.error || serialItems.error || serialMovements.error || toolLoans.error || inventorySessions.error || inventoryCounts.error;
+  if (products.error || movements.error || collaborators.error || vehicles.error || locations.error || serialItems.error || serialMovements.error || toolLoans.error || receipts.error || receiptItems.error || inventorySessions.error || inventoryCounts.error) throw products.error || movements.error || collaborators.error || vehicles.error || locations.error || serialItems.error || serialMovements.error || toolLoans.error || receipts.error || receiptItems.error || inventorySessions.error || inventoryCounts.error;
   state.products = products.data.map(item => ({ ...item, minimum: item.minimum_stock }));
   state.movements = movements.data.map(item => ({ id:item.id, type:item.movement_type, productId:item.product_id, quantity:item.quantity, person:item.recipient, holderType:item.holder_type || 'cliente', workOrder:item.work_order, fieldUsage:item.field_usage || false, note:item.note, createdAt:item.created_at, date:date(item.created_at) }));
   state.collaborators = collaborators.data;
@@ -441,6 +490,8 @@ async function load() {
   state.serialItems = serialItems.data;
   state.serialMovements = serialMovements.data;
   state.toolLoans = toolLoans.data;
+  state.receipts = receipts.data;
+  state.receiptItems = receiptItems.data;
   state.inventorySessions = inventorySessions.data;
   state.inventoryCounts = inventoryCounts.data;
   try {
@@ -547,8 +598,8 @@ function view(id) {
   document.querySelectorAll('.view').forEach(element => element.classList.toggle('active', element.id === id));
   document.querySelectorAll('.nav-link').forEach(button => button.classList.toggle('active', button.dataset.view === id));
   document.querySelector('main').classList.toggle('dashboard-mode', id === 'dashboard');
-  $('#page-title').textContent = ({ dashboard:'Visão geral', products:'Produtos', movement:'Movimentações', serials:'Serial / MAC', laboratory:'Laboratório', loans:'Cautelas', inventory:'Inventário', registry:'Cadastros', users:'Usuários' })[id];
-  $('#header-action').hidden = id === 'users' || id === 'products' || id === 'serials' || id === 'laboratory' || id === 'loans' || id === 'inventory' || id === 'registry';
+  $('#page-title').textContent = ({ dashboard:'Visão geral', products:'Produtos', movement:'Movimentações', receipts:'Recebimentos', serials:'Serial / MAC', laboratory:'Laboratório', loans:'Cautelas', inventory:'Inventário', registry:'Cadastros', users:'Usuários' })[id];
+  $('#header-action').hidden = id === 'users' || id === 'products' || id === 'receipts' || id === 'serials' || id === 'laboratory' || id === 'loans' || id === 'inventory' || id === 'registry';
   $('#header-action').textContent = id === 'products' ? '+ Cadastrar produto' : '+ Nova movimentação';
 }
 
@@ -596,6 +647,7 @@ async function start(session) {
   document.querySelectorAll('[data-admin-only]').forEach(element => { element.hidden = !isAdmin; });
   document.querySelectorAll('[data-manager-only]').forEach(element => { element.hidden = !canManage; });
   $('#users').hidden = !isAdmin;
+  $('#receipts').hidden = !canManage;
   $('#serials').hidden = !canManage;
   $('#laboratory').hidden = !canManage;
   $('#loans').hidden = !canManage;
@@ -608,6 +660,8 @@ document.querySelectorAll('.nav-link').forEach(button => button.onclick = () => 
 document.querySelectorAll('[data-go]').forEach(button => button.onclick = () => button.dataset.go === 'products' ? showProducts() : view(button.dataset.go));
 $('#header-action').onclick = () => $('.view.active').id === 'products' ? $('#product-dialog').showModal() : view('movement');
 $('#add-product').onclick = () => $('#product-dialog').showModal();
+$('#add-receipt').onclick = openReceiptDialog;
+$('#add-receipt-line').onclick = () => addReceiptLine();
 $('#add-user').onclick = () => $('#user-dialog').showModal();
 $('#add-serial').onclick = () => {
   if (!state.products.some(item => item.tracking_mode === 'serializado')) return alert('Cadastre ou edite um item e escolha o controle “Por serial / MAC” antes de registrar uma unidade.');
@@ -635,7 +689,7 @@ $('#logout').onclick = async () => {
   const { error } = await supabase.auth.signOut();
   if (error) return alert(error.message);
   currentUser = null;
-  state = { products: [], movements: [], users: [], collaborators: [], vehicles: [], locations: [], serialItems: [], serialMovements: [], toolLoans: [], inventorySessions: [], inventoryCounts: [], productFilter: 'all' };
+  state = { products: [], movements: [], users: [], collaborators: [], vehicles: [], locations: [], serialItems: [], serialMovements: [], toolLoans: [], receipts: [], receiptItems: [], inventorySessions: [], inventoryCounts: [], productFilter: 'all' };
   $('#login-form').reset();
   $('#auth-gate').hidden = false;
 };
@@ -735,6 +789,30 @@ $('#movement-form').onsubmit = async event => {
   const { error } = await supabase.rpc('record_movement', movementData);
   if (error) return alert(error.message);
   event.target.reset(); $('#movement-quantity').value = 1; updateMovementMode(); await load(); view('dashboard');
+};
+
+$('#receipt-form').onsubmit = async event => {
+  event.preventDefault();
+  try {
+    const lines = [...document.querySelectorAll('.receipt-line')].map(line => ({
+      product_id: line.querySelector('[data-receipt-product]').value,
+      quantity: Number(line.querySelector('[data-receipt-quantity]').value)
+    }));
+    if (!lines.length || lines.some(line => !line.product_id || !Number.isFinite(line.quantity) || line.quantity <= 0)) throw new Error('Preencha o material e a quantidade em todas as linhas.');
+    const { error } = await supabase.rpc('record_receipt', {
+      p_supplier: $('#receipt-supplier').value.trim(),
+      p_invoice_number: $('#receipt-invoice').value.trim() || null,
+      p_note: $('#receipt-note').value.trim() || null,
+      p_items: lines
+    });
+    if (error) throw error;
+    $('#receipt-dialog').close();
+    await load();
+    view('receipts');
+    alert('Recebimento registrado e estoque atualizado.');
+  } catch (error) {
+    alert(error.message);
+  }
 };
 
 $('#collaborator-form').onsubmit = async event => {

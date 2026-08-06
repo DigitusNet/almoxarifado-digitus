@@ -44,6 +44,9 @@ export default async function handler(req, res) {
     const { error: movementsError } = await admin.from('movements').delete().eq('product_id', id);
     if (movementsError) throw movementsError;
 
+    const { error: receiptItemsError } = await admin.from('receipt_items').delete().eq('product_id', id);
+    if (receiptItemsError) throw receiptItemsError;
+
     const { error: inventoryCountsError } = await admin.from('inventory_counts').delete().eq('product_id', id);
     if (inventoryCountsError) throw inventoryCountsError;
 
