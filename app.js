@@ -32,9 +32,11 @@ function renderProducts() {
 
 function renderMovement() {
   const select = $('#movement-product'), selected = select.value;
+  const canDelete = currentUser?.role === 'admin';
   select.innerHTML = state.products.map(item => `<option value="${item.id}">${esc(item.name)} (${item.stock} un.)</option>`).join('');
   select.value = selected || state.products[0]?.id;
-  $('#movement-history').innerHTML = state.movements.map(item => `<div class="history-item"><span class="history-icon ${item.type === 'saida' ? 'out' : ''}">${item.type === 'entrada' ? '↓' : '↑'}</span><div><b>${item.type === 'entrada' ? 'Entrada' : 'Saída'} de ${item.quantity} un. — ${esc(product(item.productId)?.name || 'Produto')}</b><small>${holderTypeName(item.holderType)}: ${esc(item.person)} · ${item.date}${item.workOrder ? ' · OS: ' + esc(item.workOrder) : ''}${item.note ? ' · ' + esc(item.note) : ''}</small></div></div>`).join('') || '<p class="empty">Nenhuma movimentação registrada.</p>';
+  $('#movement-history').innerHTML = state.movements.map(item => `<div class="history-item"><span class="history-icon ${item.type === 'saida' ? 'out' : ''}">${item.type === 'entrada' ? '↓' : '↑'}</span><div><b>${item.type === 'entrada' ? 'Entrada' : 'Saída'} de ${item.quantity} un. — ${esc(product(item.productId)?.name || 'Produto')}</b><small>${holderTypeName(item.holderType)}: ${esc(item.person)} · ${item.date}${item.workOrder ? ' · OS: ' + esc(item.workOrder) : ''}${item.note ? ' · ' + esc(item.note) : ''}</small></div>${canDelete ? `<button class="danger-button" data-delete-movement="${item.id}">Apagar</button>` : ''}</div>`).join('') || '<p class="empty">Nenhuma movimentação registrada.</p>';
+  document.querySelectorAll('[data-delete-movement]').forEach(button => button.onclick = () => deleteMovement(button.dataset.deleteMovement));
 }
 
 function renderFieldStock() {
@@ -93,6 +95,18 @@ async function deleteProduct(id) {
       const data = await response.json().catch(() => ({}));
       throw new Error(data.error || 'Não foi possível apagar o produto.');
     }
+    await load();
+  } catch (error) {
+    alert(error.message);
+  }
+}
+
+async function deleteMovement(id) {
+  const item = state.movements.find(movement => movement.id === id);
+  if (!item || !confirm(`Apagar esta movimentação? O estoque será ajustado automaticamente. Esta ação não pode ser desfeita.`)) return;
+  try {
+    const { error } = await supabase.rpc('delete_movement', { p_movement_id: id });
+    if (error) throw error;
     await load();
   } catch (error) {
     alert(error.message);
