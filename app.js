@@ -1,7 +1,7 @@
 import { createClient } from '@supabase/supabase-js';
 
 const supabase = createClient(import.meta.env.VITE_SUPABASE_URL, import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY);
-let state = { products: [], movements: [], users: [], collaborators: [], vehicles: [], locations: [], serialItems: [], serialMovements: [], productFilter: 'all' };
+let state = { products: [], movements: [], users: [], collaborators: [], vehicles: [], locations: [], serialItems: [], serialMovements: [], toolLoans: [], productFilter: 'all' };
 let currentUser = null;
 const $ = selector => document.querySelector(selector);
 const esc = value => String(value ?? '').replace(/[&<>'"]/g, char => ({ '&':'&amp;','<':'&lt;','>':'&gt;',"'":'&#039;','"':'&quot;' }[char]));
@@ -18,6 +18,8 @@ const stockLabel = item => `${quantity(item.stock)} ${unitName(item.unit_of_meas
 const serialStatusName = status => ({ disponivel:'Disponível', com_colaborador:'Com colaborador', com_veiculo:'Com veículo', instalado_cliente:'Instalado no cliente', emprestado:'Emprestado', aguardando_triagem:'Aguardando triagem', laboratorio:'Laboratório', manutencao:'Em manutenção', defeito:'Defeito', baixado:'Baixado' })[status] || status;
 const serialStatusClass = status => ({ disponivel:'ok', com_colaborador:'saida', com_veiculo:'saida', instalado_cliente:'saida', emprestado:'saida', aguardando_triagem:'low', laboratorio:'low', manutencao:'low', defeito:'out', baixado:'out' })[status] || 'low';
 const serialActionName = action => ({ transferencia:'Transferência', instalacao:'Instalação em cliente', laboratorio:'Envio ao laboratório', retorno:'Retorno ao almoxarifado', baixa:'Baixa / sucata' })[action] || action;
+const loanTypeName = type => type === 'cautela' ? 'Cautela fixa' : 'Empréstimo temporário';
+const loanOverdue = loan => !loan.returned_at && loan.loan_type === 'temporario' && loan.due_at && new Date(loan.due_at) < new Date();
 
 function getFilteredMovements() {
   const query = $('#history-search').value.trim().toLowerCase();
@@ -92,7 +94,7 @@ function render() {
   $('#low-stock').textContent = lows.length;
   $('#low-stock-list').innerHTML = lows.length ? lows.map(item => `<div class="compact-row"><div><b>${esc(item.name)}</b><small>${esc(item.code)} · mínimo: ${stockLabel({ ...item, stock: item.minimum })}</small></div><span class="badge low">${stockLabel(item)}</span></div>`).join('') : '<p class="empty">Nenhum item precisa de reposição.</p>';
   $('#recent-movements').innerHTML = state.movements.slice(0, 5).map(item => `<div class="compact-row"><div><b>${movementName(item)} · ${esc(product(item.productId)?.name || 'Produto')}</b><small>${esc(item.person)} · ${item.date}</small></div><span class="badge ${item.type}">${item.type === 'entrada' ? '+' : '-'}${quantity(item.quantity)} ${unitName(product(item.productId)?.unit_of_measure)}</span></div>`).join('') || '<p class="empty">Sem movimentações.</p>';
-  renderProducts(); renderMovement(); renderFieldStock(); renderUsers(); renderRegistry(); renderSerials();
+  renderProducts(); renderMovement(); renderFieldStock(); renderUsers(); renderRegistry(); renderSerials(); renderLoans();
 }
 
 function renderProducts() {
@@ -218,6 +220,46 @@ function openSerialHistory(id) {
   $('#serial-history-dialog').showModal();
 }
 
+function renderLoans() {
+  const table = $('#loans-table'), loanItem = $('#loan-item');
+  if (!table || !loanItem) return;
+  const activeLoans = state.toolLoans.filter(loan => !loan.returned_at);
+  $('#open-loan-count').textContent = activeLoans.length;
+  $('#overdue-loan-count').textContent = activeLoans.filter(loanOverdue).length;
+  table.innerHTML = activeLoans.map(loan => {
+    const item = state.serialItems.find(entry => entry.id === loan.serial_item_id), itemProduct = item && product(item.product_id);
+    const overdue = loanOverdue(loan), due = loan.loan_type === 'temporario' ? (loan.due_at ? date(loan.due_at) : 'Sem prazo') : 'Sem prazo';
+    return `<tr><td><b>${esc(itemProduct?.name || 'Ferramenta')}</b><small>Serial: ${esc(item?.serial_number || '—')} · Patrimônio: ${esc(item?.asset_tag || '—')}</small></td><td>${esc(loan.collaborator_name || state.collaborators.find(collaborator => collaborator.id === loan.collaborator_id)?.name || '—')}</td><td>${esc(loanTypeName(loan.loan_type))}</td><td>${date(loan.issued_at)}</td><td>${due}</td><td><span class="badge ${overdue ? 'out' : 'low'}">${overdue ? 'Atrasada' : 'Em aberto'}</span></td><td><button class="primary small-primary" data-return-loan="${loan.id}">Devolver</button></td></tr>`;
+  }).join('') || '<tr><td colspan="7" class="empty">Nenhuma cautela em aberto.</td></tr>';
+
+  const loanableItems = state.serialItems.filter(item => {
+    const itemProduct = product(item.product_id), category = String(itemProduct?.category || '').toLowerCase();
+    return item.status === 'disponivel' && ['ferramentas', 'patrimônio', 'patrimonio'].includes(category);
+  });
+  loanItem.innerHTML = loanableItems.map(item => {
+    const itemProduct = product(item.product_id);
+    return `<option value="${item.id}">${esc(itemProduct?.name || 'Ferramenta')} · ${esc(item.asset_tag || item.serial_number || item.mac_address || 'Sem identificador')}</option>`;
+  }).join('');
+  $('#loan-collaborator').innerHTML = '<option value="">Selecione</option>' + state.collaborators.filter(item => item.active).map(item => `<option value="${item.id}">${esc(item.name)}</option>`).join('');
+  document.querySelectorAll('[data-return-loan]').forEach(button => button.onclick = () => openLoanReturn(button.dataset.returnLoan));
+}
+
+function updateLoanTypeForm() {
+  const temporary = $('#loan-type').value === 'temporario';
+  $('#loan-due-group').hidden = !temporary;
+  $('#loan-due').required = temporary;
+  if (!temporary) $('#loan-due').value = '';
+}
+
+function openLoanReturn(id) {
+  const loan = state.toolLoans.find(item => item.id === id), serialItem = loan && state.serialItems.find(item => item.id === loan.serial_item_id), itemProduct = serialItem && product(serialItem.product_id);
+  if (!loan) return;
+  $('#return-loan-form').reset();
+  $('#return-loan-id').value = loan.id;
+  $('#return-loan-item').innerHTML = `<b>${esc(itemProduct?.name || 'Ferramenta')}</b><span>Responsável: ${esc(loan.collaborator_name || '—')} · Serial: ${esc(serialItem?.serial_number || '—')}</span>`;
+  $('#return-loan-dialog').showModal();
+}
+
 function renderUsers() {
   const table = $('#users-table');
   if (!table) return;
@@ -235,16 +277,17 @@ async function loadUsers() {
 }
 
 async function load() {
-  const [products, movements, collaborators, vehicles, locations, serialItems, serialMovements] = await Promise.all([
+  const [products, movements, collaborators, vehicles, locations, serialItems, serialMovements, toolLoans] = await Promise.all([
     supabase.from('products').select('*').order('name'),
     supabase.from('movements').select('*').order('created_at', { ascending: false }),
     supabase.from('collaborators').select('*').order('name'),
     supabase.from('vehicles').select('*').order('name'),
     supabase.from('stock_locations').select('*').order('name'),
     supabase.from('serial_items').select('*').order('created_at', { ascending: false }),
-    supabase.from('serial_movements').select('*').order('created_at', { ascending: false })
+    supabase.from('serial_movements').select('*').order('created_at', { ascending: false }),
+    supabase.from('tool_loans').select('*').order('issued_at', { ascending: false })
   ]);
-  if (products.error || movements.error || collaborators.error || vehicles.error || locations.error || serialItems.error || serialMovements.error) throw products.error || movements.error || collaborators.error || vehicles.error || locations.error || serialItems.error || serialMovements.error;
+  if (products.error || movements.error || collaborators.error || vehicles.error || locations.error || serialItems.error || serialMovements.error || toolLoans.error) throw products.error || movements.error || collaborators.error || vehicles.error || locations.error || serialItems.error || serialMovements.error || toolLoans.error;
   state.products = products.data.map(item => ({ ...item, minimum: item.minimum_stock }));
   state.movements = movements.data.map(item => ({ id:item.id, type:item.movement_type, productId:item.product_id, quantity:item.quantity, person:item.recipient, holderType:item.holder_type || 'cliente', workOrder:item.work_order, fieldUsage:item.field_usage || false, note:item.note, createdAt:item.created_at, date:date(item.created_at) }));
   state.collaborators = collaborators.data;
@@ -252,6 +295,7 @@ async function load() {
   state.locations = locations.data;
   state.serialItems = serialItems.data;
   state.serialMovements = serialMovements.data;
+  state.toolLoans = toolLoans.data;
   try {
     await loadUsers();
   } catch (error) {
@@ -356,8 +400,8 @@ function view(id) {
   document.querySelectorAll('.view').forEach(element => element.classList.toggle('active', element.id === id));
   document.querySelectorAll('.nav-link').forEach(button => button.classList.toggle('active', button.dataset.view === id));
   document.querySelector('main').classList.toggle('dashboard-mode', id === 'dashboard');
-  $('#page-title').textContent = ({ dashboard:'Visão geral', products:'Produtos', movement:'Movimentações', serials:'Serial / MAC', registry:'Cadastros', users:'Usuários' })[id];
-  $('#header-action').hidden = id === 'users' || id === 'products' || id === 'serials' || id === 'registry';
+  $('#page-title').textContent = ({ dashboard:'Visão geral', products:'Produtos', movement:'Movimentações', serials:'Serial / MAC', loans:'Cautelas', registry:'Cadastros', users:'Usuários' })[id];
+  $('#header-action').hidden = id === 'users' || id === 'products' || id === 'serials' || id === 'loans' || id === 'registry';
   $('#header-action').textContent = id === 'products' ? '+ Cadastrar produto' : '+ Nova movimentação';
 }
 
@@ -406,6 +450,7 @@ async function start(session) {
   document.querySelectorAll('[data-manager-only]').forEach(element => { element.hidden = !canManage; });
   $('#users').hidden = !isAdmin;
   $('#serials').hidden = !canManage;
+  $('#loans').hidden = !canManage;
   $('#registry').hidden = !canManage;
   try { await load(); } catch (error) { alert(error.message); }
 }
@@ -419,6 +464,10 @@ $('#add-serial').onclick = () => {
   if (!state.products.some(item => item.tracking_mode === 'serializado')) return alert('Cadastre ou edite um item e escolha o controle “Por serial / MAC” antes de registrar uma unidade.');
   $('#serial-dialog').showModal();
 };
+$('#add-loan').onclick = () => {
+  if (!state.serialItems.some(item => item.status === 'disponivel' && ['ferramentas', 'patrimônio', 'patrimonio'].includes(String(product(item.product_id)?.category || '').toLowerCase()))) return alert('Cadastre uma ferramenta ou patrimônio rastreável e disponível antes de registrar uma cautela.');
+  $('#loan-dialog').showModal();
+};
 $('#add-collaborator').onclick = () => $('#collaborator-dialog').showModal();
 $('#add-vehicle').onclick = () => $('#vehicle-dialog').showModal();
 $('#add-location').onclick = () => $('#location-dialog').showModal();
@@ -427,7 +476,7 @@ $('#logout').onclick = async () => {
   const { error } = await supabase.auth.signOut();
   if (error) return alert(error.message);
   currentUser = null;
-  state = { products: [], movements: [], users: [], collaborators: [], vehicles: [], locations: [], serialItems: [], serialMovements: [], productFilter: 'all' };
+  state = { products: [], movements: [], users: [], collaborators: [], vehicles: [], locations: [], serialItems: [], serialMovements: [], toolLoans: [], productFilter: 'all' };
   $('#login-form').reset();
   $('#auth-gate').hidden = false;
 };
@@ -471,6 +520,8 @@ function updateSerialStockOption() {
 $('#serial-status').onchange = updateSerialStockOption;
 updateSerialStockOption();
 $('#serial-transfer-action').onchange = updateSerialTransferForm;
+$('#loan-type').onchange = updateLoanTypeForm;
+updateLoanTypeForm();
 
 function productData(prefix) {
   return {
@@ -587,6 +638,31 @@ $('#serial-transfer-form').onsubmit = async event => {
   });
   if (error) return alert(error.message);
   $('#serial-transfer-dialog').close(); await load(); view('serials');
+};
+
+$('#loan-form').onsubmit = async event => {
+  event.preventDefault();
+  const due = $('#loan-due').value;
+  const { error } = await supabase.rpc('create_tool_loan', {
+    p_serial_item_id: $('#loan-item').value,
+    p_collaborator_id: $('#loan-collaborator').value,
+    p_loan_type: $('#loan-type').value,
+    p_due_at: due ? new Date(due).toISOString() : null,
+    p_note: $('#loan-note').value || null
+  });
+  if (error) return alert(error.message);
+  $('#loan-dialog').close(); await load(); view('loans');
+};
+
+$('#return-loan-form').onsubmit = async event => {
+  event.preventDefault();
+  const { error } = await supabase.rpc('return_tool_loan', {
+    p_loan_id: $('#return-loan-id').value,
+    p_return_condition: $('#return-loan-condition').value,
+    p_return_note: $('#return-loan-note').value || null
+  });
+  if (error) return alert(error.message);
+  $('#return-loan-dialog').close(); await load(); view('loans');
 };
 
 $('#user-form').onsubmit = async event => {
