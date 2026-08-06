@@ -23,6 +23,7 @@ create table if not exists public.products (
   name text not null,
   code text not null unique,
   category text not null,
+  image_path text,
   stock integer not null default 0 check (stock >= 0),
   minimum_stock integer not null default 0 check (minimum_stock >= 0),
   created_at timestamptz not null default now(),

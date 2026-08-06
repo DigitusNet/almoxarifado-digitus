@@ -11,6 +11,7 @@ const date = value => new Date(value).toLocaleString('pt-BR', { dateStyle: 'shor
 const status = item => item.stock === 0 ? '<span class="badge out">Sem estoque</span>' : low(item) ? '<span class="badge low">Estoque baixo</span>' : '<span class="badge ok">Disponível</span>';
 const roleName = role => ({ admin: 'Administrador', operador: 'Operador', tecnico: 'Técnico' }[role] || 'Técnico');
 const holderTypeName = type => ({ tecnico: 'Técnico', veiculo: 'Veículo', cliente: 'Cliente', outro: 'Outro' }[type] || 'Outro');
+const productImageUrl = path => path ? supabase.storage.from('product-images').getPublicUrl(path).data.publicUrl : '';
 
 function render() {
   const lows = state.products.filter(low), total = state.products.reduce((sum, item) => sum + item.stock, 0);
@@ -26,7 +27,7 @@ function renderProducts() {
   const query = $('#product-search').value.toLowerCase();
   const canDelete = currentUser?.role === 'admin';
   const products = state.products.filter(item => (state.productFilter !== 'low' || low(item)) && `${item.name} ${item.code} ${item.category}`.toLowerCase().includes(query));
-  $('#products-table').innerHTML = products.map(item => `<tr><td><b>${esc(item.name)}</b></td><td>${esc(item.code)}</td><td>${esc(item.category)}</td><td><b>${item.stock}</b><small>mínimo: ${item.minimum}</small></td><td>${status(item)}</td><td>${canDelete ? `<button class="danger-button" data-delete-product="${item.id}">Apagar</button>` : '—'}</td></tr>`).join('') || '<tr><td colspan="6" class="empty">Nenhum produto encontrado.</td></tr>';
+  $('#products-table').innerHTML = products.map(item => `<tr><td><div class="product-cell">${item.imagePath ? `<img class="product-thumbnail" src="${esc(productImageUrl(item.imagePath))}" alt="Foto de ${esc(item.name)}" />` : '<span class="product-thumbnail product-placeholder">▤</span>'}<b>${esc(item.name)}</b></div></td><td>${esc(item.code)}</td><td>${esc(item.category)}</td><td><b>${item.stock}</b><small>mínimo: ${item.minimum}</small></td><td>${status(item)}</td><td>${canDelete ? `<button class="danger-button" data-delete-product="${item.id}">Apagar</button>` : '—'}</td></tr>`).join('') || '<tr><td colspan="6" class="empty">Nenhum produto encontrado.</td></tr>';
   document.querySelectorAll('[data-delete-product]').forEach(button => button.onclick = () => deleteProduct(button.dataset.deleteProduct));
 }
 
@@ -73,7 +74,7 @@ async function load() {
     supabase.from('movements').select('*').order('created_at', { ascending: false })
   ]);
   if (products.error || movements.error) throw products.error || movements.error;
-  state.products = products.data.map(item => ({ ...item, minimum: item.minimum_stock }));
+  state.products = products.data.map(item => ({ ...item, minimum: item.minimum_stock, imagePath: item.image_path || null }));
   state.movements = movements.data.map(item => ({ id:item.id, type:item.movement_type, productId:item.product_id, quantity:item.quantity, person:item.recipient, holderType:item.holder_type || 'cliente', workOrder:item.work_order, note:item.note, date:date(item.created_at) }));
   try {
     await loadUsers();
@@ -168,12 +169,35 @@ $('#movement-holder-type').onchange = event => {
   const placeholders = { tecnico: 'Ex.: João Silva — Equipe externa', veiculo: 'Ex.: Carro 01 — Equipe Norte', cliente: 'Ex.: Cliente ou endereço', outro: 'Descreva o destino' };
   $('#movement-person').placeholder = placeholders[event.target.value];
 };
+$('#new-image').onchange = event => {
+  const file = event.target.files[0], preview = $('#new-image-preview');
+  if (!file) { preview.hidden = true; preview.removeAttribute('src'); return; }
+  preview.src = URL.createObjectURL(file);
+  preview.hidden = false;
+};
 
 $('#product-form').onsubmit = async event => {
   event.preventDefault();
-  const { error } = await supabase.from('products').insert({ name:$('#new-name').value, code:$('#new-code').value, category:$('#new-category').value, stock:Number($('#new-stock').value), minimum_stock:Number($('#new-minimum').value) });
-  if (error) return alert(error.message);
-  event.target.reset(); $('#product-dialog').close(); await load(); view('products');
+  const image = $('#new-image').files[0];
+  let imagePath = null;
+  try {
+    if (image) {
+      const allowedTypes = ['image/jpeg', 'image/png', 'image/webp'];
+      if (!allowedTypes.includes(image.type) || image.size > 5 * 1024 * 1024) throw new Error('Escolha uma imagem PNG, JPG ou WebP de até 5 MB.');
+      const extension = image.name.split('.').pop()?.toLowerCase() || 'jpg';
+      imagePath = `${crypto.randomUUID()}.${extension}`;
+      const { error: uploadError } = await supabase.storage.from('product-images').upload(imagePath, image, { cacheControl: '3600', contentType: image.type });
+      if (uploadError) throw uploadError;
+    }
+    const productData = { name:$('#new-name').value, code:$('#new-code').value, category:$('#new-category').value, stock:Number($('#new-stock').value), minimum_stock:Number($('#new-minimum').value) };
+    if (imagePath) productData.image_path = imagePath;
+    const { error } = await supabase.from('products').insert(productData);
+    if (error) throw error;
+    event.target.reset(); $('#new-image-preview').hidden = true; $('#product-dialog').close(); await load(); view('products');
+  } catch (error) {
+    if (imagePath) await supabase.storage.from('product-images').remove([imagePath]);
+    alert(error.message);
+  }
 };
 
 $('#movement-form').onsubmit = async event => {

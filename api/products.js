@@ -22,11 +22,16 @@ export default async function handler(req, res) {
     if (profileError || profile?.role !== 'admin') return res.status(403).json({ error: 'Apenas administradores podem apagar produtos.' });
     const admin = createClient(url, serviceKey);
 
+    const { data: product, error: productError } = await admin.from('products').select('*').eq('id', id).maybeSingle();
+    if (productError) throw productError;
+    if (!product) return res.status(404).json({ error: 'Produto não encontrado.' });
+
     const { error: movementsError } = await admin.from('movements').delete().eq('product_id', id);
     if (movementsError) throw movementsError;
 
     const { error: deleteError } = await admin.from('products').delete().eq('id', id);
     if (deleteError) throw deleteError;
+    if (product.image_path) await admin.storage.from('product-images').remove([product.image_path]);
     return res.status(204).end();
   } catch (error) {
     return res.status(500).json({ error: error.message || 'Não foi possível apagar o produto.' });
