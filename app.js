@@ -523,7 +523,7 @@ $('#serial-transfer-action').onchange = updateSerialTransferForm;
 $('#loan-type').onchange = updateLoanTypeForm;
 updateLoanTypeForm();
 
-function productData(prefix) {
+function collectProductData(prefix) {
   return {
     name: $(`#${prefix}-name`).value.trim(),
     code: $(`#${prefix}-code`).value.trim(),
@@ -541,17 +541,21 @@ function productData(prefix) {
 
 $('#product-form').onsubmit = async event => {
   event.preventDefault();
-  const productData = { ...productData('new'), stock:Number($('#new-stock').value), minimum_stock:Number($('#new-minimum').value) };
-  const { error } = await supabase.from('products').insert(productData);
-  if (error) return alert(error.message);
-  event.target.reset(); $('#product-dialog').close(); await load(); view('products');
+  try {
+    const newProduct = { ...collectProductData('new'), stock:Number($('#new-stock').value), minimum_stock:Number($('#new-minimum').value) };
+    const { error } = await supabase.from('products').insert(newProduct);
+    if (error) throw error;
+    event.target.reset(); $('#product-dialog').close(); await load(); view('products');
+  } catch (error) {
+    alert(`Não foi possível cadastrar o item: ${error.message}`);
+  }
 };
 
 $('#edit-product-form').onsubmit = async event => {
   event.preventDefault();
   const id = $('#edit-product-id').value;
   try {
-    const updatedProduct = { ...productData('edit'), minimum_stock:Number($('#edit-minimum').value) };
+    const updatedProduct = { ...collectProductData('edit'), minimum_stock:Number($('#edit-minimum').value) };
     const { error } = await supabase.from('products').update(updatedProduct).eq('id', id);
     if (error) throw error;
     $('#edit-product-dialog').close(); await load(); view('products');
