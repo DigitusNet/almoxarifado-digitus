@@ -1,7 +1,7 @@
 import { createClient } from '@supabase/supabase-js';
 
 const supabase = createClient(import.meta.env.VITE_SUPABASE_URL, import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY);
-let state = { products: [], movements: [], users: [], collaborators: [], vehicles: [], locations: [], serialItems: [], productFilter: 'all' };
+let state = { products: [], movements: [], users: [], collaborators: [], vehicles: [], locations: [], serialItems: [], serialMovements: [], productFilter: 'all' };
 let currentUser = null;
 const $ = selector => document.querySelector(selector);
 const esc = value => String(value ?? '').replace(/[&<>'"]/g, char => ({ '&':'&amp;','<':'&lt;','>':'&gt;',"'":'&#039;','"':'&quot;' }[char]));
@@ -17,6 +17,7 @@ const quantity = value => Number(value || 0).toLocaleString('pt-BR', { maximumFr
 const stockLabel = item => `${quantity(item.stock)} ${unitName(item.unit_of_measure)}`;
 const serialStatusName = status => ({ disponivel:'Disponível', com_colaborador:'Com colaborador', com_veiculo:'Com veículo', instalado_cliente:'Instalado no cliente', emprestado:'Emprestado', aguardando_triagem:'Aguardando triagem', laboratorio:'Laboratório', manutencao:'Em manutenção', defeito:'Defeito', baixado:'Baixado' })[status] || status;
 const serialStatusClass = status => ({ disponivel:'ok', com_colaborador:'saida', com_veiculo:'saida', instalado_cliente:'saida', emprestado:'saida', aguardando_triagem:'low', laboratorio:'low', manutencao:'low', defeito:'out', baixado:'out' })[status] || 'low';
+const serialActionName = action => ({ transferencia:'Transferência', instalacao:'Instalação em cliente', laboratorio:'Envio ao laboratório', retorno:'Retorno ao almoxarifado', baixa:'Baixa / sucata' })[action] || action;
 
 function getFilteredMovements() {
   const query = $('#history-search').value.trim().toLowerCase();
@@ -149,10 +150,70 @@ function renderSerials() {
   });
   table.innerHTML = serials.map(item => {
     const itemProduct = product(item.product_id), location = state.locations.find(entry => entry.id === item.current_location_id);
-    return `<tr><td><b>${esc(itemProduct?.name || 'Item removido')}</b><small>${esc(itemProduct?.code || '—')}</small></td><td>${esc(item.serial_number || '—')}</td><td>${esc(item.mac_address || '—')}</td><td>${esc(item.asset_tag || '—')}</td><td>${esc(location?.name || item.customer_name || '—')}</td><td><span class="badge ${serialStatusClass(item.status)}">${esc(serialStatusName(item.status))}</span></td></tr>`;
-  }).join('') || '<tr><td colspan="6" class="empty">Nenhuma unidade rastreável encontrada.</td></tr>';
+    return `<tr><td><b>${esc(itemProduct?.name || 'Item removido')}</b><small>${esc(itemProduct?.code || '—')}</small></td><td>${esc(item.serial_number || '—')}</td><td>${esc(item.mac_address || '—')}</td><td>${esc(item.asset_tag || '—')}</td><td>${esc(location?.name || item.customer_name || '—')}</td><td><span class="badge ${serialStatusClass(item.status)}">${esc(serialStatusName(item.status))}</span></td><td><div class="table-actions">${item.status !== 'baixado' ? `<button class="secondary-button" data-move-serial="${item.id}">Mover</button>` : ''}<button class="text-button" data-history-serial="${item.id}">Histórico</button></div></td></tr>`;
+  }).join('') || '<tr><td colspan="7" class="empty">Nenhuma unidade rastreável encontrada.</td></tr>';
   const locations = state.locations.filter(item => item.active);
   $('#serial-location').innerHTML = '<option value="">Almoxarifado central</option>' + locations.map(item => `<option value="${item.id}">${esc(item.name)}</option>`).join('');
+  document.querySelectorAll('[data-move-serial]').forEach(button => button.onclick = () => openSerialTransfer(button.dataset.moveSerial));
+  document.querySelectorAll('[data-history-serial]').forEach(button => button.onclick = () => openSerialHistory(button.dataset.historySerial));
+}
+
+function populateSerialTransferOptions() {
+  $('#transfer-collaborator').innerHTML = '<option value="">Selecione</option>' + state.collaborators.filter(item => item.active).map(item => `<option value="${item.id}">${esc(item.name)}</option>`).join('');
+  $('#transfer-vehicle').innerHTML = '<option value="">Selecione</option>' + state.vehicles.filter(item => item.active).map(item => `<option value="${item.id}">${esc(item.name)}${item.plate ? ` · ${esc(item.plate)}` : ''}</option>`).join('');
+  $('#transfer-lab').innerHTML = '<option value="">Selecione</option>' + state.locations.filter(item => item.active && item.location_type === 'laboratorio').map(item => `<option value="${item.id}">${esc(item.name)}</option>`).join('');
+}
+
+function openSerialTransfer(id) {
+  const item = state.serialItems.find(entry => entry.id === id), itemProduct = item && product(item.product_id);
+  if (!item) return;
+  $('#serial-transfer-form').reset();
+  $('#serial-transfer-id').value = item.id;
+  $('#serial-transfer-item').innerHTML = `<b>${esc(itemProduct?.name || 'Item')}</b><span>Serial: ${esc(item.serial_number || '—')} · MAC: ${esc(item.mac_address || '—')} · Status atual: ${esc(serialStatusName(item.status))}</span>`;
+  const actions = item.status === 'disponivel'
+    ? [['colaborador', 'Entregar para colaborador'], ['veiculo', 'Carregar em veículo'], ['instalar', 'Instalar no cliente'], ['laboratorio', 'Enviar ao laboratório'], ['baixar', 'Baixar / sucata']]
+    : [ ...(item.status !== 'laboratorio' ? [['laboratorio', 'Enviar ao laboratório']] : []), ['retornar', 'Retornar ao almoxarifado'], ['baixar', 'Baixar / sucata'] ];
+  $('#serial-transfer-action').innerHTML = actions.map(([value, label]) => `<option value="${value}">${label}</option>`).join('');
+  populateSerialTransferOptions();
+  updateSerialTransferForm();
+  $('#serial-transfer-dialog').showModal();
+}
+
+function updateSerialTransferForm() {
+  const action = $('#serial-transfer-action').value;
+  const groups = { collaborator: $('#transfer-collaborator-group'), vehicle: $('#transfer-vehicle-group'), customer: $('#transfer-customer-group'), lab: $('#transfer-lab-group') };
+  Object.values(groups).forEach(group => { group.hidden = true; });
+  $('#transfer-collaborator').required = false;
+  $('#transfer-vehicle').required = false;
+  $('#transfer-customer').required = false;
+  $('#transfer-lab').required = false;
+  const messages = {
+    colaborador: 'A unidade sairá do almoxarifado e ficará vinculada ao colaborador selecionado.',
+    veiculo: 'A unidade sairá do almoxarifado e ficará na carga do veículo selecionado.',
+    instalar: 'A unidade será marcada como instalada no cliente. Informe a OS quando disponível.',
+    laboratorio: 'A unidade deixará o saldo disponível e ficará em laboratório.',
+    retornar: 'A unidade voltará ao Almoxarifado Central e entrará novamente no saldo disponível.',
+    baixar: 'A unidade será baixada como sucata/indisponível e não poderá mais ser movimentada.'
+  };
+  if (action === 'colaborador') { groups.collaborator.hidden = false; $('#transfer-collaborator').required = true; }
+  if (action === 'veiculo') { groups.vehicle.hidden = false; $('#transfer-vehicle').required = true; }
+  if (action === 'instalar') { groups.customer.hidden = false; $('#transfer-customer').required = true; }
+  if (action === 'laboratorio') { groups.lab.hidden = false; $('#transfer-lab').required = true; }
+  $('#transfer-help').textContent = messages[action];
+}
+
+function openSerialHistory(id) {
+  const item = state.serialItems.find(entry => entry.id === id), itemProduct = item && product(item.product_id);
+  if (!item) return;
+  const movements = state.serialMovements.filter(entry => entry.serial_item_id === id);
+  $('#serial-history-title').textContent = itemProduct?.name || 'Histórico do equipamento';
+  $('#serial-history-subtitle').textContent = `Serial: ${item.serial_number || '—'} · MAC: ${item.mac_address || '—'} · Patrimônio: ${item.asset_tag || '—'}`;
+  $('#serial-history-list').innerHTML = movements.map(entry => {
+    const from = state.locations.find(location => location.id === entry.from_location_id)?.name || '—';
+    const to = state.locations.find(location => location.id === entry.to_location_id)?.name || entry.customer_name || entry.recipient || '—';
+    return `<div class="serial-history-item"><div><b>${esc(serialActionName(entry.action))}</b><small>${esc(serialStatusName(entry.previous_status))} → ${esc(serialStatusName(entry.new_status))} · ${date(entry.created_at)}</small><small>${esc(from)} → ${esc(to)}${entry.work_order ? ` · OS: ${esc(entry.work_order)}` : ''}${entry.note ? ` · ${esc(entry.note)}` : ''}</small></div></div>`;
+  }).join('') || '<p class="empty">Ainda não há movimentações para esta unidade.</p>';
+  $('#serial-history-dialog').showModal();
 }
 
 function renderUsers() {
@@ -172,21 +233,23 @@ async function loadUsers() {
 }
 
 async function load() {
-  const [products, movements, collaborators, vehicles, locations, serialItems] = await Promise.all([
+  const [products, movements, collaborators, vehicles, locations, serialItems, serialMovements] = await Promise.all([
     supabase.from('products').select('*').order('name'),
     supabase.from('movements').select('*').order('created_at', { ascending: false }),
     supabase.from('collaborators').select('*').order('name'),
     supabase.from('vehicles').select('*').order('name'),
     supabase.from('stock_locations').select('*').order('name'),
-    supabase.from('serial_items').select('*').order('created_at', { ascending: false })
+    supabase.from('serial_items').select('*').order('created_at', { ascending: false }),
+    supabase.from('serial_movements').select('*').order('created_at', { ascending: false })
   ]);
-  if (products.error || movements.error || collaborators.error || vehicles.error || locations.error || serialItems.error) throw products.error || movements.error || collaborators.error || vehicles.error || locations.error || serialItems.error;
+  if (products.error || movements.error || collaborators.error || vehicles.error || locations.error || serialItems.error || serialMovements.error) throw products.error || movements.error || collaborators.error || vehicles.error || locations.error || serialItems.error || serialMovements.error;
   state.products = products.data.map(item => ({ ...item, minimum: item.minimum_stock }));
   state.movements = movements.data.map(item => ({ id:item.id, type:item.movement_type, productId:item.product_id, quantity:item.quantity, person:item.recipient, holderType:item.holder_type || 'cliente', workOrder:item.work_order, fieldUsage:item.field_usage || false, note:item.note, createdAt:item.created_at, date:date(item.created_at) }));
   state.collaborators = collaborators.data;
   state.vehicles = vehicles.data;
   state.locations = locations.data;
   state.serialItems = serialItems.data;
+  state.serialMovements = serialMovements.data;
   try {
     await loadUsers();
   } catch (error) {
@@ -380,6 +443,7 @@ function updateSerialStockOption() {
 
 $('#serial-status').onchange = updateSerialStockOption;
 updateSerialStockOption();
+$('#serial-transfer-action').onchange = updateSerialTransferForm;
 
 function productData(prefix) {
   return {
@@ -478,6 +542,24 @@ $('#serial-form').onsubmit = async event => {
   });
   if (error) return alert(error.message);
   event.target.reset(); $('#serial-add-stock').checked = true; updateSerialStockOption(); $('#serial-dialog').close(); await load(); view('serials');
+};
+
+$('#serial-transfer-form').onsubmit = async event => {
+  event.preventDefault();
+  const action = $('#serial-transfer-action').value;
+  const { error } = await supabase.rpc('move_serial_item', {
+    p_serial_item_id: $('#serial-transfer-id').value,
+    p_action: action,
+    p_collaborator_id: action === 'colaborador' ? $('#transfer-collaborator').value || null : null,
+    p_vehicle_id: action === 'veiculo' ? $('#transfer-vehicle').value || null : null,
+    p_location_id: action === 'laboratorio' ? $('#transfer-lab').value || null : null,
+    p_customer_name: action === 'instalar' ? $('#transfer-customer').value || null : null,
+    p_customer_reference: action === 'instalar' ? $('#transfer-customer-reference').value || null : null,
+    p_work_order: $('#transfer-work-order').value || null,
+    p_note: $('#transfer-note').value || null
+  });
+  if (error) return alert(error.message);
+  $('#serial-transfer-dialog').close(); await load(); view('serials');
 };
 
 $('#user-form').onsubmit = async event => {
