@@ -56,7 +56,13 @@ async function load() {
   if (products.error || movements.error) throw products.error || movements.error;
   state.products = products.data.map(item => ({ ...item, minimum: item.minimum_stock }));
   state.movements = movements.data.map(item => ({ id:item.id, type:item.movement_type, productId:item.product_id, quantity:item.quantity, person:item.recipient, note:item.note, date:date(item.created_at) }));
-  await loadUsers(); render();
+  try {
+    await loadUsers();
+  } catch (error) {
+    console.warn('Não foi possível carregar a lista de usuários:', error.message);
+    state.users = [];
+  }
+  render();
 }
 
 function view(id) {
