@@ -422,6 +422,15 @@ $('#add-serial').onclick = () => {
 $('#add-collaborator').onclick = () => $('#collaborator-dialog').showModal();
 $('#add-vehicle').onclick = () => $('#vehicle-dialog').showModal();
 $('#add-location').onclick = () => $('#location-dialog').showModal();
+$('#logout').onclick = async () => {
+  if (!confirm('Deseja sair da conta?')) return;
+  const { error } = await supabase.auth.signOut();
+  if (error) return alert(error.message);
+  currentUser = null;
+  state = { products: [], movements: [], users: [], collaborators: [], vehicles: [], locations: [], serialItems: [], serialMovements: [], productFilter: 'all' };
+  $('#login-form').reset();
+  $('#auth-gate').hidden = false;
+};
 document.querySelectorAll('[data-close-dialog]').forEach(button => button.onclick = () => button.closest('dialog').close());
 $('#low-stock-card').onclick = () => showProducts('low');
 $('#product-search').oninput = () => { state.productFilter = 'all'; renderProducts(); };
