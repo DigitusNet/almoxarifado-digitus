@@ -11,7 +11,6 @@ const date = value => new Date(value).toLocaleString('pt-BR', { dateStyle: 'shor
 const status = item => item.stock === 0 ? '<span class="badge out">Sem estoque</span>' : low(item) ? '<span class="badge low">Estoque baixo</span>' : '<span class="badge ok">Disponível</span>';
 const roleName = role => ({ admin: 'Administrador', operador: 'Operador', tecnico: 'Técnico' }[role] || 'Técnico');
 const holderTypeName = type => ({ tecnico: 'Técnico', veiculo: 'Veículo', cliente: 'Cliente', outro: 'Outro' }[type] || 'Outro');
-const productImageUrl = path => path ? supabase.storage.from('product-images').getPublicUrl(path).data.publicUrl : '';
 const movementName = item => item.fieldUsage ? 'Uso em OS' : item.type === 'entrada' ? 'Entrada' : 'Saída';
 
 function render() {
@@ -29,7 +28,7 @@ function renderProducts() {
   const canDelete = currentUser?.role === 'admin';
   const canEdit = ['admin', 'operador'].includes(currentUser?.role);
   const products = state.products.filter(item => (state.productFilter !== 'low' || low(item)) && `${item.name} ${item.code} ${item.category}`.toLowerCase().includes(query));
-  $('#products-table').innerHTML = products.map(item => `<tr><td><div class="product-cell">${item.imagePath ? `<img class="product-thumbnail" src="${esc(productImageUrl(item.imagePath))}" alt="Foto de ${esc(item.name)}" />` : '<span class="product-thumbnail product-placeholder">▤</span>'}<b>${esc(item.name)}</b></div></td><td>${esc(item.code)}</td><td>${esc(item.category)}</td><td><b>${item.stock}</b><small>mínimo: ${item.minimum}</small></td><td>${status(item)}</td><td><div class="table-actions">${canEdit ? `<button class="secondary-button" data-edit-product="${item.id}">Editar</button>` : ''}${canDelete ? `<button class="danger-button" data-delete-product="${item.id}">Apagar</button>` : ''}${!canEdit && !canDelete ? '—' : ''}</div></td></tr>`).join('') || '<tr><td colspan="6" class="empty">Nenhum produto encontrado.</td></tr>';
+  $('#products-table').innerHTML = products.map(item => `<tr><td><b>${esc(item.name)}</b></td><td>${esc(item.code)}</td><td>${esc(item.category)}</td><td><b>${item.stock}</b><small>mínimo: ${item.minimum}</small></td><td>${status(item)}</td><td><div class="table-actions">${canEdit ? `<button class="secondary-button" data-edit-product="${item.id}">Editar</button>` : ''}${canDelete ? `<button class="danger-button" data-delete-product="${item.id}">Apagar</button>` : ''}${!canEdit && !canDelete ? '—' : ''}</div></td></tr>`).join('') || '<tr><td colspan="6" class="empty">Nenhum produto encontrado.</td></tr>';
   document.querySelectorAll('[data-edit-product]').forEach(button => button.onclick = () => openProductEditor(button.dataset.editProduct));
   document.querySelectorAll('[data-delete-product]').forEach(button => button.onclick = () => deleteProduct(button.dataset.deleteProduct));
 }
@@ -86,7 +85,7 @@ async function load() {
     supabase.from('movements').select('*').order('created_at', { ascending: false })
   ]);
   if (products.error || movements.error) throw products.error || movements.error;
-  state.products = products.data.map(item => ({ ...item, minimum: item.minimum_stock, imagePath: item.image_path || null }));
+  state.products = products.data.map(item => ({ ...item, minimum: item.minimum_stock }));
   state.movements = movements.data.map(item => ({ id:item.id, type:item.movement_type, productId:item.product_id, quantity:item.quantity, person:item.recipient, holderType:item.holder_type || 'cliente', workOrder:item.work_order, fieldUsage:item.field_usage || false, note:item.note, createdAt:item.created_at, date:date(item.created_at) }));
   try {
     await loadUsers();
@@ -170,26 +169,7 @@ function openProductEditor(id) {
   $('#edit-category').value = item.category;
   $('#edit-stock').value = item.stock;
   $('#edit-minimum').value = item.minimum;
-  const preview = $('#edit-image-preview');
-  if (item.imagePath) { preview.src = productImageUrl(item.imagePath); preview.hidden = false; } else { preview.hidden = true; preview.removeAttribute('src'); }
   $('#edit-product-dialog').showModal();
-}
-
-function previewSelectedImage(input, preview) {
-  const file = input.files[0];
-  if (!file) { preview.hidden = true; preview.removeAttribute('src'); return; }
-  preview.src = URL.createObjectURL(file);
-  preview.hidden = false;
-}
-
-async function uploadProductImage(image) {
-  const allowedTypes = ['image/jpeg', 'image/png', 'image/webp'];
-  if (!allowedTypes.includes(image.type) || image.size > 5 * 1024 * 1024) throw new Error('Escolha uma imagem PNG, JPG ou WebP de até 5 MB.');
-  const extension = image.name.split('.').pop()?.toLowerCase() || 'jpg';
-  const imagePath = `${crypto.randomUUID()}.${extension}`;
-  const { error } = await supabase.storage.from('product-images').upload(imagePath, image, { cacheControl: '3600', contentType: image.type });
-  if (error) throw error;
-  return imagePath;
 }
 
 async function start(session) {
@@ -230,43 +210,23 @@ function updateMovementMode() {
 $('#movement-type').onchange = updateMovementMode;
 $('#movement-holder-type').onchange = updateMovementRecipientPlaceholder;
 updateMovementMode();
-$('#new-image').onchange = event => previewSelectedImage(event.target, $('#new-image-preview'));
-$('#edit-image').onchange = event => previewSelectedImage(event.target, $('#edit-image-preview'));
 
 $('#product-form').onsubmit = async event => {
   event.preventDefault();
-  const image = $('#new-image').files[0];
-  let imagePath = null;
-  try {
-    if (image) {
-      imagePath = await uploadProductImage(image);
-    }
-    const productData = { name:$('#new-name').value, code:$('#new-code').value, category:$('#new-category').value, stock:Number($('#new-stock').value), minimum_stock:Number($('#new-minimum').value) };
-    if (imagePath) productData.image_path = imagePath;
-    const { error } = await supabase.from('products').insert(productData);
-    if (error) throw error;
-    event.target.reset(); $('#new-image-preview').hidden = true; $('#product-dialog').close(); await load(); view('products');
-  } catch (error) {
-    if (imagePath) await supabase.storage.from('product-images').remove([imagePath]);
-    alert(error.message);
-  }
+  const { error } = await supabase.from('products').insert({ name:$('#new-name').value, code:$('#new-code').value, category:$('#new-category').value, stock:Number($('#new-stock').value), minimum_stock:Number($('#new-minimum').value) });
+  if (error) return alert(error.message);
+  event.target.reset(); $('#product-dialog').close(); await load(); view('products');
 };
 
 $('#edit-product-form').onsubmit = async event => {
   event.preventDefault();
-  const id = $('#edit-product-id').value, item = product(id), image = $('#edit-image').files[0];
-  let imagePath = null;
+  const id = $('#edit-product-id').value;
   try {
-    if (!item) throw new Error('Produto não encontrado. Atualize a página e tente novamente.');
-    if (image) imagePath = await uploadProductImage(image);
     const productData = { name:$('#edit-name').value, code:$('#edit-code').value, category:$('#edit-category').value, minimum_stock:Number($('#edit-minimum').value) };
-    if (imagePath) productData.image_path = imagePath;
     const { error } = await supabase.from('products').update(productData).eq('id', id);
     if (error) throw error;
-    if (imagePath && item.imagePath) await supabase.storage.from('product-images').remove([item.imagePath]);
     $('#edit-product-dialog').close(); await load(); view('products');
   } catch (error) {
-    if (imagePath) await supabase.storage.from('product-images').remove([imagePath]);
     alert(error.message);
   }
 };
