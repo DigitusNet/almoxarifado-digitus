@@ -67,6 +67,9 @@ create policy "Admins and operators can add products" on public.products
 drop policy if exists "Admins and operators can edit products" on public.products;
 create policy "Admins and operators can edit products" on public.products
   for update to authenticated using (public.current_user_role() in ('admin', 'operador')) with check (public.current_user_role() in ('admin', 'operador'));
+drop policy if exists "Admins can delete products" on public.products;
+create policy "Admins can delete products" on public.products
+  for delete to authenticated using (public.current_user_role() = 'admin');
 drop policy if exists "Authenticated users can view movements" on public.movements;
 create policy "Authenticated users can view movements" on public.movements
   for select to authenticated using (true);

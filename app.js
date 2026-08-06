@@ -71,12 +71,8 @@ async function deleteProduct(id) {
   const item = product(id);
   if (!item || !confirm(`Apagar o produto “${item.name}”? Esta ação não pode ser desfeita.`)) return;
   try {
-    const { data: { session } } = await supabase.auth.getSession();
-    const response = await fetch(`/api/products?id=${encodeURIComponent(id)}`, { method:'DELETE', headers:{ Authorization:`Bearer ${session.access_token}` } });
-    if (!response.ok) {
-      const data = await response.json();
-      throw new Error(data.error || 'Não foi possível apagar o produto.');
-    }
+    const { error } = await supabase.from('products').delete().eq('id', id);
+    if (error) throw error;
     await load();
   } catch (error) {
     alert(error.message);
