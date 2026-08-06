@@ -1,7 +1,7 @@
 import { createClient } from '@supabase/supabase-js';
 
 const supabase = createClient(import.meta.env.VITE_SUPABASE_URL, import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY);
-let state = { products: [], movements: [], users: [], collaborators: [], vehicles: [], locations: [], productFilter: 'all' };
+let state = { products: [], movements: [], users: [], collaborators: [], vehicles: [], locations: [], serialItems: [], productFilter: 'all' };
 let currentUser = null;
 const $ = selector => document.querySelector(selector);
 const esc = value => String(value ?? '').replace(/[&<>'"]/g, char => ({ '&':'&amp;','<':'&lt;','>':'&gt;',"'":'&#039;','"':'&quot;' }[char]));
@@ -15,6 +15,8 @@ const movementName = item => item.fieldUsage ? 'Uso em OS' : item.type === 'entr
 const unitName = unit => ({ unidade: 'un.', metro: 'm', par: 'par', caixa: 'cx.' }[unit] || 'un.');
 const quantity = value => Number(value || 0).toLocaleString('pt-BR', { maximumFractionDigits: 3 });
 const stockLabel = item => `${quantity(item.stock)} ${unitName(item.unit_of_measure)}`;
+const serialStatusName = status => ({ disponivel:'Disponível', com_colaborador:'Com colaborador', com_veiculo:'Com veículo', instalado_cliente:'Instalado no cliente', emprestado:'Emprestado', aguardando_triagem:'Aguardando triagem', laboratorio:'Laboratório', manutencao:'Em manutenção', defeito:'Defeito', baixado:'Baixado' })[status] || status;
+const serialStatusClass = status => ({ disponivel:'ok', com_colaborador:'saida', com_veiculo:'saida', instalado_cliente:'saida', emprestado:'saida', aguardando_triagem:'low', laboratorio:'low', manutencao:'low', defeito:'out', baixado:'out' })[status] || 'low';
 
 function getFilteredMovements() {
   const query = $('#history-search').value.trim().toLowerCase();
@@ -89,7 +91,7 @@ function render() {
   $('#low-stock').textContent = lows.length;
   $('#low-stock-list').innerHTML = lows.length ? lows.map(item => `<div class="compact-row"><div><b>${esc(item.name)}</b><small>${esc(item.code)} · mínimo: ${stockLabel({ ...item, stock: item.minimum })}</small></div><span class="badge low">${stockLabel(item)}</span></div>`).join('') : '<p class="empty">Nenhum item precisa de reposição.</p>';
   $('#recent-movements').innerHTML = state.movements.slice(0, 5).map(item => `<div class="compact-row"><div><b>${movementName(item)} · ${esc(product(item.productId)?.name || 'Produto')}</b><small>${esc(item.person)} · ${item.date}</small></div><span class="badge ${item.type}">${item.type === 'entrada' ? '+' : '-'}${quantity(item.quantity)} ${unitName(product(item.productId)?.unit_of_measure)}</span></div>`).join('') || '<p class="empty">Sem movimentações.</p>';
-  renderProducts(); renderMovement(); renderFieldStock(); renderUsers(); renderRegistry();
+  renderProducts(); renderMovement(); renderFieldStock(); renderUsers(); renderRegistry(); renderSerials();
 }
 
 function renderProducts() {
@@ -132,6 +134,27 @@ function renderRegistry() {
   document.querySelectorAll('[data-toggle-location]').forEach(button => button.onclick = () => toggleLocation(button.dataset.toggleLocation));
 }
 
+function renderSerials() {
+  const table = $('#serials-table'), select = $('#serial-product');
+  if (!table || !select) return;
+  const selected = select.value;
+  const serialProducts = state.products.filter(item => item.tracking_mode === 'serializado');
+  select.innerHTML = serialProducts.map(item => `<option value="${item.id}">${esc(item.name)} (${esc(item.code)})</option>`).join('');
+  select.value = serialProducts.some(item => item.id === selected) ? selected : serialProducts[0]?.id || '';
+  const search = $('#serial-search').value.trim().toLowerCase();
+  const serials = state.serialItems.filter(item => {
+    const itemProduct = product(item.product_id);
+    const text = `${itemProduct?.name || ''} ${itemProduct?.code || ''} ${item.serial_number || ''} ${item.mac_address || ''} ${item.asset_tag || ''} ${item.customer_name || ''}`.toLowerCase();
+    return !search || text.includes(search);
+  });
+  table.innerHTML = serials.map(item => {
+    const itemProduct = product(item.product_id), location = state.locations.find(entry => entry.id === item.current_location_id);
+    return `<tr><td><b>${esc(itemProduct?.name || 'Item removido')}</b><small>${esc(itemProduct?.code || '—')}</small></td><td>${esc(item.serial_number || '—')}</td><td>${esc(item.mac_address || '—')}</td><td>${esc(item.asset_tag || '—')}</td><td>${esc(location?.name || item.customer_name || '—')}</td><td><span class="badge ${serialStatusClass(item.status)}">${esc(serialStatusName(item.status))}</span></td></tr>`;
+  }).join('') || '<tr><td colspan="6" class="empty">Nenhuma unidade rastreável encontrada.</td></tr>';
+  const locations = state.locations.filter(item => item.active);
+  $('#serial-location').innerHTML = '<option value="">Almoxarifado central</option>' + locations.map(item => `<option value="${item.id}">${esc(item.name)}</option>`).join('');
+}
+
 function renderUsers() {
   const table = $('#users-table');
   if (!table) return;
@@ -149,19 +172,21 @@ async function loadUsers() {
 }
 
 async function load() {
-  const [products, movements, collaborators, vehicles, locations] = await Promise.all([
+  const [products, movements, collaborators, vehicles, locations, serialItems] = await Promise.all([
     supabase.from('products').select('*').order('name'),
     supabase.from('movements').select('*').order('created_at', { ascending: false }),
     supabase.from('collaborators').select('*').order('name'),
     supabase.from('vehicles').select('*').order('name'),
-    supabase.from('stock_locations').select('*').order('name')
+    supabase.from('stock_locations').select('*').order('name'),
+    supabase.from('serial_items').select('*').order('created_at', { ascending: false })
   ]);
-  if (products.error || movements.error || collaborators.error || vehicles.error || locations.error) throw products.error || movements.error || collaborators.error || vehicles.error || locations.error;
+  if (products.error || movements.error || collaborators.error || vehicles.error || locations.error || serialItems.error) throw products.error || movements.error || collaborators.error || vehicles.error || locations.error || serialItems.error;
   state.products = products.data.map(item => ({ ...item, minimum: item.minimum_stock }));
   state.movements = movements.data.map(item => ({ id:item.id, type:item.movement_type, productId:item.product_id, quantity:item.quantity, person:item.recipient, holderType:item.holder_type || 'cliente', workOrder:item.work_order, fieldUsage:item.field_usage || false, note:item.note, createdAt:item.created_at, date:date(item.created_at) }));
   state.collaborators = collaborators.data;
   state.vehicles = vehicles.data;
   state.locations = locations.data;
+  state.serialItems = serialItems.data;
   try {
     await loadUsers();
   } catch (error) {
@@ -250,8 +275,8 @@ function view(id) {
   document.querySelectorAll('.view').forEach(element => element.classList.toggle('active', element.id === id));
   document.querySelectorAll('.nav-link').forEach(button => button.classList.toggle('active', button.dataset.view === id));
   document.querySelector('main').classList.toggle('dashboard-mode', id === 'dashboard');
-  $('#page-title').textContent = ({ dashboard:'Visão geral', products:'Produtos', movement:'Movimentações', registry:'Cadastros', users:'Usuários' })[id];
-  $('#header-action').hidden = id === 'users' || id === 'products' || id === 'registry';
+  $('#page-title').textContent = ({ dashboard:'Visão geral', products:'Produtos', movement:'Movimentações', serials:'Serial / MAC', registry:'Cadastros', users:'Usuários' })[id];
+  $('#header-action').hidden = id === 'users' || id === 'products' || id === 'serials' || id === 'registry';
   $('#header-action').textContent = id === 'products' ? '+ Cadastrar produto' : '+ Nova movimentação';
 }
 
@@ -299,6 +324,7 @@ async function start(session) {
   document.querySelectorAll('[data-admin-only]').forEach(element => { element.hidden = !isAdmin; });
   document.querySelectorAll('[data-manager-only]').forEach(element => { element.hidden = !canManage; });
   $('#users').hidden = !isAdmin;
+  $('#serials').hidden = !canManage;
   $('#registry').hidden = !canManage;
   try { await load(); } catch (error) { alert(error.message); }
 }
@@ -308,12 +334,17 @@ document.querySelectorAll('[data-go]').forEach(button => button.onclick = () => 
 $('#header-action').onclick = () => $('.view.active').id === 'products' ? $('#product-dialog').showModal() : view('movement');
 $('#add-product').onclick = () => $('#product-dialog').showModal();
 $('#add-user').onclick = () => $('#user-dialog').showModal();
+$('#add-serial').onclick = () => {
+  if (!state.products.some(item => item.tracking_mode === 'serializado')) return alert('Cadastre ou edite um item e escolha o controle “Por serial / MAC” antes de registrar uma unidade.');
+  $('#serial-dialog').showModal();
+};
 $('#add-collaborator').onclick = () => $('#collaborator-dialog').showModal();
 $('#add-vehicle').onclick = () => $('#vehicle-dialog').showModal();
 $('#add-location').onclick = () => $('#location-dialog').showModal();
 document.querySelectorAll('[data-close-dialog]').forEach(button => button.onclick = () => button.closest('dialog').close());
 $('#low-stock-card').onclick = () => showProducts('low');
 $('#product-search').oninput = () => { state.productFilter = 'all'; renderProducts(); };
+$('#serial-search').oninput = renderSerials;
 document.querySelectorAll('[data-history-filter]').forEach(element => { element.oninput = renderMovement; element.onchange = renderMovement; });
 $('#clear-history-filters').onclick = () => { document.querySelectorAll('[data-history-filter]').forEach(element => { element.value = ''; }); renderMovement(); };
 $('#export-excel').onclick = exportExcelReport;
@@ -339,6 +370,16 @@ function updateMovementMode() {
 $('#movement-type').onchange = updateMovementMode;
 $('#movement-holder-type').onchange = updateMovementRecipientPlaceholder;
 updateMovementMode();
+
+function updateSerialStockOption() {
+  const available = $('#serial-status').value === 'disponivel', addToStock = $('#serial-add-stock');
+  addToStock.disabled = !available;
+  if (!available) addToStock.checked = false;
+  $('#serial-stock-help').textContent = available ? 'Marque para dar entrada desta unidade no estoque. Desmarque apenas se ela já estiver incluída no saldo do produto.' : 'Unidades indisponíveis não entram no saldo disponível do almoxarifado.';
+}
+
+$('#serial-status').onchange = updateSerialStockOption;
+updateSerialStockOption();
 
 function productData(prefix) {
   return {
@@ -419,6 +460,24 @@ $('#location-form').onsubmit = async event => {
   });
   if (error) return alert(error.message);
   event.target.reset(); $('#location-dialog').close(); await load(); view('registry');
+};
+
+$('#serial-form').onsubmit = async event => {
+  event.preventDefault();
+  const { error } = await supabase.rpc('register_serial_item', {
+    p_product_id: $('#serial-product').value,
+    p_serial_number: $('#serial-number').value || null,
+    p_mac_address: $('#serial-mac').value || null,
+    p_asset_tag: $('#serial-asset-tag').value || null,
+    p_status: $('#serial-status').value,
+    p_location_id: $('#serial-location').value || null,
+    p_customer_name: $('#serial-customer').value || null,
+    p_customer_reference: $('#serial-customer-reference').value || null,
+    p_notes: $('#serial-notes').value || null,
+    p_add_to_stock: $('#serial-add-stock').checked
+  });
+  if (error) return alert(error.message);
+  event.target.reset(); $('#serial-add-stock').checked = true; updateSerialStockOption(); $('#serial-dialog').close(); await load(); view('serials');
 };
 
 $('#user-form').onsubmit = async event => {
