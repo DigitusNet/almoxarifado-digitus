@@ -20,9 +20,9 @@ export default async function handler(req, res) {
     const { data: { user }, error: sessionError } = await sessionClient.auth.getUser(token);
     if (sessionError || !user) return res.status(401).json({ error: 'Sessão inválida.' });
 
-    const admin = createClient(url, serviceKey);
-    const { data: requester, error: requesterError } = await admin.from('profiles').select('role').eq('id', user.id).single();
+    const { data: requester, error: requesterError } = await sessionClient.from('profiles').select('role').eq('id', user.id).single();
     if (requesterError || requester?.role !== 'admin') return res.status(403).json({ error: 'Apenas administradores podem gerenciar usuários.' });
+    const admin = createClient(url, serviceKey);
 
     if (req.method === 'GET') {
       const [{ data: authData, error: authError }, { data: profiles, error: profileError }] = await Promise.all([

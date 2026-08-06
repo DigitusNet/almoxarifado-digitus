@@ -14,13 +14,13 @@ export default async function handler(req, res) {
     if (!url || !serviceKey || !publicKey) throw new Error('Configuração segura do Supabase ausente.');
     if (!token || !id) return res.status(400).json({ error: 'Dados inválidos.' });
 
-    const sessionClient = createClient(url, publicKey);
+    const sessionClient = createClient(url, publicKey, { global: { headers: { Authorization: `Bearer ${token}` } } });
     const { data: { user }, error: sessionError } = await sessionClient.auth.getUser(token);
     if (sessionError || !user) return res.status(401).json({ error: 'Sessão inválida.' });
 
-    const admin = createClient(url, serviceKey);
-    const { data: profile, error: profileError } = await admin.from('profiles').select('role').eq('id', user.id).single();
+    const { data: profile, error: profileError } = await sessionClient.from('profiles').select('role').eq('id', user.id).single();
     if (profileError || profile?.role !== 'admin') return res.status(403).json({ error: 'Apenas administradores podem apagar produtos.' });
+    const admin = createClient(url, serviceKey);
 
     const { count, error: countError } = await admin.from('movements').select('id', { count: 'exact', head: true }).eq('product_id', id);
     if (countError) throw countError;
