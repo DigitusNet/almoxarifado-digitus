@@ -9,3 +9,7 @@ Sistema web para controle de estoque. Para desenvolvimento, instale as dependên
 3. Em **Project Settings > API**, preencha a URL do projeto e a chave **publishable** em `.env.local`. Nunca use uma chave `service_role` no navegador.
 
 O banco foi preparado com usuários, perfis e permissões. O primeiro usuário administrador é criado manualmente pela instrução no fim do arquivo SQL.
+
+## Administração de usuários
+
+Para permitir que administradores criem usuários dentro do site, configure na Vercel a variável secreta `SUPABASE_SERVICE_ROLE_KEY`. Ela é usada somente pelo endpoint do servidor `/api/users` e nunca é enviada ao navegador.
