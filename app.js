@@ -454,6 +454,8 @@ function renderDashboardOperations(caAlerts) {
   const openReminders = state.reminders.filter(item => item.status === 'aberto').sort((a, b) => new Date(a.due_date) - new Date(b.due_date));
   const expiring = [...caAlerts].sort((a, b) => new Date(a.ca_expiry_date) - new Date(b.ca_expiry_date));
   const openRequests = state.materialRequests.filter(item => item.status === 'aberta').sort((a, b) => new Date(b.created_at) - new Date(a.created_at));
+  const canCompleteRequests = ['admin', 'operador'].includes(currentUser?.role);
+  const canDeleteRequests = currentUser?.role === 'admin';
   $('#dashboard-overdue-loan-list-count').textContent = overdue.length;
   $('#dashboard-reminder-count').textContent = openReminders.length;
   $('#dashboard-expiry-count').textContent = expiring.length;
@@ -461,7 +463,7 @@ function renderDashboardOperations(caAlerts) {
   $('#dashboard-overdue-loans-table').innerHTML = overdue.map((loan, index) => `<tr><td>${index + 1}</td><td>${esc(loan.collaborator_name || 'Não informado')}</td><td>${date(loan.due_at)}</td><td><button class="dashboard-icon-action" data-dashboard-loan="${loan.id}" type="button" aria-label="Ver empréstimo">◉</button></td></tr>`).join('') || '<tr><td colspan="4" class="empty">Nenhum empréstimo em atraso.</td></tr>';
   $('#dashboard-reminders-table').innerHTML = openReminders.map(item => `<tr><td>${esc(item.recipient)}</td><td>${esc(item.description)}</td><td>${date(item.due_date)}</td><td><button class="dashboard-icon-action danger" data-close-reminder="${item.id}" type="button" aria-label="Concluir lembrete">×</button></td></tr>`).join('') || '<tr><td colspan="4" class="empty">Nenhum lembrete registrado.</td></tr>';
   $('#dashboard-expiring-table').innerHTML = expiring.map(item => `<tr><td>${esc(item.name)}</td><td>${esc(item.ca_number || 'CA não informado')}</td><td>${new Date(`${item.ca_expiry_date}T00:00:00`).toLocaleDateString('pt-BR')}</td><td><button class="dashboard-icon-action" data-dashboard-expiry="${item.id}" type="button" aria-label="Ver item">◉</button></td></tr>`).join('') || '<tr><td colspan="4" class="empty">Nenhum material próximo ao vencimento.</td></tr>';
-  $('#dashboard-requests-table').innerHTML = openRequests.map((item, index) => `<tr><td>${index + 1}</td><td>${esc(item.requester)}</td><td>${date(item.created_at)}</td><td><button class="dashboard-icon-action" data-dashboard-request="${item.id}" type="button" aria-label="Mostrar descrição da solicitação" aria-expanded="false">◉</button></td></tr><tr id="dashboard-request-detail-${item.id}" class="dashboard-request-detail" hidden><td colspan="4"><b>Solicitação:</b> ${esc(item.description)}</td></tr>`).join('') || '<tr><td colspan="4" class="empty">Nenhuma solicitação de material.</td></tr>';
+  $('#dashboard-requests-table').innerHTML = openRequests.map((item, index) => `<tr><td>${index + 1}</td><td>${esc(item.requester)}</td><td>${date(item.created_at)}</td><td><span class="dashboard-request-actions"><button class="dashboard-icon-action" data-dashboard-request="${item.id}" type="button" aria-label="Mostrar descrição da solicitação" aria-expanded="false">◉</button>${canCompleteRequests ? `<button class="dashboard-icon-action success" data-complete-request="${item.id}" type="button" aria-label="Concluir solicitação" title="Concluir solicitação">✓</button>` : ''}${canDeleteRequests ? `<button class="dashboard-icon-action danger" data-delete-request="${item.id}" type="button" aria-label="Apagar solicitação" title="Apagar solicitação">×</button>` : ''}</span></td></tr><tr id="dashboard-request-detail-${item.id}" class="dashboard-request-detail" hidden><td colspan="4"><b>Solicitação:</b> ${esc(item.description)}</td></tr>`).join('') || '<tr><td colspan="4" class="empty">Nenhuma solicitação de material.</td></tr>';
   document.querySelectorAll('[data-dashboard-loan]').forEach(button => button.onclick = () => view('loans'));
   document.querySelectorAll('[data-dashboard-expiry]').forEach(button => button.onclick = () => { state.productFilter = 'ca'; $('#product-status-filter').value = 'ca'; view('products'); renderProducts(); });
   document.querySelectorAll('[data-dashboard-request]').forEach(button => button.onclick = () => {
@@ -470,7 +472,24 @@ function renderDashboardOperations(caAlerts) {
     detail.hidden = !detail.hidden;
     button.setAttribute('aria-expanded', String(!detail.hidden));
   });
+  document.querySelectorAll('[data-complete-request]').forEach(button => button.onclick = () => completeMaterialRequest(button.dataset.completeRequest));
+  document.querySelectorAll('[data-delete-request]').forEach(button => button.onclick = () => deleteMaterialRequest(button.dataset.deleteRequest));
   document.querySelectorAll('[data-close-reminder]').forEach(button => button.onclick = () => closeReminder(button.dataset.closeReminder));
+}
+
+async function completeMaterialRequest(id) {
+  if (!['admin', 'operador'].includes(currentUser?.role)) return alert('Apenas administradores e operadores podem concluir solicitações.');
+  const { error } = await supabase.from('material_requests').update({ status: 'atendida', updated_at: new Date().toISOString() }).eq('id', id);
+  if (error) return alert('Não foi possível concluir a solicitação.');
+  await load();
+}
+
+async function deleteMaterialRequest(id) {
+  if (currentUser?.role !== 'admin') return alert('Apenas administradores podem apagar solicitações.');
+  if (!confirm('Apagar esta solicitação definitivamente?')) return;
+  const { error } = await supabase.from('material_requests').delete().eq('id', id);
+  if (error) return alert('Não foi possível apagar a solicitação. Execute o SQL desta atualização no Supabase.');
+  await load();
 }
 
 async function closeReminder(id) {
