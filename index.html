@@ -74,58 +74,56 @@
         </section>
 
         <section id="receipts" class="view" hidden>
-          <div class="toolbar"><div><p class="eyebrow">Entrada de mercadorias</p><h2 class="section-title">Recebimentos</h2></div><div class="toolbar-actions"><button class="secondary-button" id="import-xml">↥ Importar XML da NF-e</button><button class="primary" id="add-receipt">+ Novo recebimento</button></div></div>
+          <div class="toolbar toolbar-actions-only"><div class="toolbar-actions"><button class="secondary-button" id="import-xml">↥ Importar XML da NF-e</button><button class="primary" id="add-receipt">+ Novo recebimento</button></div></div>
           <div class="registry-intro"><b>Use esta tela para materiais controlados por quantidade.</b> Para ONUs, roteadores, ferramentas e outros itens por Serial/MAC, cadastre as unidades individualmente na tela Serial / MAC.</div>
-          <section class="panel table-panel"><div class="section-panel-heading"><div><h2>Recebimentos recentes</h2><p class="muted">Entradas registradas por fornecedor e número de nota.</p></div></div><div class="table-wrap"><table><thead><tr><th>Fornecedor</th><th>Nota fiscal</th><th>Materiais</th><th>Recebido em</th><th>Ações</th></tr></thead><tbody id="receipts-table"></tbody></table></div></section>
+          <section class="panel table-panel"><div class="section-panel-heading"><h2>Recebimentos recentes</h2></div><div class="table-wrap"><table><thead><tr><th>Fornecedor</th><th>Nota fiscal</th><th>Materiais</th><th>Recebido em</th><th>Ações</th></tr></thead><tbody id="receipts-table"></tbody></table></div></section>
         </section>
 
         <section id="serials" class="view" hidden>
-          <div class="toolbar"><div><p class="eyebrow">Rastreabilidade de ativos</p><h2 class="section-title">Serial / MAC / patrimônio</h2></div><button class="primary" id="add-serial">+ Cadastrar unidade</button></div>
+          <div class="toolbar toolbar-actions-only"><button class="primary" id="add-serial">+ Cadastrar unidade</button></div>
           <div class="registry-intro"><b>Use esta tela para os itens marcados como “Por serial / MAC”.</b> Cada ONU, roteador, switch, ferramenta ou patrimônio terá seu próprio registro e status.</div>
           <div class="toolbar serial-toolbar"><label class="search"><span>⌕</span><input id="serial-search" placeholder="Buscar por item, serial, MAC ou patrimônio" /></label></div>
           <section class="panel table-panel"><div class="table-wrap"><table><thead><tr><th>Item</th><th>Serial</th><th>MAC</th><th>Patrimônio</th><th>Local / cliente</th><th>Status</th><th>Ações</th></tr></thead><tbody id="serials-table"></tbody></table></div></section>
         </section>
 
         <section id="laboratory" class="view" hidden>
-          <div class="toolbar"><div><p class="eyebrow">Triagem e logística reversa</p><h2 class="section-title">Laboratório</h2></div></div>
           <div class="registry-intro"><b>Envie os itens para um local de laboratório pela tela Serial / MAC.</b> Aqui você registra o resultado da avaliação e decide se o equipamento volta ao estoque, continua em manutenção, fica como defeito ou é baixado.</div>
-          <div class="loan-metrics laboratory-metrics"><article class="loan-metric"><span>Em triagem</span><strong id="lab-total">0</strong><small>Equipamentos no laboratório</small></article><article class="loan-metric warning"><span>Com pendência</span><strong id="lab-pending-total">0</strong><small>Em manutenção ou defeito</small></article></div>
+          <div class="loan-metrics laboratory-metrics"><article class="loan-metric"><span>Em triagem</span><strong id="lab-total">0</strong></article><article class="loan-metric warning"><span>Com pendência</span><strong id="lab-pending-total">0</strong></article></div>
           <div class="toolbar serial-toolbar"><label class="search"><span>⌕</span><input id="lab-search" placeholder="Buscar por item, serial, MAC ou patrimônio" /></label></div>
           <section class="panel table-panel"><div class="table-wrap"><table><thead><tr><th>Item</th><th>Serial / MAC / patrimônio</th><th>Local</th><th>Status</th><th>Ações</th></tr></thead><tbody id="laboratory-table"></tbody></table></div></section>
         </section>
 
         <section id="loans" class="view" hidden>
-          <div class="toolbar"><div><p class="eyebrow">Ferramentas e patrimônios</p><h2 class="section-title">Cautelas em aberto</h2></div><button class="primary" id="add-loan">+ Registrar cautela</button></div>
-          <div class="loan-metrics"><article class="loan-metric"><span>Em aberto</span><strong id="open-loan-count">0</strong><small>Ferramentas fora do almoxarifado</small></article><article class="loan-metric warning"><span>Devoluções atrasadas</span><strong id="overdue-loan-count">0</strong><small>Empréstimos temporários vencidos</small></article></div>
-          <section class="panel table-panel"><div class="section-panel-heading"><div><h2>Ferramentas emprestadas</h2><p class="muted">Registre a devolução quando a ferramenta retornar.</p></div></div><div class="table-wrap"><table><thead><tr><th>Ferramenta</th><th>Responsável</th><th>Tipo</th><th>Retirada</th><th>Devolução prevista</th><th>Status</th><th>Ações</th></tr></thead><tbody id="loans-table"></tbody></table></div></section>
+          <div class="toolbar toolbar-actions-only"><button class="primary" id="add-loan">+ Registrar cautela</button></div>
+          <div class="loan-metrics"><article class="loan-metric"><span>Em aberto</span><strong id="open-loan-count">0</strong></article><article class="loan-metric warning"><span>Devoluções atrasadas</span><strong id="overdue-loan-count">0</strong></article></div>
+          <section class="panel table-panel"><div class="section-panel-heading"><h2>Ferramentas emprestadas</h2></div><div class="table-wrap"><table><thead><tr><th>Ferramenta</th><th>Responsável</th><th>Tipo</th><th>Retirada</th><th>Devolução prevista</th><th>Status</th><th>Ações</th></tr></thead><tbody id="loans-table"></tbody></table></div></section>
         </section>
 
         <section id="inventory" class="view" hidden>
-          <div class="toolbar"><div><p class="eyebrow">Conferência de estoque</p><h2 class="section-title">Inventário rotativo</h2></div><button class="primary" id="start-inventory">+ Iniciar inventário</button></div>
+          <div class="toolbar toolbar-actions-only"><button class="primary" id="start-inventory">+ Iniciar inventário</button></div>
           <div class="registry-intro"><b>Faça a contagem física antes de preencher os campos.</b> Enquanto um inventário estiver em aberto, evite registrar novas movimentações para que a conferência fique correta.</div>
-          <section class="panel inventory-empty" id="inventory-empty"><h2>Nenhum inventário em aberto</h2><p class="muted">Inicie uma conferência para comparar o saldo do sistema com a quantidade física do almoxarifado.</p></section>
+          <section class="panel inventory-empty" id="inventory-empty"><h2>Nenhum inventário em aberto</h2></section>
           <section class="inventory-session" id="inventory-session" hidden>
             <div class="inventory-session-heading"><div><span class="badge low">Em andamento</span><h2 id="inventory-title">Inventário</h2><p class="muted" id="inventory-subtitle"></p></div><div class="inventory-actions"><button class="secondary-button" id="save-inventory-counts" type="button">Salvar contagens</button><button class="primary" id="finish-inventory" type="button">Finalizar e ajustar</button></div></div>
             <div class="loan-metrics inventory-metrics"><article class="loan-metric"><span>Itens conferidos</span><strong id="inventory-counted-total">0 / 0</strong><small>Preencha a quantidade física</small></article><article class="loan-metric"><span>Divergências</span><strong id="inventory-difference-total">0</strong><small>Itens com saldo diferente</small></article></div>
             <section class="panel table-panel"><div class="table-wrap"><table><thead><tr><th>Item</th><th>Esperado</th><th>Quantidade física</th><th>Diferença</th><th>Observação</th></tr></thead><tbody id="inventory-counts-table"></tbody></table></div></section>
             <label class="inventory-final-note">Justificativa dos ajustes <textarea id="inventory-final-note" rows="3" placeholder="Ex.: Conferência mensal, perda identificada, material encontrado..."></textarea></label>
           </section>
-          <section class="panel table-panel inventory-history"><div class="section-panel-heading"><div><h2>Inventários finalizados</h2><p class="muted">Histórico das últimas conferências realizadas.</p></div></div><div class="table-wrap"><table><thead><tr><th>Inventário</th><th>Filtro</th><th>Início</th><th>Finalização</th><th>Status</th></tr></thead><tbody id="inventory-history-table"></tbody></table></div></section>
+          <section class="panel table-panel inventory-history"><div class="section-panel-heading"><h2>Inventários finalizados</h2></div><div class="table-wrap"><table><thead><tr><th>Inventário</th><th>Filtro</th><th>Início</th><th>Finalização</th><th>Status</th></tr></thead><tbody id="inventory-history-table"></tbody></table></div></section>
         </section>
 
         <section id="registry" class="view" hidden>
-          <div class="toolbar"><div><p class="eyebrow">Estrutura operacional</p><h2 class="section-title">Cadastros-base</h2></div><div class="toolbar-actions"><button class="secondary-button" id="add-location">+ Cadastrar local</button><button class="secondary-button" id="add-vehicle">+ Cadastrar veículo</button><button class="primary" id="add-collaborator">+ Cadastrar colaborador</button></div></div>
-          <div class="registry-intro"><b>Colaboradores não recebem login automaticamente.</b> Eles servem para identificar para quem os materiais, veículos e ferramentas são destinados.</div>
+          <div class="toolbar toolbar-actions-only"><div class="toolbar-actions"><button class="secondary-button" id="add-location">+ Cadastrar local</button><button class="secondary-button" id="add-vehicle">+ Cadastrar veículo</button><button class="primary" id="add-collaborator">+ Cadastrar colaborador</button></div></div>
           <div class="grid-2 registry-grid">
-            <section class="panel table-panel"><div class="section-panel-heading"><h2>Colaboradores</h2><span class="muted">Técnicos e equipes de campo</span></div><div class="table-wrap"><table><thead><tr><th>Nome</th><th>Setor</th><th>Contato</th><th>Status</th><th>Ações</th></tr></thead><tbody id="collaborators-table"></tbody></table></div></section>
-            <section class="panel table-panel"><div class="section-panel-heading"><h2>Veículos</h2><span class="muted">Estoque móvel e cargas</span></div><div class="table-wrap"><table><thead><tr><th>Veículo</th><th>Responsável</th><th>Status</th><th>Ações</th></tr></thead><tbody id="vehicles-table"></tbody></table></div></section>
+            <section class="panel table-panel"><div class="section-panel-heading"><h2>Colaboradores</h2></div><div class="table-wrap"><table><thead><tr><th>Nome</th><th>Setor</th><th>Contato</th><th>Status</th><th>Ações</th></tr></thead><tbody id="collaborators-table"></tbody></table></div></section>
+            <section class="panel table-panel"><div class="section-panel-heading"><h2>Veículos</h2></div><div class="table-wrap"><table><thead><tr><th>Veículo</th><th>Responsável</th><th>Status</th><th>Ações</th></tr></thead><tbody id="vehicles-table"></tbody></table></div></section>
           </div>
-          <section class="panel table-panel locations-panel"><div class="section-panel-heading"><div><h2>Locais de estoque</h2><p class="muted">Almoxarifado, laboratório e outros locais físicos</p></div></div><div class="table-wrap"><table><thead><tr><th>Local</th><th>Tipo</th><th>Status</th><th>Ações</th></tr></thead><tbody id="locations-table"></tbody></table></div></section>
-          <section class="panel table-panel suppliers-panel"><div class="section-panel-heading"><div><h2>Fornecedores</h2><p class="muted">Empresas usadas nos recebimentos de materiais</p></div><button class="primary small-primary" id="add-supplier">+ Cadastrar fornecedor</button></div><div class="table-wrap"><table><thead><tr><th>Fornecedor</th><th>CNPJ</th><th>Contato</th><th>Status</th><th>Ações</th></tr></thead><tbody id="suppliers-table"></tbody></table></div></section>
+          <section class="panel table-panel locations-panel"><div class="section-panel-heading"><h2>Locais de estoque</h2></div><div class="table-wrap"><table><thead><tr><th>Local</th><th>Tipo</th><th>Status</th><th>Ações</th></tr></thead><tbody id="locations-table"></tbody></table></div></section>
+          <section class="panel table-panel suppliers-panel"><div class="section-panel-heading"><h2>Fornecedores</h2><button class="primary small-primary" id="add-supplier">+ Cadastrar fornecedor</button></div><div class="table-wrap"><table><thead><tr><th>Fornecedor</th><th>CNPJ</th><th>Contato</th><th>Status</th><th>Ações</th></tr></thead><tbody id="suppliers-table"></tbody></table></div></section>
         </section>
 
         <section id="users" class="view" hidden>
-          <div class="toolbar"><div><p class="eyebrow">Acesso ao sistema</p><h2 class="section-title">Usuários e permissões</h2></div><button class="primary" id="add-user">+ Adicionar usuário</button></div>
+          <div class="toolbar toolbar-actions-only"><button class="primary" id="add-user">+ Adicionar usuário</button></div>
           <section class="panel table-panel"><div class="table-wrap"><table><thead><tr><th>Nome</th><th>E-mail</th><th>Função</th><th>Status</th><th>Ações</th></tr></thead><tbody id="users-table"></tbody></table></div></section>
         </section>
       </main>
