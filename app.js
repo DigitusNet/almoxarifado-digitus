@@ -367,9 +367,9 @@ function caAlert(item) {
   if (days <= 30) return { type: 'warning', label: `CA vence em ${days} dia${days === 1 ? '' : 's'}` };
   return null;
 }
-const serialStatusName = status => ({ disponivel:'Disponível', com_colaborador:'Com colaborador', com_veiculo:'Com veículo', instalado_cliente:'Instalado no cliente', emprestado:'Emprestado', aguardando_triagem:'Aguardando triagem', laboratorio:'Laboratório', manutencao:'Em manutenção', defeito:'Defeito', baixado:'Baixado' })[status] || status;
+const serialStatusName = status => ({ disponivel:'Disponível', com_colaborador:'Com colaborador', com_veiculo:'Com veículo', instalado_cliente:'Instalado no cliente', emprestado:'Emprestado', aguardando_triagem:'Aguardando triagem', laboratorio:'Oficina', manutencao:'Em manutenção', defeito:'Defeito', baixado:'Baixado' })[status] || status;
 const serialStatusClass = status => ({ disponivel:'ok', com_colaborador:'saida', com_veiculo:'saida', instalado_cliente:'saida', emprestado:'saida', aguardando_triagem:'low', laboratorio:'low', manutencao:'low', defeito:'out', baixado:'out' })[status] || 'low';
-const serialActionName = action => ({ transferencia:'Transferência', instalacao:'Instalação em cliente', laboratorio:'Envio ao laboratório', retorno:'Retorno ao almoxarifado', baixa:'Baixa / sucata' })[action] || action;
+const serialActionName = action => ({ transferencia:'Transferência', instalacao:'Instalação em cliente', laboratorio:'Envio à oficina', retorno:'Retorno ao almoxarifado', baixa:'Baixa / sucata' })[action] || action;
 const loanTypeName = type => type === 'cautela' ? 'Empréstimo sem prazo' : 'Empréstimo temporário';
 const loanOverdue = loan => !loan.returned_at && loan.loan_type === 'temporario' && loan.due_at && new Date(loan.due_at) < new Date();
 
@@ -625,7 +625,7 @@ function renderRegistry() {
   const collaborators = state.collaborators;
   collaboratorsTable.innerHTML = collaborators.map(item => `<tr><td><b>${esc(item.name)}</b><small>${esc(item.job_title || 'Sem cargo informado')}</small></td><td>${esc(item.department || '—')}</td><td>${esc(item.phone || '—')}</td><td>${item.active ? '<span class="badge ok">Ativo</span>' : '<span class="badge out">Inativo</span>'}</td><td><div class="table-actions"><button class="secondary-button" data-toggle-collaborator="${item.id}">${item.active ? 'Desativar' : 'Reativar'}</button><button class="danger-button" data-delete-collaborator="${item.id}">Remover</button></div></td></tr>`).join('') || '<tr><td colspan="5" class="empty">Nenhum colaborador cadastrado.</td></tr>';
   vehiclesTable.innerHTML = state.vehicles.map(item => `<tr><td><b>${esc(item.name)}</b><small>${esc(item.plate || 'Sem placa informada')}</small></td><td>${esc(state.collaborators.find(collaborator => collaborator.id === item.responsible_id)?.name || '—')}</td><td>${item.active ? '<span class="badge ok">Ativo</span>' : '<span class="badge out">Inativo</span>'}</td><td><div class="table-actions"><button class="secondary-button" data-toggle-vehicle="${item.id}">${item.active ? 'Desativar' : 'Reativar'}</button><button class="danger-button" data-delete-vehicle="${item.id}">Remover</button></div></td></tr>`).join('') || '<tr><td colspan="4" class="empty">Nenhum veículo cadastrado.</td></tr>';
-  locationsTable.innerHTML = state.locations.map(item => `<tr><td><b>${esc(item.name)}</b></td><td>${esc(({ central:'Almoxarifado central', laboratorio:'Laboratório', outro:'Outro', colaborador:'Colaborador', veiculo:'Veículo', cliente:'Cliente' })[item.location_type] || item.location_type)}</td><td>${item.active ? '<span class="badge ok">Ativo</span>' : '<span class="badge out">Inativo</span>'}</td><td>${item.location_type === 'central' ? '—' : `<button class="secondary-button" data-toggle-location="${item.id}">${item.active ? 'Desativar' : 'Reativar'}</button>`}</td></tr>`).join('') || '<tr><td colspan="4" class="empty">Nenhum local cadastrado.</td></tr>';
+  locationsTable.innerHTML = state.locations.map(item => `<tr><td><b>${esc(item.name)}</b></td><td>${esc(({ central:'Almoxarifado central', laboratorio:'Oficina', outro:'Outro', colaborador:'Colaborador', veiculo:'Veículo', cliente:'Cliente' })[item.location_type] || item.location_type)}</td><td>${item.active ? '<span class="badge ok">Ativo</span>' : '<span class="badge out">Inativo</span>'}</td><td>${item.location_type === 'central' ? '—' : `<button class="secondary-button" data-toggle-location="${item.id}">${item.active ? 'Desativar' : 'Reativar'}</button>`}</td></tr>`).join('') || '<tr><td colspan="4" class="empty">Nenhum local cadastrado.</td></tr>';
   suppliersTable.innerHTML = state.suppliers.map(item => `<tr><td><b>${esc(item.name)}</b><small>${esc(item.email || 'Sem e-mail informado')}</small></td><td>${esc(item.cnpj || '—')}</td><td>${esc([item.contact_name, item.phone].filter(Boolean).join(' · ') || '—')}</td><td>${item.active ? '<span class="badge ok">Ativo</span>' : '<span class="badge out">Inativo</span>'}</td><td><div class="table-actions"><button class="secondary-button" data-toggle-supplier="${item.id}">${item.active ? 'Desativar' : 'Reativar'}</button><button class="danger-button" data-delete-supplier="${item.id}">Remover</button></div></td></tr>`).join('') || '<tr><td colspan="5" class="empty">Nenhum fornecedor cadastrado.</td></tr>';
   $('#collaborator-options').innerHTML = collaborators.filter(item => item.active).map(item => `<option value="${esc(item.name)}"></option>`).join('');
   $('#vehicle-options').innerHTML = state.vehicles.filter(item => item.active).map(item => `<option value="${esc(item.name)}">${esc(item.plate || '')}</option>`).join('');
@@ -704,8 +704,8 @@ function renderLaboratory() {
   table.innerHTML = items.map(item => {
     const itemProduct = product(item.product_id), location = state.locations.find(entry => entry.id === item.current_location_id);
     const identifiers = [item.serial_number && `Serial: ${item.serial_number}`, item.mac_address && `MAC: ${item.mac_address}`, item.asset_tag && `Patrimônio: ${item.asset_tag}`].filter(Boolean).join(' · ');
-    return `<tr><td><b>${esc(itemProduct?.name || 'Item removido')}</b><small>${esc(itemProduct?.code || '—')}</small></td><td>${esc(identifiers || 'Sem identificador')}</td><td>${esc(location?.name || 'Laboratório')}</td><td><span class="badge ${serialStatusClass(item.status)}">${esc(serialStatusName(item.status))}</span></td><td><div class="table-actions"><button class="primary small-primary" data-process-laboratory="${item.id}">Processar</button><button class="text-button" data-history-serial="${item.id}">Histórico</button></div></td></tr>`;
-  }).join('') || '<tr><td colspan="5" class="empty">Nenhum equipamento aguardando avaliação no laboratório.</td></tr>';
+    return `<tr><td><b>${esc(itemProduct?.name || 'Item removido')}</b><small>${esc(itemProduct?.code || '—')}</small></td><td>${esc(identifiers || 'Sem identificador')}</td><td>${esc(location?.name || 'Oficina')}</td><td><span class="badge ${serialStatusClass(item.status)}">${esc(serialStatusName(item.status))}</span></td><td><div class="table-actions"><button class="primary small-primary" data-process-laboratory="${item.id}">Processar</button><button class="text-button" data-history-serial="${item.id}">Histórico</button></div></td></tr>`;
+  }).join('') || '<tr><td colspan="5" class="empty">Nenhum equipamento aguardando avaliação na oficina.</td></tr>';
   document.querySelectorAll('[data-process-laboratory]').forEach(button => button.onclick = () => openLaboratoryDialog(button.dataset.processLaboratory));
   document.querySelectorAll('[data-history-serial]').forEach(button => button.onclick = () => openSerialHistory(button.dataset.historySerial));
 }
@@ -716,8 +716,8 @@ function updateLaboratoryForm() {
   $('#laboratory-note').required = requiresNote;
   $('#laboratory-help').textContent = ({
     aprovar: 'O item será devolvido ao Almoxarifado Central e voltará ao saldo disponível.',
-    manutencao: 'O item continuará no laboratório, marcado como em manutenção.',
-    defeito: 'O item continuará no laboratório, marcado como defeito e fora do saldo disponível.',
+    manutencao: 'O item continuará na oficina, marcado como em manutenção.',
+    defeito: 'O item continuará na oficina, marcado como defeito e fora do saldo disponível.',
     baixar: 'O item será baixado definitivamente como sucata e não poderá mais ser movimentado.'
   })[action];
 }
@@ -745,8 +745,8 @@ function openSerialTransfer(id) {
   $('#serial-transfer-id').value = item.id;
   $('#serial-transfer-item').innerHTML = `<b>${esc(itemProduct?.name || 'Item')}</b><span>Serial: ${esc(item.serial_number || '—')} · MAC: ${esc(item.mac_address || '—')} · Status atual: ${esc(serialStatusName(item.status))}</span>`;
   const actions = item.status === 'disponivel'
-    ? [['colaborador', 'Entregar para colaborador'], ['veiculo', 'Carregar em veículo'], ['instalar', 'Instalar no cliente'], ['laboratorio', 'Enviar ao laboratório'], ['baixar', 'Baixar / sucata']]
-    : [ ...(item.status !== 'laboratorio' ? [['laboratorio', 'Enviar ao laboratório']] : []), ['retornar', 'Retornar ao almoxarifado'], ['baixar', 'Baixar / sucata'] ];
+    ? [['colaborador', 'Entregar para colaborador'], ['veiculo', 'Carregar em veículo'], ['instalar', 'Instalar no cliente'], ['laboratorio', 'Enviar à oficina'], ['baixar', 'Baixar / sucata']]
+    : [ ...(item.status !== 'laboratorio' ? [['laboratorio', 'Enviar à oficina']] : []), ['retornar', 'Retornar ao almoxarifado'], ['baixar', 'Baixar / sucata'] ];
   $('#serial-transfer-action').innerHTML = actions.map(([value, label]) => `<option value="${value}">${label}</option>`).join('');
   populateSerialTransferOptions();
   updateSerialTransferForm();
@@ -765,7 +765,7 @@ function updateSerialTransferForm() {
     colaborador: 'A unidade sairá do almoxarifado e ficará vinculada ao colaborador selecionado.',
     veiculo: 'A unidade sairá do almoxarifado e ficará na carga do veículo selecionado.',
     instalar: 'A unidade será marcada como instalada no cliente. Informe a OS quando disponível.',
-    laboratorio: 'A unidade deixará o saldo disponível e ficará em laboratório.',
+    laboratorio: 'A unidade deixará o saldo disponível e ficará na oficina.',
     retornar: 'A unidade voltará ao Almoxarifado Central e entrará novamente no saldo disponível.',
     baixar: 'A unidade será baixada como sucata/indisponível e não poderá mais ser movimentada.'
   };
@@ -1108,7 +1108,7 @@ function view(id) {
   document.querySelectorAll('.view').forEach(element => element.classList.toggle('active', element.id === id));
   document.querySelectorAll('.nav-link').forEach(button => button.classList.toggle('active', button.dataset.view === id));
   document.querySelector('main').classList.toggle('dashboard-mode', id === 'dashboard');
-  $('#page-title').textContent = ({ dashboard:'Visão geral', products:'Produtos', movement:'Movimentações', receipts:'Recebimentos', serials:'Serial / MAC', laboratory:'Laboratório', loans:'Empréstimos', inventory:'Inventário', registry:'Cadastros', users:'Usuários' })[id];
+  $('#page-title').textContent = ({ dashboard:'Visão geral', products:'Produtos', movement:'Movimentações', receipts:'Recebimentos', serials:'Serial / MAC', laboratory:'Oficina', loans:'Empréstimos', inventory:'Inventário', registry:'Cadastros', users:'Usuários' })[id];
   $('#header-action').hidden = id === 'users' || id === 'products' || id === 'receipts' || id === 'serials' || id === 'laboratory' || id === 'loans' || id === 'inventory' || id === 'registry';
   $('#header-action').textContent = id === 'products' ? '+ Cadastrar produto' : '+ Nova movimentação';
 }

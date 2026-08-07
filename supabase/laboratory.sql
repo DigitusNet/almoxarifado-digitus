@@ -1,4 +1,4 @@
--- Fluxo de triagem e laboratório para equipamentos rastreáveis.
+-- Fluxo de triagem e oficina para equipamentos rastreáveis.
 -- Execute este arquivo inteiro no SQL Editor do Supabase.
 
 alter table public.serial_movements
@@ -27,7 +27,7 @@ declare
   current_stock numeric;
 begin
   if auth.uid() is null or coalesce(public.current_user_role()::text, '') not in ('admin', 'operador') then
-    raise exception 'Apenas administradores e operadores podem processar itens no laboratório';
+    raise exception 'Apenas administradores e operadores podem processar itens na oficina';
   end if;
 
   select * into current_item
@@ -42,11 +42,11 @@ begin
   where id = current_item.current_location_id;
 
   if current_location_type <> 'laboratorio' then
-    raise exception 'Este item não está vinculado a um local de laboratório';
+    raise exception 'Este item não está vinculado a um local de oficina';
   end if;
 
   if current_item.status not in ('laboratorio', 'manutencao', 'defeito', 'aguardando_triagem') then
-    raise exception 'O status atual deste item não permite processamento no laboratório';
+    raise exception 'O status atual deste item não permite processamento na oficina';
   end if;
 
   if p_action in ('manutencao', 'defeito', 'baixar')
@@ -81,7 +81,7 @@ begin
       movement_action := 'baixa';
 
     else
-      raise exception 'Ação de laboratório inválida';
+      raise exception 'Ação de oficina inválida';
   end case;
 
   if target_status = 'disponivel' then
@@ -102,7 +102,7 @@ begin
     target_status,
     current_item.current_location_id,
     target_location_id,
-    case when target_status = 'disponivel' then 'Almoxarifado Central' else 'Laboratório' end,
+    case when target_status = 'disponivel' then 'Almoxarifado Central' else 'Oficina' end,
     nullif(trim(p_note), ''),
     auth.uid()
   );

@@ -1,30 +1,6 @@
--- Transferência e histórico de equipamentos rastreáveis.
--- Execute este arquivo inteiro no SQL Editor do Supabase após serial-tracking.sql.
-
-create table if not exists public.serial_movements (
-  id uuid primary key default gen_random_uuid(),
-  serial_item_id uuid not null references public.serial_items(id) on delete restrict,
-  action text not null check (action in ('transferencia', 'instalacao', 'laboratorio', 'retorno', 'baixa')),
-  previous_status text not null,
-  new_status text not null,
-  from_location_id uuid references public.stock_locations(id) on delete set null,
-  to_location_id uuid references public.stock_locations(id) on delete set null,
-  recipient text,
-  customer_name text,
-  customer_reference text,
-  work_order text,
-  note text,
-  created_by uuid references public.profiles(id) on delete set null,
-  created_at timestamptz not null default now()
-);
-
-create index if not exists serial_movements_serial_item_created_at_idx
-  on public.serial_movements (serial_item_id, created_at desc);
-
-alter table public.serial_movements enable row level security;
-drop policy if exists "Authenticated users can view serial movements" on public.serial_movements;
-create policy "Authenticated users can view serial movements" on public.serial_movements
-  for select to authenticated using (true);
+-- Atualiza os textos já instalados no banco para o nome "Oficina".
+-- Execute este arquivo uma única vez no SQL Editor do Supabase.
+-- Os valores internos "laboratorio" são mantidos para não afetar os registros existentes.
 
 create or replace function public.move_serial_item(
   p_serial_item_id uuid,
@@ -163,3 +139,93 @@ end;
 $$;
 
 grant execute on function public.move_serial_item(uuid, text, uuid, uuid, uuid, text, text, text, text) to authenticated;
+
+create or replace function public.process_laboratory_item(
+  p_serial_item_id uuid,
+  p_action text,
+  p_note text default null
+) returns public.serial_items
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  current_item public.serial_items;
+  updated_item public.serial_items;
+  current_location_type text;
+  target_location_id uuid;
+  target_status text;
+  movement_action text;
+  current_stock numeric;
+begin
+  if auth.uid() is null or coalesce(public.current_user_role()::text, '') not in ('admin', 'operador') then
+    raise exception 'Apenas administradores e operadores podem processar itens na oficina';
+  end if;
+
+  select * into current_item from public.serial_items where id = p_serial_item_id for update;
+  if not found then raise exception 'Equipamento não encontrado'; end if;
+
+  select location_type into current_location_type from public.stock_locations where id = current_item.current_location_id;
+  if current_location_type <> 'laboratorio' then raise exception 'Este item não está vinculado a um local de oficina'; end if;
+  if current_item.status not in ('laboratorio', 'manutencao', 'defeito', 'aguardando_triagem') then raise exception 'O status atual deste item não permite processamento na oficina'; end if;
+  if p_action in ('manutencao', 'defeito', 'baixar') and nullif(trim(coalesce(p_note, '')), '') is null then raise exception 'Informe uma observação para registrar este resultado'; end if;
+
+  target_location_id := current_item.current_location_id;
+  case p_action
+    when 'aprovar' then
+      select id into target_location_id from public.stock_locations where location_type = 'central' and active = true order by created_at limit 1;
+      if target_location_id is null then raise exception 'Almoxarifado central não encontrado'; end if;
+      target_status := 'disponivel';
+      movement_action := 'retorno';
+    when 'manutencao' then
+      target_status := 'manutencao';
+      movement_action := 'manutencao';
+    when 'defeito' then
+      target_status := 'defeito';
+      movement_action := 'defeito';
+    when 'baixar' then
+      target_location_id := null;
+      target_status := 'baixado';
+      movement_action := 'baixa';
+    else
+      raise exception 'Ação de oficina inválida';
+  end case;
+
+  if target_status = 'disponivel' then
+    select stock into current_stock from public.products where id = current_item.product_id for update;
+    if not found then raise exception 'Produto não encontrado'; end if;
+    update public.products set stock = stock + 1, updated_at = now() where id = current_item.product_id;
+  end if;
+
+  insert into public.serial_movements (
+    serial_item_id, action, previous_status, new_status, from_location_id, to_location_id,
+    recipient, note, created_by
+  ) values (
+    current_item.id, movement_action, current_item.status, target_status,
+    current_item.current_location_id, target_location_id,
+    case when target_status = 'disponivel' then 'Almoxarifado Central' else 'Oficina' end,
+    nullif(trim(p_note), ''), auth.uid()
+  );
+
+  update public.serial_items
+  set status = target_status,
+      current_location_id = target_location_id,
+      customer_name = null,
+      customer_reference = null,
+      updated_at = now()
+  where id = current_item.id
+  returning * into updated_item;
+
+  return updated_item;
+end;
+$$;
+
+grant execute on function public.process_laboratory_item(uuid, text, text) to authenticated;
+
+update public.stock_locations
+set name = regexp_replace(name, 'laboratório', 'Oficina', 'gi')
+where location_type = 'laboratorio' and name ~* 'laboratório';
+
+update public.serial_movements
+set recipient = regexp_replace(recipient, 'laboratório', 'Oficina', 'gi')
+where recipient ~* 'laboratório';
