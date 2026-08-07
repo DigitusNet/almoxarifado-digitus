@@ -34,6 +34,19 @@
         <div class="sidebar-footer"><span class="footer-meta">Versão inicial<br />Dados salvos neste navegador</span><button class="logout-button" id="logout" type="button">↪ Sair da conta</button></div>
       </aside>
 
+      <nav class="side-rail" aria-label="Navegação rápida">
+        <button class="nav-link active" data-view="dashboard" aria-label="Painel">▦ <span>Painel</span></button>
+        <button class="nav-link" data-view="products" aria-label="Produtos">▤ <span>Produtos</span></button>
+        <button class="nav-link" data-view="movement" aria-label="Movimentações">⇄ <span>Movimentações</span></button>
+        <button class="nav-link" data-view="receipts" data-manager-only hidden aria-label="Recebimentos">↓ <span>Recebimentos</span></button>
+        <button class="nav-link" data-view="serials" data-manager-only hidden aria-label="Serial e MAC">⌁ <span>Serial / MAC</span></button>
+        <button class="nav-link" data-view="laboratory" data-manager-only hidden aria-label="Laboratório">⚗ <span>Laboratório</span></button>
+        <button class="nav-link" data-view="loans" data-manager-only hidden aria-label="Empréstimos">⌂ <span>Empréstimos</span></button>
+        <button class="nav-link" data-view="inventory" data-admin-only hidden aria-label="Inventário">▤ <span>Inventário</span></button>
+        <button class="nav-link" data-view="registry" data-manager-only hidden aria-label="Cadastros">☷ <span>Cadastros</span></button>
+        <button class="nav-link" data-view="users" data-admin-only hidden aria-label="Usuários">♙ <span>Usuários</span></button>
+      </nav>
+
       <main>
         <header class="topbar">
           <div><h1 id="page-title">Visão geral</h1></div>
