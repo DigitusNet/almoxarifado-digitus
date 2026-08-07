@@ -15,6 +15,133 @@ const movementName = item => item.fieldUsage ? 'Uso em OS' : item.type === 'entr
 const unitName = unit => ({ unidade: 'un.', metro: 'm', par: 'par', caixa: 'cx.' }[unit] || 'un.');
 const quantity = value => Number(value || 0).toLocaleString('pt-BR', { maximumFractionDigits: 3 });
 const stockLabel = item => `${quantity(item.stock)} ${unitName(item.unit_of_measure)}`;
+let scannerStream = null;
+let scannerFrame = null;
+let scannerSession = 0;
+let scannerTarget = 'products';
+let barcodeDetector = null;
+const normalizedScanCode = value => String(value || '').trim().replace(/[^a-z0-9]/gi, '').toLocaleLowerCase('pt-BR');
+
+function scannerMessage(message) {
+  const messageElement = $('#scanner-message');
+  if (messageElement) messageElement.textContent = message;
+}
+
+function stopCodeScanner() {
+  scannerSession += 1;
+  if (scannerFrame) cancelAnimationFrame(scannerFrame);
+  scannerFrame = null;
+  if (scannerStream) scannerStream.getTracks().forEach(track => track.stop());
+  scannerStream = null;
+  const video = $('#scanner-video');
+  if (video) video.srcObject = null;
+}
+
+function findScannedItem(code) {
+  const normalized = normalizedScanCode(code);
+  if (!normalized) return null;
+  const itemProduct = state.products.find(item => normalizedScanCode(item.code) === normalized);
+  if (itemProduct) return { type: 'product', item: itemProduct };
+  const serialItem = state.serialItems.find(item => [item.serial_number, item.mac_address, item.asset_tag].some(value => normalizedScanCode(value) === normalized));
+  return serialItem ? { type: 'serial', item: serialItem } : null;
+}
+
+function useScannedCode(rawCode) {
+  const code = String(rawCode || '').trim();
+  const result = findScannedItem(code);
+  if (!result) {
+    scannerMessage(`O código “${code}” não foi encontrado. Confira o cadastro ou digite outro código.`);
+    $('#scanner-manual-code').focus();
+    return;
+  }
+
+  if (result.type === 'serial') {
+    stopCodeScanner();
+    $('#code-scanner-dialog').close();
+    $('#serial-search').value = code;
+    view('serials');
+    renderSerials();
+    if (scannerTarget === 'movement') openSerialTransfer(result.item.id);
+    return;
+  }
+
+  if (scannerTarget === 'movement' && result.item.tracking_mode === 'serializado') {
+    scannerMessage('Este item é controlado por Serial/MAC. Leia o serial, MAC ou patrimônio da unidade específica para movimentá-la.');
+    $('#scanner-manual-code').focus();
+    return;
+  }
+
+  stopCodeScanner();
+  $('#code-scanner-dialog').close();
+  if (scannerTarget === 'movement') {
+    view('movement');
+    $('#movement-product').value = result.item.id;
+    $('#movement-quantity').focus();
+    return;
+  }
+  showProducts();
+  $('#product-search').value = result.item.code;
+  renderProducts();
+}
+
+function scanCameraFrame(session) {
+  if (session !== scannerSession || !scannerStream || !barcodeDetector) return;
+  const video = $('#scanner-video');
+  barcodeDetector.detect(video)
+    .then(codes => {
+      if (session !== scannerSession || !codes.length) return;
+      const code = codes[0].rawValue;
+      $('#scanner-manual-code').value = code;
+      stopCodeScanner();
+      useScannedCode(code);
+    })
+    .catch(() => {})
+    .finally(() => {
+      if (session === scannerSession && scannerStream) scannerFrame = requestAnimationFrame(() => scanCameraFrame(session));
+    });
+}
+
+async function openCodeScanner(target) {
+  scannerTarget = target;
+  stopCodeScanner();
+  const session = ++scannerSession;
+  const dialog = $('#code-scanner-dialog');
+  $('#scanner-manual-code').value = '';
+  scannerMessage('Solicitando acesso à câmera…');
+  dialog.showModal();
+  $('#scanner-manual-code').focus();
+
+  if (!navigator.mediaDevices?.getUserMedia) {
+    scannerMessage('A câmera não está disponível neste dispositivo. Digite o código ou use um leitor USB abaixo.');
+    return;
+  }
+  if (!('BarcodeDetector' in window)) {
+    scannerMessage('A leitura pela câmera é compatível com Chrome e Edge atualizados. Você ainda pode usar leitor USB ou digitar o código abaixo.');
+    return;
+  }
+
+  try {
+    try {
+      barcodeDetector = new window.BarcodeDetector({ formats: ['qr_code', 'code_128', 'code_39', 'ean_13', 'ean_8', 'upc_a', 'upc_e', 'itf', 'codabar', 'data_matrix', 'pdf417'] });
+    } catch (detectorError) {
+      barcodeDetector = new window.BarcodeDetector();
+    }
+    const stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: { ideal: 'environment' } }, audio: false });
+    if (session !== scannerSession) {
+      stream.getTracks().forEach(track => track.stop());
+      return;
+    }
+    scannerStream = stream;
+    const video = $('#scanner-video');
+    video.srcObject = stream;
+    await video.play();
+    scannerMessage('Câmera pronta. Centralize o código dentro da marcação.');
+    scanCameraFrame(session);
+  } catch (error) {
+    if (session === scannerSession) scannerMessage('Não foi possível abrir a câmera. Verifique a permissão do navegador ou use o leitor USB/campo manual.');
+  }
+}
+
 function caAlert(item) {
   if (!item.requires_ca || !item.ca_expiry_date) return null;
   const today = new Date();
@@ -705,6 +832,8 @@ document.querySelectorAll('.nav-link').forEach(button => button.onclick = () => 
 document.querySelectorAll('[data-go]').forEach(button => button.onclick = () => button.dataset.go === 'products' ? showProducts() : view(button.dataset.go));
 $('#header-action').onclick = () => $('.view.active').id === 'products' ? $('#product-dialog').showModal() : view('movement');
 $('#add-product').onclick = () => $('#product-dialog').showModal();
+$('#scan-product-code').onclick = () => openCodeScanner('products');
+$('#scan-movement-code').onclick = () => openCodeScanner('movement');
 $('#add-receipt').onclick = openReceiptDialog;
 $('#add-receipt-line').onclick = () => addReceiptLine();
 $('#add-user').onclick = () => $('#user-dialog').showModal();
@@ -740,6 +869,13 @@ $('#logout').onclick = async () => {
   $('#auth-gate').hidden = false;
 };
 document.querySelectorAll('[data-close-dialog]').forEach(button => button.onclick = () => button.closest('dialog').close());
+$('#code-scanner-dialog').addEventListener('close', stopCodeScanner);
+$('#scanner-manual-form').onsubmit = event => {
+  event.preventDefault();
+  const code = $('#scanner-manual-code').value.trim();
+  if (!code) return scannerMessage('Informe ou leia um código para localizar o item.');
+  useScannedCode(code);
+};
 $('#low-stock-card').onclick = () => showProducts('low');
 $('#ca-alert-card').onclick = () => showProducts('ca');
 $('#overdue-loans-card').onclick = () => view('loans');
