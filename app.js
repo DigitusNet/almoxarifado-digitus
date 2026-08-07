@@ -1194,13 +1194,9 @@ async function start(session) {
   const canManage = ['admin', 'operador'].includes(currentUser.role);
   document.querySelectorAll('[data-admin-only]').forEach(element => { element.hidden = !isAdmin; });
   document.querySelectorAll('[data-manager-only]').forEach(element => { element.hidden = !canManage; });
-  $('#users').hidden = !isAdmin;
-  $('#receipts').hidden = !canManage;
-  $('#serials').hidden = !canManage;
-  $('#laboratory').hidden = !canManage;
-  $('#loans').hidden = !canManage;
-  $('#inventory').hidden = !isAdmin;
-  $('#registry').hidden = !canManage;
+  // As telas continuam acessíveis no computador compartilhado do almoxarifado.
+  // As ações administrativas ainda obedecem às permissões dos botões e do banco.
+  ['users', 'receipts', 'serials', 'laboratory', 'loans', 'inventory', 'registry'].forEach(id => { $("#" + id).hidden = false; });
   try { await load(); } catch (error) { alert(error.message); }
 }
 
