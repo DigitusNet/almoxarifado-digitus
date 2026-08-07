@@ -1387,7 +1387,8 @@ $('#login-form').onsubmit = async event => {
   $('#auth-gate').hidden = true; await start(data.session);
 };
 
-$('#today').textContent = new Date().toLocaleDateString('pt-BR', { weekday:'long', day:'2-digit', month:'long', year:'numeric' });
+const todayLabel = $('#today');
+if (todayLabel) todayLabel.textContent = new Date().toLocaleDateString('pt-BR', { weekday:'long', day:'2-digit', month:'long', year:'numeric' });
 render();
 const { data:{ session } } = await supabase.auth.getSession();
 if (session) start(session); else $('#auth-gate').hidden = false;
