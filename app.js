@@ -639,9 +639,9 @@ function renderRegistry() {
   document.querySelectorAll('[data-delete-supplier]').forEach(button => button.onclick = () => deleteSupplier(button.dataset.deleteSupplier));
 }
 
-function setRegistryFilter(filter = 'all') {
-  const allowed = ['all', 'collaborators', 'vehicles', 'locations', 'suppliers'];
-  const selected = allowed.includes(filter) ? filter : 'all';
+function setRegistryFilter(filter = 'collaborators') {
+  const allowed = ['collaborators', 'vehicles', 'locations', 'suppliers'];
+  const selected = allowed.includes(filter) ? filter : 'collaborators';
   const grid = $('#registry-grid');
   document.querySelectorAll('[data-registry-filter]').forEach(button => {
     const active = button.dataset.registryFilter === selected;
@@ -649,16 +649,16 @@ function setRegistryFilter(filter = 'all') {
     button.setAttribute('aria-selected', String(active));
   });
   document.querySelectorAll('[data-registry-section]').forEach(section => {
-    const visible = selected === 'all' || section.dataset.registrySection === selected;
+    const visible = section.dataset.registrySection === selected;
     section.hidden = !visible;
-    section.classList.toggle('registry-filtered-section', selected !== 'all' && visible);
+    section.classList.toggle('registry-filtered-section', visible);
   });
-  grid.hidden = !['all', 'collaborators', 'vehicles'].includes(selected);
-  grid.classList.toggle('registry-single-section', ['collaborators', 'vehicles'].includes(selected));
+  grid.hidden = !['collaborators', 'vehicles'].includes(selected);
+  grid.classList.toggle('registry-single-section', true);
   document.querySelectorAll('[data-registry-action]').forEach(button => {
-    button.hidden = selected !== 'all' && button.dataset.registryAction !== selected;
+    button.hidden = button.dataset.registryAction !== selected;
   });
-  $('#registry-actions').hidden = selected === 'suppliers';
+  $('#registry-actions').hidden = false;
 }
 
 function renderSerials() {
@@ -1175,7 +1175,7 @@ async function start(session) {
 document.querySelectorAll('.nav-link').forEach(button => button.onclick = () => button.dataset.view === 'products' ? showProducts() : view(button.dataset.view));
 document.querySelectorAll('[data-go]').forEach(button => button.onclick = () => button.dataset.go === 'products' ? showProducts() : view(button.dataset.go));
 document.querySelectorAll('[data-registry-filter]').forEach(button => button.onclick = () => setRegistryFilter(button.dataset.registryFilter));
-setRegistryFilter();
+setRegistryFilter('collaborators');
 $('#header-action').onclick = () => $('.view.active').id === 'products' ? $('#product-dialog').showModal() : view('movement');
 $('#add-product').onclick = () => $('#product-dialog').showModal();
 $('#import-products').onclick = openProductImport;
