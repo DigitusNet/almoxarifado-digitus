@@ -21,6 +21,7 @@ let scannerSession = 0;
 let scannerTarget = 'products';
 let barcodeDetector = null;
 let importedXmlInvoice = null;
+let editingProductImagePath = null;
 const normalizedScanCode = value => String(value || '').trim().replace(/[^a-z0-9]/gi, '').toLocaleLowerCase('pt-BR');
 
 function scannerMessage(message) {
@@ -143,6 +144,44 @@ async function openCodeScanner(target) {
   }
 }
 
+function productImageUrl(item) {
+  if (!item?.image_path) return '';
+  return supabase.storage.from('product-images').getPublicUrl(item.image_path).data.publicUrl;
+}
+
+function setProductImagePreview(prefix, source = '', isStoredPath = false) {
+  const wrap = $(`#${prefix}-image-preview-wrap`), image = $(`#${prefix}-image-preview`);
+  if (!source) {
+    wrap.hidden = true;
+    image.removeAttribute('src');
+    return;
+  }
+  image.src = isStoredPath ? productImageUrl({ image_path: source }) : source;
+  wrap.hidden = false;
+}
+
+function validateProductImage(file) {
+  if (!file) return;
+  if (!['image/jpeg', 'image/png', 'image/webp'].includes(file.type)) throw new Error('Use uma imagem JPG, PNG ou WebP.');
+  if (file.size > 5 * 1024 * 1024) throw new Error('A foto deve ter no máximo 5 MB.');
+}
+
+async function uploadProductImage(file) {
+  validateProductImage(file);
+  const extension = ({ 'image/jpeg': 'jpg', 'image/png': 'png', 'image/webp': 'webp' })[file.type];
+  const fileId = globalThis.crypto?.randomUUID?.() || `${Date.now()}-${Math.random().toString(36).slice(2)}`;
+  const path = `products/${fileId}.${extension}`;
+  const { error } = await supabase.storage.from('product-images').upload(path, file, { cacheControl: '31536000', contentType: file.type, upsert: false });
+  if (error) throw error;
+  return path;
+}
+
+async function removeProductImage(path) {
+  if (!path) return;
+  const { error } = await supabase.storage.from('product-images').remove([path]);
+  if (error) throw error;
+}
+
 function caAlert(item) {
   if (!item.requires_ca || !item.ca_expiry_date) return null;
   const today = new Date();
@@ -223,7 +262,8 @@ function renderProducts() {
   });
   $('#products-table').innerHTML = products.map(item => {
     const ca = caAlert(item);
-    return `<tr><td><b>${esc(item.name)}</b><small>${esc([item.brand, item.model].filter(Boolean).join(' · ') || (item.tracking_mode === 'serializado' ? 'Rastreável por serial/MAC' : 'Controle por quantidade'))}</small></td><td>${esc(item.code)}</td><td>${esc(item.category)}</td><td><b>${stockLabel(item)}</b><small>mínimo: ${quantity(item.minimum)} ${unitName(item.unit_of_measure)}</small></td><td>${status(item)}${ca ? `<small class="ca-status ${ca.type}">${esc(ca.label)} · validade: ${new Date(`${item.ca_expiry_date}T00:00:00`).toLocaleDateString('pt-BR')}</small>` : ''}</td><td><div class="table-actions">${canEdit ? `<button class="secondary-button" data-edit-product="${item.id}">Editar</button>` : ''}${canDelete ? `<button class="danger-button" data-delete-product="${item.id}">Apagar</button>` : ''}${!canEdit && !canDelete ? '—' : ''}</div></td></tr>`;
+    const image = productImageUrl(item);
+    return `<tr><td><div class="product-name-cell">${image ? `<span class="product-thumbnail"><img src="${esc(image)}" alt="Foto de ${esc(item.name)}" /></span>` : ''}<div><b>${esc(item.name)}</b><small>${esc([item.brand, item.model].filter(Boolean).join(' · ') || (item.tracking_mode === 'serializado' ? 'Rastreável por serial/MAC' : 'Controle por quantidade'))}</small></div></div></td><td>${esc(item.code)}</td><td>${esc(item.category)}</td><td><b>${stockLabel(item)}</b><small>mínimo: ${quantity(item.minimum)} ${unitName(item.unit_of_measure)}</small></td><td>${status(item)}${ca ? `<small class="ca-status ${ca.type}">${esc(ca.label)} · validade: ${new Date(`${item.ca_expiry_date}T00:00:00`).toLocaleDateString('pt-BR')}</small>` : ''}</td><td><div class="table-actions">${canEdit ? `<button class="secondary-button" data-edit-product="${item.id}">Editar</button>` : ''}${canDelete ? `<button class="danger-button" data-delete-product="${item.id}">Apagar</button>` : ''}${!canEdit && !canDelete ? '—' : ''}</div></td></tr>`;
   }).join('') || '<tr><td colspan="6" class="empty">Nenhum produto encontrado.</td></tr>';
   document.querySelectorAll('[data-edit-product]').forEach(button => button.onclick = () => openProductEditor(button.dataset.editProduct));
   document.querySelectorAll('[data-delete-product]').forEach(button => button.onclick = () => deleteProduct(button.dataset.deleteProduct));
@@ -878,6 +918,7 @@ function showProducts(filter = 'all') {
 function openProductEditor(id) {
   const item = product(id);
   if (!item) return;
+  editingProductImagePath = item.image_path || null;
   $('#edit-product-form').reset();
   $('#edit-product-id').value = item.id;
   $('#edit-name').value = item.name;
@@ -893,6 +934,8 @@ function openProductEditor(id) {
   $('#edit-ca-expiry').value = item.ca_expiry_date || '';
   $('#edit-stock').value = item.stock;
   $('#edit-minimum').value = item.minimum;
+  $('#edit-remove-image').dataset.removed = 'false';
+  setProductImagePreview('edit', editingProductImagePath, true);
   $('#edit-product-dialog').showModal();
 }
 
@@ -968,6 +1011,24 @@ $('#scanner-manual-form').onsubmit = event => {
   if (!code) return scannerMessage('Informe ou leia um código para localizar o item.');
   useScannedCode(code);
 };
+document.querySelectorAll('#new-image, #edit-image').forEach(input => input.onchange = event => {
+  const file = event.target.files?.[0];
+  const prefix = event.target.id.startsWith('new-') ? 'new' : 'edit';
+  try {
+    validateProductImage(file);
+    setProductImagePreview(prefix, file ? URL.createObjectURL(file) : '', false);
+    if (prefix === 'edit' && file) $('#edit-remove-image').dataset.removed = 'false';
+  } catch (error) {
+    event.target.value = '';
+    setProductImagePreview(prefix, prefix === 'edit' ? editingProductImagePath : '', prefix === 'edit');
+    alert(error.message);
+  }
+});
+$('#edit-remove-image').onclick = () => {
+  $('#edit-image').value = '';
+  $('#edit-remove-image').dataset.removed = 'true';
+  setProductImagePreview('edit');
+};
 $('#low-stock-card').onclick = () => showProducts('low');
 $('#ca-alert-card').onclick = () => showProducts('ca');
 $('#overdue-loans-card').onclick = () => view('loans');
@@ -1035,12 +1096,23 @@ function collectProductData(prefix) {
 
 $('#product-form').onsubmit = async event => {
   event.preventDefault();
+  let uploadedImagePath = null;
+  let productSaved = false;
   try {
     const newProduct = { ...collectProductData('new'), stock:Number($('#new-stock').value), minimum_stock:Number($('#new-minimum').value) };
+    const imageFile = $('#new-image').files?.[0];
+    if (imageFile) {
+      uploadedImagePath = await uploadProductImage(imageFile);
+      newProduct.image_path = uploadedImagePath;
+    }
     const { error } = await supabase.from('products').insert(newProduct);
     if (error) throw error;
-    event.target.reset(); $('#product-dialog').close(); await load(); view('products');
+    productSaved = true;
+    event.target.reset(); setProductImagePreview('new'); $('#product-dialog').close(); await load(); view('products');
   } catch (error) {
+    if (uploadedImagePath && !productSaved) {
+      try { await removeProductImage(uploadedImagePath); } catch (removeError) { console.warn('Não foi possível remover a foto enviada:', removeError.message); }
+    }
     alert(`Não foi possível cadastrar o item: ${error.message}`);
   }
 };
@@ -1048,12 +1120,30 @@ $('#product-form').onsubmit = async event => {
 $('#edit-product-form').onsubmit = async event => {
   event.preventDefault();
   const id = $('#edit-product-id').value;
+  const previousImagePath = editingProductImagePath;
+  let uploadedImagePath = null;
   try {
     const updatedProduct = { ...collectProductData('edit'), minimum_stock:Number($('#edit-minimum').value) };
+    const imageFile = $('#edit-image').files?.[0];
+    let nextImagePath = previousImagePath;
+    if (imageFile) {
+      uploadedImagePath = await uploadProductImage(imageFile);
+      nextImagePath = uploadedImagePath;
+    } else if ($('#edit-remove-image').dataset.removed === 'true') {
+      nextImagePath = null;
+    }
+    if (nextImagePath !== previousImagePath) updatedProduct.image_path = nextImagePath;
     const { error } = await supabase.from('products').update(updatedProduct).eq('id', id);
     if (error) throw error;
+    if (previousImagePath && previousImagePath !== nextImagePath) {
+      try { await removeProductImage(previousImagePath); } catch (removeError) { console.warn('Não foi possível remover a foto anterior:', removeError.message); }
+    }
+    editingProductImagePath = null;
     $('#edit-product-dialog').close(); await load(); view('products');
   } catch (error) {
+    if (uploadedImagePath) {
+      try { await removeProductImage(uploadedImagePath); } catch (removeError) { console.warn('Não foi possível remover a foto enviada:', removeError.message); }
+    }
     alert(error.message);
   }
 };

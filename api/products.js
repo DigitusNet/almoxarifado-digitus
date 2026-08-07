@@ -52,6 +52,11 @@ export default async function handler(req, res) {
 
     const { error: deleteError } = await admin.from('products').delete().eq('id', id);
     if (deleteError) throw deleteError;
+
+    if (product.image_path) {
+      const { error: imageError } = await admin.storage.from('product-images').remove([product.image_path]);
+      if (imageError) console.warn('Não foi possível remover a foto do produto:', imageError.message);
+    }
     return res.status(204).end();
   } catch (error) {
     return res.status(500).json({ error: error.message || 'Não foi possível apagar o produto.' });
