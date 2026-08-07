@@ -1,7 +1,7 @@
 import { createClient } from '@supabase/supabase-js';
 
 const supabase = createClient(import.meta.env.VITE_SUPABASE_URL, import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY);
-let state = { products: [], movements: [], users: [], collaborators: [], vehicles: [], locations: [], suppliers: [], serialItems: [], serialMovements: [], toolLoans: [], receipts: [], receiptItems: [], inventorySessions: [], inventoryCounts: [], productFilter: 'all' };
+let state = { products: [], movements: [], users: [], collaborators: [], vehicles: [], locations: [], suppliers: [], serialItems: [], serialMovements: [], toolLoans: [], receipts: [], receiptItems: [], inventorySessions: [], inventoryCounts: [], reminders: [], materialRequests: [], productFilter: 'all' };
 let currentUser = null;
 const $ = selector => document.querySelector(selector);
 const esc = value => String(value ?? '').replace(/[&<>'"]/g, char => ({ '&':'&amp;','<':'&lt;','>':'&gt;',"'":'&#039;','"':'&quot;' }[char]));
@@ -410,9 +410,37 @@ function render() {
   $('#ca-alert-total').textContent = caAlerts.length;
   $('#dashboard-overdue-loans').textContent = overdueLoans;
   $('#dashboard-lab-total').textContent = laboratoryItems;
-  $('#low-stock-list').innerHTML = lows.length ? lows.map(item => `<div class="compact-row"><div><b>${esc(item.name)}</b><small>${esc(item.code)} · mínimo: ${stockLabel({ ...item, stock: item.minimum })}</small></div><span class="badge low">${stockLabel(item)}</span></div>`).join('') : '<p class="empty">Nenhum item precisa de reposição.</p>';
-  $('#recent-movements').innerHTML = state.movements.slice(0, 5).map(item => `<div class="compact-row"><div><b>${movementName(item)} · ${esc(product(item.productId)?.name || 'Produto')}</b><small>${esc(item.person)} · ${item.date}</small></div><span class="badge ${item.type}">${item.type === 'entrada' ? '+' : '-'}${quantity(item.quantity)} ${unitName(product(item.productId)?.unit_of_measure)}</span></div>`).join('') || '<p class="empty">Sem movimentações.</p>';
-  renderProducts(); renderMovement(); renderFieldStock(); renderUsers(); renderRegistry(); renderReceipts(); renderSerials(); renderLaboratory(); renderLoans(); renderInventory();
+  renderDashboardOperations(caAlerts);
+  renderProducts(); renderMovement(); renderUsers(); renderRegistry(); renderReceipts(); renderSerials(); renderLaboratory(); renderLoans(); renderInventory();
+}
+
+function renderDashboardOperations(caAlerts) {
+  const overdue = state.toolLoans.filter(loanOverdue).sort((a, b) => new Date(a.due_at) - new Date(b.due_at));
+  const openReminders = state.reminders.filter(item => item.status === 'aberto').sort((a, b) => new Date(a.due_date) - new Date(b.due_date));
+  const expiring = [...caAlerts].sort((a, b) => new Date(a.ca_expiry_date) - new Date(b.ca_expiry_date));
+  const openRequests = state.materialRequests.filter(item => item.status === 'aberta').sort((a, b) => new Date(b.created_at) - new Date(a.created_at));
+  $('#dashboard-overdue-loan-list-count').textContent = overdue.length;
+  $('#dashboard-reminder-count').textContent = openReminders.length;
+  $('#dashboard-expiry-count').textContent = expiring.length;
+  $('#dashboard-request-count').textContent = openRequests.length;
+  $('#dashboard-overdue-loans-table').innerHTML = overdue.map((loan, index) => `<tr><td>${index + 1}</td><td>${esc(loan.collaborator_name || 'Não informado')}</td><td>${date(loan.due_at)}</td><td><button class="dashboard-icon-action" data-dashboard-loan="${loan.id}" type="button" aria-label="Ver empréstimo">◉</button></td></tr>`).join('') || '<tr><td colspan="4" class="empty">Nenhum empréstimo em atraso.</td></tr>';
+  $('#dashboard-reminders-table').innerHTML = openReminders.map(item => `<tr><td>${esc(item.recipient)}</td><td>${esc(item.description)}</td><td>${date(item.due_date)}</td><td><button class="dashboard-icon-action danger" data-close-reminder="${item.id}" type="button" aria-label="Concluir lembrete">×</button></td></tr>`).join('') || '<tr><td colspan="4" class="empty">Nenhum lembrete registrado.</td></tr>';
+  $('#dashboard-expiring-table').innerHTML = expiring.map(item => `<tr><td>${esc(item.name)}</td><td>${esc(item.ca_number || 'CA não informado')}</td><td>${new Date(`${item.ca_expiry_date}T00:00:00`).toLocaleDateString('pt-BR')}</td><td><button class="dashboard-icon-action" data-dashboard-expiry="${item.id}" type="button" aria-label="Ver item">◉</button></td></tr>`).join('') || '<tr><td colspan="4" class="empty">Nenhum material próximo ao vencimento.</td></tr>';
+  $('#dashboard-requests-table').innerHTML = openRequests.map((item, index) => `<tr><td>${index + 1}</td><td>${esc(item.requester)}</td><td>${date(item.created_at)}</td><td><button class="dashboard-icon-action" data-dashboard-request="${item.id}" type="button" aria-label="Ver solicitação">◉</button></td></tr>`).join('') || '<tr><td colspan="4" class="empty">Nenhuma solicitação de material.</td></tr>';
+  document.querySelectorAll('[data-dashboard-loan]').forEach(button => button.onclick = () => view('loans'));
+  document.querySelectorAll('[data-dashboard-expiry]').forEach(button => button.onclick = () => { state.productFilter = 'ca'; $('#product-status-filter').value = 'ca'; view('products'); renderProducts(); });
+  document.querySelectorAll('[data-dashboard-request]').forEach(button => button.onclick = () => {
+    const request = state.materialRequests.find(item => item.id === button.dataset.dashboardRequest);
+    if (request) alert(`Solicitação de ${request.requester}\n\n${request.description}`);
+  });
+  document.querySelectorAll('[data-close-reminder]').forEach(button => button.onclick = () => closeReminder(button.dataset.closeReminder));
+}
+
+async function closeReminder(id) {
+  if (!confirm('Marcar este lembrete como concluído?')) return;
+  const { error } = await supabase.from('dashboard_reminders').update({ status: 'concluido', closed_at: new Date().toISOString() }).eq('id', id);
+  if (error) return alert('Não foi possível concluir o lembrete. Execute primeiro o SQL desta atualização no Supabase.');
+  await load();
 }
 
 function renderProducts() {
@@ -957,7 +985,7 @@ async function loadUsers() {
 }
 
 async function load() {
-  const [products, movements, collaborators, vehicles, locations, suppliers, serialItems, serialMovements, toolLoans, receipts, receiptItems, inventorySessions, inventoryCounts] = await Promise.all([
+  const [products, movements, collaborators, vehicles, locations, suppliers, serialItems, serialMovements, toolLoans, receipts, receiptItems, inventorySessions, inventoryCounts, reminders, materialRequests] = await Promise.all([
     supabase.from('products').select('*').order('name'),
     supabase.from('movements').select('*').order('created_at', { ascending: false }),
     supabase.from('collaborators').select('*').order('name'),
@@ -970,7 +998,9 @@ async function load() {
     supabase.from('receipts').select('*').order('received_at', { ascending: false }),
     supabase.from('receipt_items').select('*').order('created_at', { ascending: false }),
     supabase.from('inventory_sessions').select('*').order('started_at', { ascending: false }),
-    supabase.from('inventory_counts').select('*').order('created_at', { ascending: false })
+    supabase.from('inventory_counts').select('*').order('created_at', { ascending: false }),
+    supabase.from('dashboard_reminders').select('*').order('due_date'),
+    supabase.from('material_requests').select('*').order('created_at', { ascending: false })
   ]);
   if (products.error || movements.error || collaborators.error || vehicles.error || locations.error || suppliers.error || serialItems.error || serialMovements.error || toolLoans.error || receipts.error || receiptItems.error || inventorySessions.error || inventoryCounts.error) throw products.error || movements.error || collaborators.error || vehicles.error || locations.error || suppliers.error || serialItems.error || serialMovements.error || toolLoans.error || receipts.error || receiptItems.error || inventorySessions.error || inventoryCounts.error;
   state.products = products.data.map(item => ({ ...item, minimum: item.minimum_stock }));
@@ -986,6 +1016,8 @@ async function load() {
   state.receiptItems = receiptItems.data;
   state.inventorySessions = inventorySessions.data;
   state.inventoryCounts = inventoryCounts.data;
+  state.reminders = reminders.error ? [] : reminders.data;
+  state.materialRequests = materialRequests.error ? [] : materialRequests.data;
   try {
     await loadUsers();
   } catch (error) {
@@ -1209,12 +1241,14 @@ $('#add-collaborator').onclick = () => $('#collaborator-dialog').showModal();
 $('#add-vehicle').onclick = () => $('#vehicle-dialog').showModal();
 $('#add-location').onclick = () => $('#location-dialog').showModal();
 $('#add-supplier').onclick = () => $('#supplier-dialog').showModal();
+$('#add-dashboard-reminder').onclick = () => $('#reminder-dialog').showModal();
+$('#add-material-request').onclick = () => $('#material-request-dialog').showModal();
 $('#logout').onclick = async () => {
   if (!confirm('Deseja sair da conta?')) return;
   const { error } = await supabase.auth.signOut();
   if (error) return alert(error.message);
   currentUser = null;
-  state = { products: [], movements: [], users: [], collaborators: [], vehicles: [], locations: [], suppliers: [], serialItems: [], serialMovements: [], toolLoans: [], receipts: [], receiptItems: [], inventorySessions: [], inventoryCounts: [], productFilter: 'all' };
+  state = { products: [], movements: [], users: [], collaborators: [], vehicles: [], locations: [], suppliers: [], serialItems: [], serialMovements: [], toolLoans: [], receipts: [], receiptItems: [], inventorySessions: [], inventoryCounts: [], reminders: [], materialRequests: [], productFilter: 'all' };
   $('#login-form').reset();
   $('#auth-gate').hidden = false;
 };
@@ -1494,6 +1528,29 @@ $('#location-form').onsubmit = async event => {
   });
   if (error) return alert(error.message);
   event.target.reset(); $('#location-dialog').close(); await load(); view('registry');
+};
+
+$('#reminder-form').onsubmit = async event => {
+  event.preventDefault();
+  const { error } = await supabase.from('dashboard_reminders').insert({
+    recipient: $('#reminder-recipient').value.trim(),
+    description: $('#reminder-description').value.trim(),
+    due_date: $('#reminder-due-date').value,
+    created_by: currentUser.id
+  });
+  if (error) return alert('Não foi possível criar o lembrete. Execute primeiro o SQL desta atualização no Supabase.');
+  event.target.reset(); $('#reminder-dialog').close(); await load(); view('dashboard');
+};
+
+$('#material-request-form').onsubmit = async event => {
+  event.preventDefault();
+  const { error } = await supabase.from('material_requests').insert({
+    requester: $('#request-requester').value.trim(),
+    description: $('#request-description').value.trim(),
+    created_by: currentUser.id
+  });
+  if (error) return alert('Não foi possível registrar a solicitação. Execute primeiro o SQL desta atualização no Supabase.');
+  event.target.reset(); $('#material-request-dialog').close(); await load(); view('dashboard');
 };
 
 $('#serial-form').onsubmit = async event => {
