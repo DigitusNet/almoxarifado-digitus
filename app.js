@@ -20,6 +20,7 @@ let scannerFrame = null;
 let scannerSession = 0;
 let scannerTarget = 'products';
 let barcodeDetector = null;
+let importedXmlInvoice = null;
 const normalizedScanCode = value => String(value || '').trim().replace(/[^a-z0-9]/gi, '').toLocaleLowerCase('pt-BR');
 
 function scannerMessage(message) {
@@ -263,6 +264,96 @@ function openReceiptDialog() {
   $('#receipt-lines').innerHTML = '';
   addReceiptLine();
   $('#receipt-dialog').showModal();
+}
+
+async function registerReceipt({ supplierName, invoiceNumber, note, lines }) {
+  const name = String(supplierName || '').trim();
+  if (!name) throw new Error('Informe o fornecedor.');
+  if (!lines.length || lines.some(line => !line.product_id || !Number.isFinite(line.quantity) || line.quantity <= 0)) throw new Error('Preencha o material e a quantidade em todas as linhas.');
+  const savedSupplier = state.suppliers.find(item => item.active && item.name.trim().toLocaleLowerCase('pt-BR') === name.toLocaleLowerCase('pt-BR'));
+  const receiptData = savedSupplier ? {
+    p_supplier_id: savedSupplier.id,
+    p_invoice_number: String(invoiceNumber || '').trim() || null,
+    p_note: String(note || '').trim() || null,
+    p_items: lines
+  } : {
+    p_supplier: name,
+    p_invoice_number: String(invoiceNumber || '').trim() || null,
+    p_note: String(note || '').trim() || null,
+    p_items: lines
+  };
+  const { error } = await supabase.rpc('record_receipt', receiptData);
+  if (error) throw error;
+}
+
+function xmlNodes(parent, tagName) {
+  return [...parent.getElementsByTagNameNS('*', tagName)];
+}
+
+function xmlText(parent, tagName) {
+  return xmlNodes(parent, tagName)[0]?.textContent?.trim() || '';
+}
+
+function parseInvoiceXml(xmlContent) {
+  const documentXml = new DOMParser().parseFromString(xmlContent, 'application/xml');
+  if (documentXml.querySelector('parsererror')) throw new Error('O arquivo selecionado não é um XML de nota fiscal válido.');
+  const invoice = xmlNodes(documentXml, 'infNFe')[0];
+  if (!invoice) throw new Error('Não encontrei os dados da NF-e neste XML. Selecione o XML da nota fiscal, e não o PDF.');
+  const emitter = xmlNodes(invoice, 'emit')[0];
+  const issuerName = xmlText(emitter || invoice, 'xNome') || 'Fornecedor não informado';
+  const issuerCnpj = xmlText(emitter || invoice, 'CNPJ');
+  const invoiceNumber = xmlText(xmlNodes(invoice, 'ide')[0] || invoice, 'nNF') || invoice.getAttribute('Id')?.replace(/^NFe/, '') || '';
+  const accessKey = invoice.getAttribute('Id')?.replace(/^NFe/, '') || '';
+  const items = xmlNodes(invoice, 'det').map(detail => {
+    const productNode = xmlNodes(detail, 'prod')[0];
+    const importedQuantity = Number(xmlText(productNode || detail, 'qCom').replace(',', '.'));
+    return {
+      code: xmlText(productNode || detail, 'cProd'),
+      name: xmlText(productNode || detail, 'xProd') || 'Item sem descrição',
+      quantity: importedQuantity,
+      unit: xmlText(productNode || detail, 'uCom') || 'un.',
+      productId: ''
+    };
+  }).filter(item => Number.isFinite(item.quantity) && item.quantity > 0);
+  if (!items.length) throw new Error('A nota não possui itens com quantidade válida para importar.');
+  return { supplier: issuerName, cnpj: issuerCnpj, invoiceNumber, accessKey, items };
+}
+
+function findImportedProduct(item) {
+  const code = normalizedScanCode(item.code);
+  const name = normalizedScanCode(item.name);
+  return state.products.find(productItem => productItem.tracking_mode !== 'serializado' && (
+    code && normalizedScanCode(productItem.code) === code ||
+    name && normalizedScanCode(productItem.name) === name
+  ));
+}
+
+function renderImportedXmlItems() {
+  const list = $('#xml-import-items');
+  if (!importedXmlInvoice) {
+    list.innerHTML = '';
+    return;
+  }
+  const selectableProducts = receiptProducts();
+  list.innerHTML = importedXmlInvoice.items.map((item, index) => `<div class="xml-import-item"><div><b>${esc(item.name)}</b><small>Código XML: ${esc(item.code || 'não informado')} · ${quantity(item.quantity)} ${esc(item.unit)}</small></div><label>Produto no sistema <select data-xml-item-product="${index}"><option value="">Não importar este item</option>${selectableProducts.map(productItem => `<option value="${productItem.id}" ${productItem.id === item.productId ? 'selected' : ''}>${esc(productItem.name)} (${esc(productItem.code)})</option>`).join('')}</select></label></div>`).join('');
+  document.querySelectorAll('[data-xml-item-product]').forEach(select => select.onchange = () => {
+    importedXmlInvoice.items[Number(select.dataset.xmlItemProduct)].productId = select.value;
+  });
+}
+
+function showXmlImportError(message = '') {
+  const error = $('#xml-import-error');
+  error.hidden = !message;
+  error.textContent = message;
+}
+
+function openXmlImportDialog() {
+  importedXmlInvoice = null;
+  $('#xml-file-form').reset();
+  $('#xml-import-preview').hidden = true;
+  showXmlImportError();
+  populateReceiptSuppliers();
+  $('#xml-import-dialog').showModal();
 }
 
 function openReceiptDetails(id) {
@@ -835,6 +926,7 @@ $('#add-product').onclick = () => $('#product-dialog').showModal();
 $('#scan-product-code').onclick = () => openCodeScanner('products');
 $('#scan-movement-code').onclick = () => openCodeScanner('movement');
 $('#add-receipt').onclick = openReceiptDialog;
+$('#import-xml').onclick = openXmlImportDialog;
 $('#add-receipt-line').onclick = () => addReceiptLine();
 $('#add-user').onclick = () => $('#user-dialog').showModal();
 $('#add-serial').onclick = () => {
@@ -984,29 +1076,64 @@ $('#receipt-form').onsubmit = async event => {
       product_id: line.querySelector('[data-receipt-product]').value,
       quantity: Number(line.querySelector('[data-receipt-quantity]').value)
     }));
-    if (!lines.length || lines.some(line => !line.product_id || !Number.isFinite(line.quantity) || line.quantity <= 0)) throw new Error('Preencha o material e a quantidade em todas as linhas.');
-    const supplierName = $('#receipt-supplier').value.trim();
-    if (!supplierName) throw new Error('Informe o fornecedor.');
-    const savedSupplier = state.suppliers.find(item => item.active && item.name.trim().toLocaleLowerCase('pt-BR') === supplierName.toLocaleLowerCase('pt-BR'));
-    const receiptData = savedSupplier ? {
-      p_supplier_id: savedSupplier.id,
-      p_invoice_number: $('#receipt-invoice').value.trim() || null,
-      p_note: $('#receipt-note').value.trim() || null,
-      p_items: lines
-    } : {
-      p_supplier: supplierName,
-      p_invoice_number: $('#receipt-invoice').value.trim() || null,
-      p_note: $('#receipt-note').value.trim() || null,
-      p_items: lines
-    };
-    const { error } = await supabase.rpc('record_receipt', receiptData);
-    if (error) throw error;
+    await registerReceipt({
+      supplierName: $('#receipt-supplier').value,
+      invoiceNumber: $('#receipt-invoice').value,
+      note: $('#receipt-note').value,
+      lines
+    });
     $('#receipt-dialog').close();
     await load();
     view('receipts');
     alert('Recebimento registrado e estoque atualizado.');
   } catch (error) {
     alert(error.message);
+  }
+};
+
+$('#xml-file-form').onsubmit = async event => {
+  event.preventDefault();
+  try {
+    const file = $('#xml-file').files?.[0];
+    if (!file) throw new Error('Selecione o arquivo XML da nota fiscal.');
+    if (file.size > 8 * 1024 * 1024) throw new Error('O XML é muito grande. Selecione um arquivo de até 8 MB.');
+    importedXmlInvoice = parseInvoiceXml(await file.text());
+    importedXmlInvoice.items.forEach(item => { item.productId = findImportedProduct(item)?.id || ''; });
+    $('#xml-import-supplier').value = importedXmlInvoice.supplier;
+    $('#xml-import-invoice').value = importedXmlInvoice.invoiceNumber;
+    $('#xml-import-note').value = '';
+    $('#xml-import-summary').textContent = `Fornecedor: ${importedXmlInvoice.supplier}${importedXmlInvoice.cnpj ? ` · CNPJ: ${importedXmlInvoice.cnpj}` : ''} · NF: ${importedXmlInvoice.invoiceNumber || 'não informada'} · ${importedXmlInvoice.items.length} item(ns) encontrado(s).`;
+    $('#xml-import-preview').hidden = false;
+    showXmlImportError();
+    renderImportedXmlItems();
+  } catch (error) {
+    importedXmlInvoice = null;
+    $('#xml-import-preview').hidden = true;
+    showXmlImportError(error.message);
+  }
+};
+
+$('#confirm-xml-import').onclick = async () => {
+  try {
+    if (!importedXmlInvoice) throw new Error('Selecione e leia um XML antes de confirmar.');
+    const supplierName = $('#xml-import-supplier').value.trim();
+    const invoiceNumber = $('#xml-import-invoice').value.trim();
+    if (!supplierName) throw new Error('Informe o fornecedor para registrar o recebimento.');
+    if (!invoiceNumber) throw new Error('Informe o número da nota fiscal.');
+    const lines = importedXmlInvoice.items
+      .filter(item => item.productId)
+      .map(item => ({ product_id: item.productId, quantity: item.quantity }));
+    if (!lines.length) throw new Error('Associe pelo menos um item do XML a um produto do sistema.');
+    const importNote = importedXmlInvoice.accessKey ? `Importado do XML da NF-e · chave ${importedXmlInvoice.accessKey}` : 'Importado do XML da NF-e';
+    const note = [$('#xml-import-note').value.trim(), importNote].filter(Boolean).join(' · ');
+    await registerReceipt({ supplierName, invoiceNumber, note, lines });
+    $('#xml-import-dialog').close();
+    importedXmlInvoice = null;
+    await load();
+    view('receipts');
+    alert('Recebimento importado e estoque atualizado.');
+  } catch (error) {
+    showXmlImportError(error.message);
   }
 };
 
