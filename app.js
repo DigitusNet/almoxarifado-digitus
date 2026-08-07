@@ -14,6 +14,7 @@ const holderTypeName = type => ({ tecnico: 'Técnico', veiculo: 'Veículo', clie
 const movementName = item => item.fieldUsage ? 'Uso em OS' : item.type === 'entrada' ? 'Entrada' : 'Saída';
 const unitName = unit => ({ unidade: 'un.', metro: 'm', par: 'par', caixa: 'cx.' }[unit] || 'un.');
 const quantity = value => Number(value || 0).toLocaleString('pt-BR', { maximumFractionDigits: 3 });
+const currency = value => Number(value || 0).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });
 const stockLabel = item => `${quantity(item.stock)} ${unitName(item.unit_of_measure)}`;
 let scannerStream = null;
 let scannerFrame = null;
@@ -38,6 +39,7 @@ const spreadsheetColumns = {
   unit: ['unidade', 'unidade de medida', 'medida', 'und'],
   tracking: ['controle', 'tipo de controle', 'rastreamento'],
   description: ['descricao', 'descrição', 'observacao', 'observação'],
+  averageCost: ['custo unitario', 'custo unitário', 'preco de custo', 'preço de custo', 'valor unitario', 'valor unitário', 'custo'],
   requiresCa: ['exige ca', 'controle de ca', 'tem ca'],
   caNumber: ['numero do ca', 'número do ca', 'ca'],
   caExpiry: ['validade do ca', 'vencimento do ca', 'data de validade do ca']
@@ -144,6 +146,7 @@ async function readProductSpreadsheet(event) {
         unit_of_measure: spreadsheetUnit(spreadsheetCell(row, spreadsheetColumns.unit)),
         tracking_mode: spreadsheetTracking(spreadsheetCell(row, spreadsheetColumns.tracking)),
         description: normalizedSpreadsheetText(spreadsheetCell(row, spreadsheetColumns.description)) || null,
+        average_cost: spreadsheetNumber(spreadsheetCell(row, spreadsheetColumns.averageCost)),
         requires_ca: ['sim', 's', 'true', '1'].includes(caValue) || Boolean(caNumber || caExpiry),
         ca_number: caNumber || null,
         ca_expiry_date: caExpiry
@@ -395,6 +398,7 @@ function getFieldStockItems() {
 
 function render() {
   const lows = state.products.filter(low), total = state.products.filter(item => Number(item.stock) > 0).length, caAlerts = state.products.filter(caAlert);
+  const stockValue = state.products.reduce((sum, item) => sum + Number(item.stock || 0) * Number(item.average_cost || 0), 0);
   const overdueLoans = state.toolLoans.filter(loanOverdue).length;
   const laboratoryItems = state.serialItems.filter(item => {
     const location = state.locations.find(entry => entry.id === item.current_location_id);
@@ -402,6 +406,7 @@ function render() {
   }).length;
   $('#product-count').textContent = state.products.length;
   $('#stock-total').textContent = total.toLocaleString('pt-BR');
+  $('#stock-value').textContent = currency(stockValue);
   $('#ca-alert-total').textContent = caAlerts.length;
   $('#dashboard-overdue-loans').textContent = overdueLoans;
   $('#dashboard-lab-total').textContent = laboratoryItems;
@@ -455,11 +460,17 @@ function receiptProducts() {
 
 function receiptLineHtml(selected = '') {
   const products = receiptProducts();
-  return `<div class="receipt-line"><label>Material <select data-receipt-product required><option value="">Selecione</option>${products.map(item => `<option value="${item.id}" ${item.id === selected ? 'selected' : ''}>${esc(item.name)} (${stockLabel(item)})</option>`).join('')}</select></label><label>Quantidade <input data-receipt-quantity type="number" min="0.001" step="0.001" required value="1" /></label><button class="receipt-line-remove" data-remove-receipt-line type="button" aria-label="Remover material">×</button></div>`;
+  const selectedProduct = product(selected);
+  const unitCost = Number(selectedProduct?.average_cost || 0).toFixed(2);
+  return `<div class="receipt-line"><label>Material <select data-receipt-product required><option value="">Selecione</option>${products.map(item => `<option value="${item.id}" ${item.id === selected ? 'selected' : ''}>${esc(item.name)} (${stockLabel(item)})</option>`).join('')}</select></label><label>Quantidade <input data-receipt-quantity type="number" min="0.001" step="0.001" required value="1" /></label><label>Valor unitário (R$) <input data-receipt-unit-cost type="number" min="0" step="0.01" required value="${unitCost}" /></label><button class="receipt-line-remove" data-remove-receipt-line type="button" aria-label="Remover material">×</button></div>`;
 }
 
 function bindReceiptLineEvents() {
   document.querySelectorAll('[data-remove-receipt-line]').forEach(button => button.onclick = () => button.closest('.receipt-line').remove());
+  document.querySelectorAll('[data-receipt-product]').forEach(select => select.onchange = () => {
+    const item = product(select.value);
+    select.closest('.receipt-line').querySelector('[data-receipt-unit-cost]').value = Number(item?.average_cost || 0).toFixed(2);
+  });
 }
 
 function addReceiptLine(selected = '') {
@@ -479,7 +490,7 @@ function openReceiptDialog() {
 async function registerReceipt({ supplierName, invoiceNumber, note, lines }) {
   const name = String(supplierName || '').trim();
   if (!name) throw new Error('Informe o fornecedor.');
-  if (!lines.length || lines.some(line => !line.product_id || !Number.isFinite(line.quantity) || line.quantity <= 0)) throw new Error('Preencha o material e a quantidade em todas as linhas.');
+  if (!lines.length || lines.some(line => !line.product_id || !Number.isFinite(line.quantity) || line.quantity <= 0 || !Number.isFinite(line.unit_cost) || line.unit_cost < 0)) throw new Error('Preencha o material, a quantidade e o valor unitário em todas as linhas.');
   const savedSupplier = state.suppliers.find(item => item.active && item.name.trim().toLocaleLowerCase('pt-BR') === name.toLocaleLowerCase('pt-BR'));
   const receiptData = savedSupplier ? {
     p_supplier_id: savedSupplier.id,
@@ -517,11 +528,14 @@ function parseInvoiceXml(xmlContent) {
   const items = xmlNodes(invoice, 'det').map(detail => {
     const productNode = xmlNodes(detail, 'prod')[0];
     const importedQuantity = Number(xmlText(productNode || detail, 'qCom').replace(',', '.'));
+    const unitCostText = xmlText(productNode || detail, 'vUnCom');
+    const unitCost = unitCostText ? Number(unitCostText.replace(',', '.')) : null;
     return {
       code: xmlText(productNode || detail, 'cProd'),
       name: xmlText(productNode || detail, 'xProd') || 'Item sem descrição',
       quantity: importedQuantity,
       unit: xmlText(productNode || detail, 'uCom') || 'un.',
+      unitCost: Number.isFinite(unitCost) && unitCost >= 0 ? unitCost : null,
       productId: ''
     };
   }).filter(item => Number.isFinite(item.quantity) && item.quantity > 0);
@@ -545,7 +559,7 @@ function renderImportedXmlItems() {
     return;
   }
   const selectableProducts = receiptProducts();
-  list.innerHTML = importedXmlInvoice.items.map((item, index) => `<div class="xml-import-item"><div><b>${esc(item.name)}</b><small>Código XML: ${esc(item.code || 'não informado')} · ${quantity(item.quantity)} ${esc(item.unit)}</small></div><label>Produto no sistema <select data-xml-item-product="${index}"><option value="">Não importar este item</option>${selectableProducts.map(productItem => `<option value="${productItem.id}" ${productItem.id === item.productId ? 'selected' : ''}>${esc(productItem.name)} (${esc(productItem.code)})</option>`).join('')}</select></label></div>`).join('');
+  list.innerHTML = importedXmlInvoice.items.map((item, index) => `<div class="xml-import-item"><div><b>${esc(item.name)}</b><small>Código XML: ${esc(item.code || 'não informado')} · ${quantity(item.quantity)} ${esc(item.unit)}${item.unitCost !== null ? ` · ${currency(item.unitCost)}` : ''}</small></div><label>Produto no sistema <select data-xml-item-product="${index}"><option value="">Não importar este item</option>${selectableProducts.map(productItem => `<option value="${productItem.id}" ${productItem.id === item.productId ? 'selected' : ''}>${esc(productItem.name)} (${esc(productItem.code)})</option>`).join('')}</select></label></div>`).join('');
   document.querySelectorAll('[data-xml-item-product]').forEach(select => select.onchange = () => {
     importedXmlInvoice.items[Number(select.dataset.xmlItemProduct)].productId = select.value;
   });
@@ -572,7 +586,10 @@ function openReceiptDetails(id) {
   const items = state.receiptItems.filter(item => item.receipt_id === id);
   $('#receipt-details-title').textContent = receipt.supplier;
   $('#receipt-details-subtitle').textContent = `${receipt.invoice_number ? `NF: ${receipt.invoice_number} · ` : ''}${date(receipt.received_at)}${receipt.note ? ` · ${receipt.note}` : ''}`;
-  $('#receipt-details-list').innerHTML = items.map(item => `<div class="serial-history-item"><b>${esc(item.product_name)}</b><small>${quantity(item.quantity)} ${unitName(item.unit_of_measure)} · Código: ${esc(item.product_code)}</small></div>`).join('') || '<p class="empty">Nenhum material encontrado neste recebimento.</p>';
+  $('#receipt-details-list').innerHTML = items.map(item => {
+    const unitCost = Number(item.unit_cost || 0);
+    return `<div class="serial-history-item"><b>${esc(item.product_name)}</b><small>${quantity(item.quantity)} ${unitName(item.unit_of_measure)} · Código: ${esc(item.product_code)}${unitCost ? ` · ${currency(unitCost)} cada · Total: ${currency(Number(item.quantity) * unitCost)}` : ''}</small></div>`;
+  }).join('') || '<p class="empty">Nenhum material encontrado neste recebimento.</p>';
   $('#receipt-details-dialog').showModal();
 }
 
@@ -1104,6 +1121,7 @@ function openProductEditor(id) {
   $('#edit-ca-expiry').value = item.ca_expiry_date || '';
   $('#edit-stock').value = item.stock;
   $('#edit-minimum').value = item.minimum;
+  $('#edit-average-cost').value = Number(item.average_cost || 0).toFixed(2);
   $('#edit-remove-image').dataset.removed = 'false';
   setProductImagePreview('edit', editingProductImagePath, true);
   $('#edit-product-dialog').showModal();
@@ -1260,6 +1278,7 @@ function collectProductData(prefix) {
     unit_of_measure: $(`#${prefix}-unit`).value,
     tracking_mode: $(`#${prefix}-tracking`).value,
     description: $(`#${prefix}-description`).value.trim() || null,
+    average_cost: Number($(`#${prefix}-average-cost`).value || 0),
     requires_ca: $(`#${prefix}-requires-ca`).value === 'true',
     ca_number: $(`#${prefix}-ca-number`).value.trim() || null,
     ca_expiry_date: $(`#${prefix}-ca-expiry`).value || null
@@ -1336,7 +1355,8 @@ $('#receipt-form').onsubmit = async event => {
   try {
     const lines = [...document.querySelectorAll('.receipt-line')].map(line => ({
       product_id: line.querySelector('[data-receipt-product]').value,
-      quantity: Number(line.querySelector('[data-receipt-quantity]').value)
+      quantity: Number(line.querySelector('[data-receipt-quantity]').value),
+      unit_cost: Number(line.querySelector('[data-receipt-unit-cost]').value)
     }));
     await registerReceipt({
       supplierName: $('#receipt-supplier').value,
@@ -1384,7 +1404,7 @@ $('#confirm-xml-import').onclick = async () => {
     if (!invoiceNumber) throw new Error('Informe o número da nota fiscal.');
     const lines = importedXmlInvoice.items
       .filter(item => item.productId)
-      .map(item => ({ product_id: item.productId, quantity: item.quantity }));
+      .map(item => ({ product_id: item.productId, quantity: item.quantity, unit_cost: item.unitCost ?? Number(product(item.productId)?.average_cost || 0) }));
     if (!lines.length) throw new Error('Associe pelo menos um item do XML a um produto do sistema.');
     const importNote = importedXmlInvoice.accessKey ? `Importado do XML da NF-e · chave ${importedXmlInvoice.accessKey}` : 'Importado do XML da NF-e';
     const note = [$('#xml-import-note').value.trim(), importNote].filter(Boolean).join(' · ');
