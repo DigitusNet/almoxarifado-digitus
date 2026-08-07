@@ -6,7 +6,7 @@ function config() {
   const url = process.env.SUPABASE_URL || process.env.VITE_SUPABASE_URL;
   const serviceKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
   const publicKey = process.env.SUPABASE_PUBLISHABLE_KEY || process.env.VITE_SUPABASE_PUBLISHABLE_KEY;
-  if (!url || !serviceKey || !publicKey) throw new Error('Configuração segura do Supabase ausente.');
+  if (!url || !publicKey) throw new Error('Configuração do Supabase ausente.');
   return { url, serviceKey, publicKey };
 }
 
@@ -22,24 +22,52 @@ export default async function handler(req, res) {
 
     const { data: requester, error: requesterError } = await sessionClient.from('profiles').select('role').eq('id', user.id).single();
     if (requesterError || requester?.role !== 'admin') return res.status(403).json({ error: 'Apenas administradores podem gerenciar usuários.' });
-    const admin = createClient(url, serviceKey);
 
     if (req.method === 'GET') {
+      if (!serviceKey) {
+        const { data: profiles, error: profilesError } = await sessionClient
+          .from('profiles')
+          .select('id, full_name, role')
+          .order('full_name', { ascending: true });
+        if (profilesError) throw profilesError;
+
+        return res.status(200).json({
+          users: profiles.map(profile => ({
+            id: profile.id,
+            email: profile.id === user.id ? user.email : 'E-mail protegido',
+            name: profile.full_name || '',
+            role: profile.role || 'tecnico',
+            active: true
+          })),
+          partial: true
+        });
+      }
+
+      const admin = createClient(url, serviceKey);
       const [{ data: authData, error: authError }, { data: profiles, error: profileError }] = await Promise.all([
         admin.auth.admin.listUsers({ page: 1, perPage: 1000 }),
         admin.from('profiles').select('id, full_name, role')
       ]);
       if (authError || profileError) throw authError || profileError;
-      const profileById = new Map(profiles.map(profile => [profile.id, profile]));
-      return res.status(200).json(authData.users.map(account => ({
-        id: account.id,
-        email: account.email,
-        name: profileById.get(account.id)?.full_name || '',
-        role: profileById.get(account.id)?.role || 'tecnico',
-        active: !account.banned_until
-      })));
+
+      const profileById = new Map((profiles || []).map(profile => [profile.id, profile]));
+      return res.status(200).json({
+        users: (authData.users || []).map(account => ({
+          id: account.id,
+          email: account.email,
+          name: profileById.get(account.id)?.full_name || '',
+          role: profileById.get(account.id)?.role || 'tecnico',
+          active: !account.banned_until
+        })),
+        partial: false
+      });
     }
 
+    if (!serviceKey) {
+      return res.status(503).json({ error: 'Configure a chave segura do Supabase na Vercel para criar ou remover usuários.' });
+    }
+
+    const admin = createClient(url, serviceKey);
     if (req.method === 'POST') {
       const { name, email, password, role } = req.body || {};
       if (!name?.trim() || !email?.trim() || !password || !allowedRoles.has(role)) return res.status(400).json({ error: 'Preencha todos os campos corretamente.' });
@@ -58,7 +86,6 @@ export default async function handler(req, res) {
       const id = req.query.id;
       if (!id) return res.status(400).json({ error: 'Usuário inválido.' });
       if (id === user.id) return res.status(400).json({ error: 'Você não pode remover a própria conta.' });
-
       const { data: target, error: targetError } = await admin.from('profiles').select('role').eq('id', id).single();
       if (targetError) throw targetError;
       if (target.role === 'admin') {

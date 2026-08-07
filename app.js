@@ -1,7 +1,7 @@
 import { createClient } from '@supabase/supabase-js';
 
 const supabase = createClient(import.meta.env.VITE_SUPABASE_URL, import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY);
-let state = { products: [], movements: [], users: [], collaborators: [], vehicles: [], locations: [], suppliers: [], serialItems: [], serialMovements: [], toolLoans: [], receipts: [], receiptItems: [], inventorySessions: [], inventoryCounts: [], reminders: [], materialRequests: [], productFilter: 'all' };
+let state = { products: [], movements: [], users: [], usersLoadNote: '', collaborators: [], vehicles: [], locations: [], suppliers: [], serialItems: [], serialMovements: [], toolLoans: [], receipts: [], receiptItems: [], inventorySessions: [], inventoryCounts: [], reminders: [], materialRequests: [], productFilter: 'all' };
 let currentUser = null;
 const $ = selector => document.querySelector(selector);
 const esc = value => String(value ?? '').replace(/[&<>'"]/g, char => ({ '&':'&amp;','<':'&lt;','>':'&gt;',"'":'&#039;','"':'&quot;' }[char]));
@@ -974,6 +974,9 @@ async function finishInventory() {
 function renderUsers() {
   const table = $('#users-table');
   if (!table) return;
+  const note = $('#users-load-note');
+  note.hidden = !state.usersLoadNote;
+  note.textContent = state.usersLoadNote;
   table.innerHTML = state.users.map(user => `<tr><td><b>${esc(user.name || 'Sem nome')}</b></td><td>${esc(user.email)}</td><td><span class="badge ok">${roleName(user.role)}</span></td><td>${user.active ? '<span class="badge ok">Ativo</span>' : '<span class="badge out">Desativado</span>'}</td><td>${user.id === currentUser?.id ? '—' : `<button class="danger-button" data-delete-user="${user.id}">Remover</button>`}</td></tr>`).join('') || '<tr><td colspan="5" class="empty">Nenhum usuário cadastrado.</td></tr>';
   document.querySelectorAll('[data-delete-user]').forEach(button => button.onclick = () => deleteUser(button.dataset.deleteUser));
 }
@@ -984,7 +987,8 @@ async function loadUsers() {
   const response = await fetch('/api/users', { headers: { Authorization: `Bearer ${session.access_token}` } });
   const data = await response.json();
   if (!response.ok) throw new Error(data.error || 'Não foi possível carregar usuários.');
-  state.users = data;
+  state.users = Array.isArray(data) ? data : (data.users || []);
+  state.usersLoadNote = data.partial ? 'Os perfis foram carregados. Para exibir todos os e-mails e administrar acessos, configure a chave segura do Supabase na Vercel.' : '';
 }
 
 async function load() {
@@ -1026,6 +1030,7 @@ async function load() {
   } catch (error) {
     console.warn('Não foi possível carregar a lista de usuários:', error.message);
     state.users = [];
+    state.usersLoadNote = `Não foi possível carregar os usuários: ${error.message}`;
   }
   render();
 }
@@ -1244,7 +1249,7 @@ $('#logout').onclick = async () => {
   const { error } = await supabase.auth.signOut();
   if (error) return alert(error.message);
   currentUser = null;
-  state = { products: [], movements: [], users: [], collaborators: [], vehicles: [], locations: [], suppliers: [], serialItems: [], serialMovements: [], toolLoans: [], receipts: [], receiptItems: [], inventorySessions: [], inventoryCounts: [], reminders: [], materialRequests: [], productFilter: 'all' };
+  state = { products: [], movements: [], users: [], usersLoadNote: '', collaborators: [], vehicles: [], locations: [], suppliers: [], serialItems: [], serialMovements: [], toolLoans: [], receipts: [], receiptItems: [], inventorySessions: [], inventoryCounts: [], reminders: [], materialRequests: [], productFilter: 'all' };
   $('#login-form').reset();
   $('#auth-gate').hidden = false;
 };

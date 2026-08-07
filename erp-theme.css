@@ -155,3 +155,5 @@ main{padding:20px 38px 52px 68px}.topbar{min-height:39px;margin-bottom:14px;padd
   main{padding-left:30px}
   .topbar{margin-left:-30px;margin-right:-52px;padding-left:30px;padding-right:52px}
 }
+
+.users-load-note{margin:0 0 14px;padding:10px 14px;border:1px solid #bfd7e6;border-radius:8px;background:#f1f8fc;color:#285c7c;font-size:.9rem}
