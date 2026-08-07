@@ -223,7 +223,7 @@ function getFieldStockItems() {
 }
 
 function render() {
-  const outOfStock = state.products.filter(item => Number(item.stock) === 0), total = state.products.filter(item => Number(item.stock) > 0).length, caAlerts = state.products.filter(caAlert);
+  const lows = state.products.filter(low), total = state.products.filter(item => Number(item.stock) > 0).length, caAlerts = state.products.filter(caAlert);
   const overdueLoans = state.toolLoans.filter(loanOverdue).length;
   const laboratoryItems = state.serialItems.filter(item => {
     const location = state.locations.find(entry => entry.id === item.current_location_id);
@@ -234,7 +234,7 @@ function render() {
   $('#ca-alert-total').textContent = caAlerts.length;
   $('#dashboard-overdue-loans').textContent = overdueLoans;
   $('#dashboard-lab-total').textContent = laboratoryItems;
-  $('#out-of-stock-list').innerHTML = outOfStock.length ? outOfStock.map(item => `<div class="compact-row"><div><b>${esc(item.name)}</b><small>${esc(item.code)}</small></div><span class="badge out">Sem estoque</span></div>`).join('') : '<p class="empty">Nenhum item está sem estoque.</p>';
+  $('#low-stock-list').innerHTML = lows.length ? lows.map(item => `<div class="compact-row"><div><b>${esc(item.name)}</b><small>${esc(item.code)} · mínimo: ${stockLabel({ ...item, stock: item.minimum })}</small></div><span class="badge low">${stockLabel(item)}</span></div>`).join('') : '<p class="empty">Nenhum item precisa de reposição.</p>';
   $('#recent-movements').innerHTML = state.movements.slice(0, 5).map(item => `<div class="compact-row"><div><b>${movementName(item)} · ${esc(product(item.productId)?.name || 'Produto')}</b><small>${esc(item.person)} · ${item.date}</small></div><span class="badge ${item.type}">${item.type === 'entrada' ? '+' : '-'}${quantity(item.quantity)} ${unitName(product(item.productId)?.unit_of_measure)}</span></div>`).join('') || '<p class="empty">Sem movimentações.</p>';
   renderProducts(); renderMovement(); renderFieldStock(); renderUsers(); renderRegistry(); renderReceipts(); renderSerials(); renderLaboratory(); renderLoans(); renderInventory();
 }
@@ -1028,6 +1028,7 @@ $('#edit-remove-image').onclick = () => {
   $('#edit-remove-image').dataset.removed = 'true';
   setProductImagePreview('edit');
 };
+$('#view-low-stock-products').onclick = () => showProducts('low');
 $('#ca-alert-card').onclick = () => showProducts('ca');
 $('#overdue-loans-card').onclick = () => view('loans');
 $('#laboratory-card').onclick = () => view('laboratory');
