@@ -130,17 +130,17 @@ main{padding:20px 38px 52px 68px}.topbar{min-height:39px;margin-bottom:14px;padd
 /* Escala de trabalho para monitor: mais área útil e leitura confortável. */
 @media(min-width:851px){
   body{font-size:15px}
-  .sidebar{height:46px;min-height:46px;padding:5px 14px;gap:12px}
-  .brand-lockup .wordmark{width:102px;max-height:27px}
-  .sidebar nav{gap:7px}.sidebar .nav-link{padding:6px 11px;font-size:11px;line-height:20px}.logout-button{padding:6px 10px;font-size:11px;line-height:20px}
+  .sidebar{height:60px;min-height:60px;padding:8px 14px;gap:14px}
+  .brand-lockup .wordmark{width:120px;max-height:31px}
+  .sidebar nav{gap:8px}.sidebar .nav-link{padding:8px 13px;font-size:12px;line-height:22px}.logout-button{padding:8px 12px;font-size:12px;line-height:22px}
   .side-rail{top:46px;width:58px;padding:10px 7px;gap:4px}.side-rail .nav-link{min-height:43px;padding:9px 0;font-size:18px;line-height:24px}
-  main{min-height:calc(100vh - 46px);padding:26px 52px 30px 84px}
+  main{min-height:calc(100vh - 60px);padding:26px 52px 30px 84px}
   .topbar{min-height:48px;margin-bottom:18px;padding-bottom:10px}.topbar h1{font-size:29px}.primary{padding:12px 17px;font-size:14px}
   .panel h2{font-size:18px}.toolbar{margin-bottom:20px}.secondary-button,.text-button{font-size:13px}label{font-size:13px}input,select,textarea{padding:11px 12px;font-size:14px}th,td{padding:15px 18px;font-size:14px}th{font-size:11px}
   .cards{grid-template-columns:repeat(5,minmax(0,1fr));gap:16px;margin-bottom:18px}
   .dashboard-summary-card{height:88px;padding:13px 54px 11px 18px;border-radius:4px}.dashboard-summary-card span{font-size:13px;line-height:18px}.dashboard-summary-card strong{margin-top:3px;font-size:36px;line-height:39px}.dashboard-summary-icon{right:18px;bottom:16px;width:29px;height:29px}
-  main.dashboard-mode #dashboard.active{display:flex;flex-direction:column;min-height:calc(100vh - 170px)}
-  main.dashboard-mode .dashboard-operations{flex:1;height:calc(100vh - 274px);min-height:560px;grid-template-rows:repeat(2,minmax(0,1fr));gap:8px;margin-top:0}
+  main.dashboard-mode #dashboard.active{display:flex;flex-direction:column;min-height:calc(100vh - 184px)}
+  main.dashboard-mode .dashboard-operations{flex:1;height:calc(100vh - 288px);min-height:560px;grid-template-rows:repeat(2,minmax(0,1fr));gap:8px;margin-top:0}
   .dashboard-operation-panel{min-height:0}.dashboard-operation-heading{min-height:48px;padding:7px 12px 3px}.dashboard-operation-heading h2{font-size:18px}.dashboard-operation-heading h2 b{min-width:29px;height:29px;font-size:13px}.dashboard-pager{font-size:11px}.dashboard-heading-action{font-size:21px}
   .dashboard-operation-panel table{font-size:13px}.dashboard-operation-panel th,.dashboard-operation-panel td{padding:11px 16px}.dashboard-operation-panel th{font-size:11px}.dashboard-operation-panel .empty{padding:42px 16px;font-size:14px}.dashboard-icon-action{width:23px;height:23px;font-size:11px}.dashboard-icon-action.danger{font-size:16px}
 }
