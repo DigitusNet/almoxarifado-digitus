@@ -19,9 +19,9 @@ delete from public.products;
 -- As fotos antigas permanecem apenas como arquivos sem vínculo no Storage.
 -- Elas não aparecem no sistema depois que os produtos são apagados.
 
+delete from public.stock_locations;
 delete from public.vehicles;
 delete from public.collaborators;
-delete from public.stock_locations;
 delete from public.suppliers;
 
 -- Recria somente o local padrão necessário para novos cadastros.
