@@ -22,7 +22,178 @@ let scannerTarget = 'products';
 let barcodeDetector = null;
 let importedXmlInvoice = null;
 let editingProductImagePath = null;
+let pendingProductImport = [];
 const normalizedScanCode = value => String(value || '').trim().replace(/[^a-z0-9]/gi, '').toLocaleLowerCase('pt-BR');
+const normalizedSpreadsheetText = value => String(value ?? '').trim();
+const normalizedSpreadsheetHeader = value => normalizedSpreadsheetText(value).normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim();
+
+const spreadsheetColumns = {
+  name: ['nome', 'nome do item', 'nome do produto', 'produto', 'produtos', 'item', 'material', 'descricao', 'descrição'],
+  code: ['codigo', 'código', 'codigo do produto', 'código do produto', 'cod', 'cod produto', 'sku', 'referencia', 'referência'],
+  category: ['categoria', 'grupo', 'tipo de produto', 'tipo'],
+  stock: ['estoque', 'estoque atual', 'saldo', 'quantidade', 'qtd', 'quantidade atual'],
+  minimum: ['estoque minimo', 'estoque mínimo', 'minimo', 'mínimo', 'saldo minimo', 'saldo mínimo'],
+  brand: ['marca'],
+  model: ['modelo'],
+  unit: ['unidade', 'unidade de medida', 'medida', 'und'],
+  tracking: ['controle', 'tipo de controle', 'rastreamento'],
+  description: ['descricao', 'descrição', 'observacao', 'observação'],
+  requiresCa: ['exige ca', 'controle de ca', 'tem ca'],
+  caNumber: ['numero do ca', 'número do ca', 'ca'],
+  caExpiry: ['validade do ca', 'vencimento do ca', 'data de validade do ca']
+};
+
+function spreadsheetCell(row, aliases) {
+  for (const alias of aliases) {
+    const match = Object.entries(row).find(([header, value]) => normalizedSpreadsheetHeader(header) === normalizedSpreadsheetHeader(alias) && normalizedSpreadsheetText(value));
+    if (match) return match[1];
+  }
+  return '';
+}
+
+function hasSpreadsheetColumn(rows, aliases) {
+  return Object.keys(rows[0] || {}).some(header => aliases.some(alias => normalizedSpreadsheetHeader(header) === normalizedSpreadsheetHeader(alias)));
+}
+
+function spreadsheetNumber(value, fallback = 0) {
+  if (typeof value === 'number') return Number.isFinite(value) && value >= 0 ? value : fallback;
+  const raw = normalizedSpreadsheetText(value).replace(/\s/g, '');
+  if (!raw) return fallback;
+  let normalized = raw;
+  if (raw.includes('.') && raw.includes(',')) normalized = raw.lastIndexOf(',') > raw.lastIndexOf('.') ? raw.replace(/\./g, '').replace(',', '.') : raw.replace(/,/g, '');
+  else if (raw.includes(',')) normalized = raw.replace(/\./g, '').replace(',', '.');
+  const number = Number(normalized.replace(/[^0-9.-]/g, ''));
+  return Number.isFinite(number) && number >= 0 ? number : fallback;
+}
+
+function spreadsheetUnit(value) {
+  const unit = normalizedSpreadsheetHeader(value);
+  if (['m', 'metro', 'metros'].includes(unit)) return 'metro';
+  if (['par', 'pares'].includes(unit)) return 'par';
+  if (['caixa', 'caixas', 'cx'].includes(unit)) return 'caixa';
+  return 'unidade';
+}
+
+function spreadsheetTracking(value) {
+  const tracking = normalizedSpreadsheetHeader(value);
+  return tracking.includes('serial') || tracking.includes('mac') || tracking.includes('rastre') ? 'serializado' : 'quantidade';
+}
+
+function spreadsheetDate(value) {
+  const text = normalizedSpreadsheetText(value);
+  if (!text) return null;
+  const brDate = text.match(/^(\d{1,2})[\/-](\d{1,2})[\/-](\d{4})$/);
+  if (brDate) return `${brDate[3]}-${brDate[2].padStart(2, '0')}-${brDate[1].padStart(2, '0')}`;
+  const isoDate = text.match(/^(\d{4})-(\d{2})-(\d{2})/);
+  return isoDate ? isoDate[0] : null;
+}
+
+function resetProductImportPreview() {
+  pendingProductImport = [];
+  $('#product-import-error').hidden = true;
+  $('#product-import-error').textContent = '';
+  $('#product-import-summary').hidden = true;
+  $('#product-import-summary').innerHTML = '';
+  $('#product-import-preview').hidden = true;
+  $('#product-import-preview').innerHTML = '';
+  $('#confirm-product-import').hidden = true;
+  $('#confirm-product-import').disabled = false;
+}
+
+function openProductImport() {
+  if (!['admin', 'operador'].includes(currentUser?.role)) return alert('Apenas administradores e operadores podem importar produtos.');
+  $('#product-import-file').value = '';
+  resetProductImportPreview();
+  $('#product-import-dialog').showModal();
+}
+
+async function readProductSpreadsheet(event) {
+  resetProductImportPreview();
+  const file = event.target.files?.[0];
+  if (!file) return;
+  try {
+    const XLSX = await import('xlsx');
+    const workbook = XLSX.read(await file.arrayBuffer(), { type: 'array', cellDates: false });
+    const firstSheet = workbook.Sheets[workbook.SheetNames[0]];
+    const rows = XLSX.utils.sheet_to_json(firstSheet, { defval: '', raw: false });
+    if (!rows.length) throw new Error('A planilha não possui linhas para importar.');
+    if (!hasSpreadsheetColumn(rows, spreadsheetColumns.name) || !hasSpreadsheetColumn(rows, spreadsheetColumns.code)) throw new Error('Não encontrei as colunas Nome e Código. Use esses nomes no cabeçalho da planilha.');
+
+    const usedCodes = new Set(state.products.map(item => normalizedScanCode(item.code)));
+    const ignored = [];
+    const prepared = [];
+    rows.forEach((row, index) => {
+      const line = index + 2;
+      const name = normalizedSpreadsheetText(spreadsheetCell(row, spreadsheetColumns.name));
+      const code = normalizedSpreadsheetText(spreadsheetCell(row, spreadsheetColumns.code));
+      const normalizedCode = normalizedScanCode(code);
+      if (!name || !code) return ignored.push(`Linha ${line}: informe nome e código.`);
+      if (usedCodes.has(normalizedCode)) return ignored.push(`Linha ${line}: código ${code} já existe.`);
+      usedCodes.add(normalizedCode);
+      const caNumber = normalizedSpreadsheetText(spreadsheetCell(row, spreadsheetColumns.caNumber));
+      const caExpiry = spreadsheetDate(spreadsheetCell(row, spreadsheetColumns.caExpiry));
+      const caValue = normalizedSpreadsheetHeader(spreadsheetCell(row, spreadsheetColumns.requiresCa));
+      prepared.push({
+        name,
+        code,
+        category: normalizedSpreadsheetText(spreadsheetCell(row, spreadsheetColumns.category)) || 'Produtos',
+        stock: spreadsheetNumber(spreadsheetCell(row, spreadsheetColumns.stock)),
+        minimum_stock: spreadsheetNumber(spreadsheetCell(row, spreadsheetColumns.minimum)),
+        brand: normalizedSpreadsheetText(spreadsheetCell(row, spreadsheetColumns.brand)) || null,
+        model: normalizedSpreadsheetText(spreadsheetCell(row, spreadsheetColumns.model)) || null,
+        unit_of_measure: spreadsheetUnit(spreadsheetCell(row, spreadsheetColumns.unit)),
+        tracking_mode: spreadsheetTracking(spreadsheetCell(row, spreadsheetColumns.tracking)),
+        description: normalizedSpreadsheetText(spreadsheetCell(row, spreadsheetColumns.description)) || null,
+        requires_ca: ['sim', 's', 'true', '1'].includes(caValue) || Boolean(caNumber || caExpiry),
+        ca_number: caNumber || null,
+        ca_expiry_date: caExpiry
+      });
+    });
+
+    pendingProductImport = prepared;
+    const summary = $('#product-import-summary');
+    summary.hidden = false;
+    summary.innerHTML = `<b>${prepared.length} produto${prepared.length === 1 ? '' : 's'} pronto${prepared.length === 1 ? '' : 's'} para importar.</b>${ignored.length ? `<span>${ignored.length} linha${ignored.length === 1 ? '' : 's'} ignorada${ignored.length === 1 ? '' : 's'} por dados ausentes ou código duplicado.</span>` : ''}`;
+    if (prepared.length) {
+      const preview = $('#product-import-preview');
+      const visibleProducts = prepared.slice(0, 8);
+      preview.hidden = false;
+      preview.innerHTML = `<b>Prévia</b>${visibleProducts.map(item => `<div><span>${esc(item.name)}</span><small>${esc(item.code)} · ${esc(item.category)} · ${quantity(item.stock)} ${unitName(item.unit_of_measure)}</small></div>`).join('')}${prepared.length > visibleProducts.length ? `<small>e mais ${prepared.length - visibleProducts.length} produto(s).</small>` : ''}`;
+      $('#confirm-product-import').hidden = false;
+    }
+    if (!prepared.length) {
+      $('#product-import-error').textContent = ignored[0] || 'Nenhum produto válido foi encontrado na planilha.';
+      $('#product-import-error').hidden = false;
+    }
+  } catch (error) {
+    $('#product-import-error').textContent = error.message || 'Não foi possível ler esta planilha.';
+    $('#product-import-error').hidden = false;
+  }
+}
+
+async function confirmProductImport() {
+  if (!pendingProductImport.length) return;
+  const button = $('#confirm-product-import');
+  if (!confirm(`Importar ${pendingProductImport.length} produto(s) para o sistema?`)) return;
+  button.disabled = true;
+  button.textContent = 'Importando…';
+  try {
+    const { error } = await supabase.from('products').insert(pendingProductImport);
+    if (error) throw error;
+    const count = pendingProductImport.length;
+    $('#product-import-dialog').close();
+    pendingProductImport = [];
+    await load();
+    showProducts();
+    alert(`${count} produto${count === 1 ? '' : 's'} importado${count === 1 ? '' : 's'} com sucesso.`);
+  } catch (error) {
+    $('#product-import-error').textContent = error.message || 'Não foi possível importar os produtos.';
+    $('#product-import-error').hidden = false;
+  } finally {
+    button.disabled = false;
+    button.textContent = 'Importar produtos';
+  }
+}
 
 function scannerMessage(message) {
   const messageElement = $('#scanner-message');
@@ -965,6 +1136,9 @@ document.querySelectorAll('.nav-link').forEach(button => button.onclick = () => 
 document.querySelectorAll('[data-go]').forEach(button => button.onclick = () => button.dataset.go === 'products' ? showProducts() : view(button.dataset.go));
 $('#header-action').onclick = () => $('.view.active').id === 'products' ? $('#product-dialog').showModal() : view('movement');
 $('#add-product').onclick = () => $('#product-dialog').showModal();
+$('#import-products').onclick = openProductImport;
+$('#product-import-file').onchange = readProductSpreadsheet;
+$('#confirm-product-import').onclick = confirmProductImport;
 $('#scan-product-code').onclick = () => openCodeScanner('products');
 $('#scan-movement-code').onclick = () => openCodeScanner('movement');
 $('#add-receipt').onclick = openReceiptDialog;
