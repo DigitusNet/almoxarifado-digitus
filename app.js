@@ -5,6 +5,43 @@ let state = { products: [], movements: [], users: [], usersLoadNote: '', collabo
 let currentUser = null;
 const $ = selector => document.querySelector(selector);
 const esc = value => String(value ?? '').replace(/[&<>'"]/g, char => ({ '&':'&amp;','<':'&lt;','>':'&gt;',"'":'&#039;','"':'&quot;' }[char]));
+const accountAvatarKey = () => currentUser ? `digitus-account-avatar-${currentUser.id}` : '';
+
+function accountInitials(name) {
+  const words = String(name || '').trim().split(/\s+/).filter(Boolean);
+  return (words.slice(0, 2).map(word => word[0]).join('') || 'DN').toUpperCase();
+}
+
+function drawAccountAvatar(element, image, name) {
+  if (!element) return;
+  element.replaceChildren();
+  if (image) {
+    const avatarImage = document.createElement('img');
+    avatarImage.src = image;
+    avatarImage.alt = '';
+    element.append(avatarImage);
+  } else {
+    element.textContent = accountInitials(name);
+  }
+}
+
+function renderAccountMenu() {
+  if (!currentUser) return;
+  const name = currentUser.name || currentUser.email?.split('@')[0] || 'Minha conta';
+  const image = localStorage.getItem(accountAvatarKey());
+  $('#account-button-name').textContent = name;
+  $('#account-button').title = name;
+  $('#account-menu-name').textContent = name;
+  $('#account-menu-role').textContent = roleName(currentUser.role);
+  drawAccountAvatar($('#account-avatar'), image, name);
+  drawAccountAvatar($('#account-menu-avatar'), image, name);
+}
+
+function setAccountMenu(open) {
+  const popover = $('#account-popover');
+  popover.hidden = !open;
+  $('#account-button').setAttribute('aria-expanded', String(open));
+}
 const product = id => state.products.find(item => String(item.id) === String(id));
 const low = item => item.stock <= item.minimum;
 const date = value => new Date(value).toLocaleString('pt-BR', { dateStyle: 'short', timeStyle: 'short' });
@@ -1145,6 +1182,7 @@ async function deleteUser(id) {
 }
 
 function view(id) {
+  if (id === 'users' && currentUser?.role !== 'admin') id = 'dashboard';
   document.querySelectorAll('.view').forEach(element => element.classList.toggle('active', element.id === id));
   document.querySelectorAll('.nav-link').forEach(button => button.classList.toggle('active', button.dataset.view === id));
   document.querySelector('main').classList.toggle('dashboard-mode', id === 'dashboard');
@@ -1195,7 +1233,7 @@ function setSelectValue(selector, value) {
 
 async function start(session) {
   const { data: profile } = await supabase.from('profiles').select('full_name, role').eq('id', session.user.id).maybeSingle();
-  currentUser = { id: session.user.id, email: session.user.email, role: profile?.role || 'tecnico' };
+  currentUser = { id: session.user.id, email: session.user.email, name: profile?.full_name || '', role: profile?.role || 'tecnico' };
   const isAdmin = currentUser.role === 'admin';
   const canManage = ['admin', 'operador'].includes(currentUser.role);
   document.querySelectorAll('[data-admin-only]').forEach(element => { element.hidden = !isAdmin; });
@@ -1203,6 +1241,10 @@ async function start(session) {
   // As telas continuam acessíveis no computador compartilhado do almoxarifado.
   // As ações administrativas ainda obedecem às permissões dos botões e do banco.
   ['users', 'receipts', 'serials', 'laboratory', 'loans', 'inventory', 'registry'].forEach(id => { $("#" + id).hidden = false; });
+  $('#users').hidden = !isAdmin;
+  $('#add-user').hidden = !isAdmin;
+  document.querySelectorAll('[data-view="users"]').forEach(button => { button.hidden = !isAdmin; });
+  renderAccountMenu();
   try { await load(); } catch (error) { alert(error.message); }
 }
 
@@ -1244,15 +1286,47 @@ $('#add-location').onclick = () => $('#location-dialog').showModal();
 $('#add-supplier').onclick = () => $('#supplier-dialog').showModal();
 $('#add-dashboard-reminder').onclick = () => $('#reminder-dialog').showModal();
 $('#add-material-request').onclick = () => $('#material-request-dialog').showModal();
-$('#logout').onclick = async () => {
+async function logout() {
   if (!confirm('Deseja sair da conta?')) return;
   const { error } = await supabase.auth.signOut();
   if (error) return alert(error.message);
+  setAccountMenu(false);
   currentUser = null;
   state = { products: [], movements: [], users: [], usersLoadNote: '', collaborators: [], vehicles: [], locations: [], suppliers: [], serialItems: [], serialMovements: [], toolLoans: [], receipts: [], receiptItems: [], inventorySessions: [], inventoryCounts: [], reminders: [], materialRequests: [], productFilter: 'all' };
   $('#login-form').reset();
   $('#auth-gate').hidden = false;
+}
+
+$('#account-button').onclick = event => {
+  event.stopPropagation();
+  setAccountMenu($('#account-popover').hidden);
 };
+$('#change-account-avatar').onclick = () => $('#account-avatar-input').click();
+$('#account-avatar-input').onchange = event => {
+  const file = event.target.files?.[0];
+  if (!file) return;
+  if (!['image/jpeg', 'image/png', 'image/webp'].includes(file.type) || file.size > 1024 * 1024) {
+    event.target.value = '';
+    return alert('Escolha uma imagem JPG, PNG ou WebP de até 1 MB.');
+  }
+  const reader = new FileReader();
+  reader.onload = () => {
+    try {
+      localStorage.setItem(accountAvatarKey(), String(reader.result));
+      renderAccountMenu();
+    } catch {
+      alert('Não foi possível salvar este ícone neste navegador. Escolha uma imagem menor.');
+    }
+  };
+  reader.readAsDataURL(file);
+  event.target.value = '';
+};
+$('#account-logout').onclick = logout;
+document.addEventListener('click', event => {
+  const account = $('.account-menu-wrap');
+  if (account && !account.contains(event.target)) setAccountMenu(false);
+});
+document.addEventListener('keydown', event => { if (event.key === 'Escape') setAccountMenu(false); });
 document.querySelectorAll('[data-close-dialog]').forEach(button => button.onclick = () => button.closest('dialog').close());
 $('#code-scanner-dialog').addEventListener('close', stopCodeScanner);
 $('#scanner-manual-form').onsubmit = event => {

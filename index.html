@@ -31,7 +31,23 @@
           <button class="nav-link" data-view="registry">☷ <span>Cadastros</span></button>
           <button class="nav-link" data-view="users">♙ <span>Usuários</span></button>
         </nav>
-        <div class="sidebar-footer"><span class="footer-meta">Versão inicial<br />Dados salvos neste navegador</span><button class="logout-button" id="logout" type="button">↪ Sair da conta</button></div>
+        <div class="sidebar-footer account-menu-wrap">
+          <span class="footer-meta">Versão inicial<br />Dados salvos neste navegador</span>
+          <button class="account-button" id="account-button" type="button" aria-expanded="false" aria-controls="account-popover">
+            <span class="account-avatar" id="account-avatar" aria-hidden="true"></span>
+            <span class="account-button-name" id="account-button-name"></span>
+            <span class="account-chevron" aria-hidden="true">⌄</span>
+          </button>
+          <div class="account-popover" id="account-popover" hidden>
+            <div class="account-summary">
+              <span class="account-avatar account-avatar-large" id="account-menu-avatar" aria-hidden="true"></span>
+              <div><strong id="account-menu-name"></strong><small id="account-menu-role"></small></div>
+            </div>
+            <button class="account-menu-action" id="change-account-avatar" type="button">◉ Alterar ícone</button>
+            <button class="account-menu-action account-menu-logout" id="account-logout" type="button">↪ Sair da conta</button>
+            <input id="account-avatar-input" type="file" accept="image/jpeg,image/png,image/webp" hidden />
+          </div>
+        </div>
       </aside>
 
       <nav class="side-rail" aria-label="Navegação rápida">
