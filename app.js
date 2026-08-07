@@ -131,7 +131,6 @@ function addReceiptLine(selected = '') {
 
 function openReceiptDialog() {
   if (!receiptProducts().length) return alert('Cadastre um material controlado por quantidade antes de registrar um recebimento. Itens por Serial/MAC devem ser cadastrados na tela Serial / MAC.');
-  if (!state.suppliers.some(item => item.active)) return alert('Cadastre um fornecedor ativo em Cadastros antes de registrar um recebimento.');
   $('#receipt-form').reset();
   populateReceiptSuppliers();
   $('#receipt-lines').innerHTML = '';
@@ -162,14 +161,12 @@ function renderReceipts() {
 }
 
 function populateReceiptSuppliers() {
-  const select = $('#receipt-supplier');
-  if (!select) return;
-  const selected = select.value;
-  select.innerHTML = '<option value="">Selecione o fornecedor</option>' + state.suppliers
+  const options = $('#receipt-supplier-options');
+  if (!options) return;
+  options.innerHTML = state.suppliers
     .filter(item => item.active)
-    .map(item => `<option value="${item.id}">${esc(item.name)}</option>`)
+    .map(item => `<option value="${esc(item.name)}"></option>`)
     .join('');
-  select.value = state.suppliers.some(item => item.id === selected && item.active) ? selected : '';
 }
 
 function renderFieldStock() {
@@ -852,12 +849,21 @@ $('#receipt-form').onsubmit = async event => {
       quantity: Number(line.querySelector('[data-receipt-quantity]').value)
     }));
     if (!lines.length || lines.some(line => !line.product_id || !Number.isFinite(line.quantity) || line.quantity <= 0)) throw new Error('Preencha o material e a quantidade em todas as linhas.');
-    const { error } = await supabase.rpc('record_receipt', {
-      p_supplier_id: $('#receipt-supplier').value || null,
+    const supplierName = $('#receipt-supplier').value.trim();
+    if (!supplierName) throw new Error('Informe o fornecedor.');
+    const savedSupplier = state.suppliers.find(item => item.active && item.name.trim().toLocaleLowerCase('pt-BR') === supplierName.toLocaleLowerCase('pt-BR'));
+    const receiptData = savedSupplier ? {
+      p_supplier_id: savedSupplier.id,
       p_invoice_number: $('#receipt-invoice').value.trim() || null,
       p_note: $('#receipt-note').value.trim() || null,
       p_items: lines
-    });
+    } : {
+      p_supplier: supplierName,
+      p_invoice_number: $('#receipt-invoice').value.trim() || null,
+      p_note: $('#receipt-note').value.trim() || null,
+      p_items: lines
+    };
+    const { error } = await supabase.rpc('record_receipt', receiptData);
     if (error) throw error;
     $('#receipt-dialog').close();
     await load();
