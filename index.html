@@ -56,9 +56,9 @@
 
         <section id="movement" class="view">
           <div class="movement-layout">
-            <section class="panel form-panel"><h2>Registrar movimentação</h2><p class="muted">Toda saída e entrada fica registrada no histórico.</p>
+            <section class="panel form-panel"><h2>Registrar movimentação</h2>
               <form id="movement-form">
-                <label>Tipo <select id="movement-type"><option value="saida">Saída do almoxarifado</option><option value="entrada">Entrada no almoxarifado</option><option value="uso_os">Uso em OS</option></select></label><p id="movement-type-help" class="muted">Transfira o material do almoxarifado para um técnico, veículo, cliente ou outro destino.</p>
+                <label>Tipo <select id="movement-type"><option value="saida">Saída do almoxarifado</option><option value="entrada">Entrada no almoxarifado</option><option value="uso_os">Uso em OS</option></select></label>
                 <div class="movement-product-field"><label>Produto <select id="movement-product" required></select></label><button class="secondary-button" id="scan-movement-code" type="button">⌁ Ler código</button></div>
                 <label>Quantidade <input id="movement-quantity" type="number" min="0.001" step="0.001" required value="1" /></label>
                 <label><span id="movement-destination-label">Destino</span><select id="movement-holder-type"><option value="tecnico">Técnico</option><option value="veiculo">Veículo</option><option value="cliente">Cliente</option><option value="outro">Outro</option></select></label>
@@ -69,7 +69,7 @@
                 <button class="primary full" type="submit">Salvar movimentação</button>
               </form>
             </section>
-            <section class="panel"><div class="panel-heading"><div><h2>Histórico</h2><p class="muted">Movimentações registradas recentemente</p></div><button class="secondary-button" id="export-excel" type="button">↓ Relatório Excel</button></div><div class="history-filters"><label>Buscar <input id="history-search" data-history-filter placeholder="Produto, técnico ou OS" /></label><label>Tipo <select id="history-type" data-history-filter><option value="">Todos</option><option value="entrada">Entradas</option><option value="saida">Saídas</option><option value="uso_os">Uso em OS</option></select></label><label>Destino <select id="history-holder" data-history-filter><option value="">Todos</option><option value="tecnico">Técnico</option><option value="veiculo">Veículo</option><option value="cliente">Cliente</option><option value="outro">Outro</option></select></label><label>De <input id="history-from" data-history-filter type="date" /></label><label>Até <input id="history-to" data-history-filter type="date" /></label><button class="text-button" id="clear-history-filters" type="button">Limpar</button></div><div id="movement-history" class="history"></div></section>
+            <section class="panel"><div class="panel-heading"><h2>Histórico</h2><button class="secondary-button" id="export-excel" type="button">↓ Relatório Excel</button></div><div class="history-filters"><label>Buscar <input id="history-search" data-history-filter placeholder="Produto, técnico ou OS" /></label><label>Tipo <select id="history-type" data-history-filter><option value="">Todos</option><option value="entrada">Entradas</option><option value="saida">Saídas</option><option value="uso_os">Uso em OS</option></select></label><label>Destino <select id="history-holder" data-history-filter><option value="">Todos</option><option value="tecnico">Técnico</option><option value="veiculo">Veículo</option><option value="cliente">Cliente</option><option value="outro">Outro</option></select></label><label>De <input id="history-from" data-history-filter type="date" /></label><label>Até <input id="history-to" data-history-filter type="date" /></label><button class="text-button" id="clear-history-filters" type="button">Limpar</button></div><div id="movement-history" class="history"></div></section>
           </div>
         </section>
 

@@ -1052,7 +1052,6 @@ function updateMovementMode() {
   if (isFieldUsage) holder.value = 'tecnico';
   holder.disabled = isFieldUsage;
   workOrder.required = isFieldUsage;
-  $('#movement-type-help').textContent = isFieldUsage ? 'Registre o material que o técnico usou em uma instalação. O saldo do técnico será reduzido.' : 'Transfira o material do almoxarifado para um técnico, veículo, cliente ou outro destino.';
   $('#movement-destination-label').textContent = isFieldUsage ? 'Destino (técnico)' : 'Destino';
   $('#movement-person-label').textContent = isFieldUsage ? 'Técnico responsável' : 'Responsável / destino';
   $('#movement-os-label').textContent = isFieldUsage ? 'Número da OS *' : 'Número da OS';
