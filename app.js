@@ -3,6 +3,7 @@ import { createClient } from '@supabase/supabase-js';
 const supabase = createClient(import.meta.env.VITE_SUPABASE_URL, import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY);
 let state = { products: [], movements: [], users: [], usersLoadNote: '', collaborators: [], vehicles: [], locations: [], suppliers: [], serialItems: [], serialMovements: [], toolLoans: [], receipts: [], receiptItems: [], inventorySessions: [], inventoryCounts: [], reminders: [], materialRequests: [], productFilter: 'all' };
 let currentUser = null;
+let passwordRecoveryMode = false;
 const $ = selector => document.querySelector(selector);
 const esc = value => String(value ?? '').replace(/[&<>'"]/g, char => ({ '&':'&amp;','<':'&lt;','>':'&gt;',"'":'&#039;','"':'&quot;' }[char]));
 const accountAvatarKey = () => currentUser ? `digitus-account-avatar-${currentUser.id}` : '';
@@ -41,6 +42,28 @@ function setAccountMenu(open) {
   const popover = $('#account-popover');
   popover.hidden = !open;
   $('#account-button').setAttribute('aria-expanded', String(open));
+}
+
+function setLoginMessage(message = '', type = 'error') {
+  const errorText = $('#login-error');
+  errorText.textContent = message;
+  errorText.hidden = !message;
+  errorText.classList.toggle('success', type === 'success');
+}
+
+function togglePasswordVisibility(inputSelector, button) {
+  const input = $(inputSelector);
+  const visible = input.type === 'password';
+  input.type = visible ? 'text' : 'password';
+  button.textContent = visible ? 'Ocultar' : 'Ver';
+  button.setAttribute('aria-label', visible ? 'Ocultar senha' : 'Mostrar senha');
+  button.setAttribute('aria-pressed', String(visible));
+}
+
+function openPasswordReset() {
+  $('#auth-gate').hidden = false;
+  const dialog = $('#reset-password-dialog');
+  if (!dialog.open) dialog.showModal();
 }
 const product = id => state.products.find(item => String(item.id) === String(id));
 const low = item => item.stock <= item.minimum;
@@ -1749,14 +1772,64 @@ $('#user-form').onsubmit = async event => {
 };
 
 $('#login-form').onsubmit = async event => {
-  event.preventDefault(); const errorText = $('#login-error'); errorText.hidden = true;
+  event.preventDefault(); setLoginMessage();
   const { data, error } = await supabase.auth.signInWithPassword({ email:$('#login-email').value, password:$('#login-password').value });
-  if (error) { errorText.textContent = error.message; errorText.hidden = false; return; }
+  if (error) { setLoginMessage(error.message); return; }
+  passwordRecoveryMode = false;
   $('#auth-gate').hidden = true; await start(data.session);
 };
+
+$('#toggle-login-password').onclick = event => togglePasswordVisibility('#login-password', event.currentTarget);
+$('#toggle-reset-password').onclick = event => togglePasswordVisibility('#reset-password', event.currentTarget);
+$('#forgot-password').onclick = async () => {
+  const email = $('#login-email').value.trim();
+  if (!email) {
+    setLoginMessage('Informe seu e-mail para receber o link de recuperação.');
+    return $('#login-email').focus();
+  }
+  const { error } = await supabase.auth.resetPasswordForEmail(email, { redirectTo: `${window.location.origin}/` });
+  if (error) return setLoginMessage(error.message);
+  setLoginMessage('Se este e-mail estiver cadastrado, enviaremos um link para criar uma nova senha.', 'success');
+};
+
+$('#reset-password-form').onsubmit = async event => {
+  event.preventDefault();
+  const errorText = $('#reset-password-error');
+  errorText.hidden = true;
+  const password = $('#reset-password').value;
+  if (password !== $('#reset-password-confirmation').value) {
+    errorText.textContent = 'As senhas não são iguais.';
+    errorText.hidden = false;
+    return;
+  }
+  const { error } = await supabase.auth.updateUser({ password });
+  if (error) {
+    errorText.textContent = error.message;
+    errorText.hidden = false;
+    return;
+  }
+  passwordRecoveryMode = false;
+  event.target.reset();
+  $('#reset-password-dialog').close();
+  window.history.replaceState({}, document.title, window.location.pathname);
+  const { data: { session } } = await supabase.auth.getSession();
+  $('#auth-gate').hidden = true;
+  if (session) await start(session);
+};
+
+$('#reset-password-dialog').addEventListener('cancel', event => event.preventDefault());
 
 const todayLabel = $('#today');
 if (todayLabel) todayLabel.textContent = new Date().toLocaleDateString('pt-BR', { weekday:'long', day:'2-digit', month:'long', year:'numeric' });
 render();
+supabase.auth.onAuthStateChange(event => {
+  if (event !== 'PASSWORD_RECOVERY') return;
+  passwordRecoveryMode = true;
+  openPasswordReset();
+});
 const { data:{ session } } = await supabase.auth.getSession();
-if (session) start(session); else $('#auth-gate').hidden = false;
+const recoveryInUrl = window.location.hash.includes('type=recovery') || new URLSearchParams(window.location.search).get('type') === 'recovery';
+if (session && (passwordRecoveryMode || recoveryInUrl)) {
+  passwordRecoveryMode = true;
+  openPasswordReset();
+} else if (session) start(session); else $('#auth-gate').hidden = false;

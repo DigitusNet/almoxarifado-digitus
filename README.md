@@ -13,3 +13,7 @@ O banco foi preparado com usuários, perfis e permissões. O primeiro usuário a
 ## Administração de usuários
 
 Para permitir que administradores criem usuários dentro do site, configure na Vercel a variável secreta `SUPABASE_SERVICE_ROLE_KEY`. Ela é usada somente pelo endpoint do servidor `/api/users` e nunca é enviada ao navegador.
+
+## Recuperação de senha
+
+No Supabase, abra **Authentication → URL Configuration** e adicione a URL pública do sistema em **Redirect URLs**. Enquanto o sistema estiver na Vercel, use `https://almoxarifado-digitus.vercel.app/`. Assim, o link enviado por “Esqueci minha senha” volta para o sistema e permite definir a nova senha.
