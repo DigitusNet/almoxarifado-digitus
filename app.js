@@ -397,19 +397,17 @@ function getFieldStockItems() {
 }
 
 function render() {
-  const lows = state.products.filter(low), total = state.products.filter(item => Number(item.stock) > 0).length, caAlerts = state.products.filter(caAlert);
-  const stockValue = state.products.reduce((sum, item) => sum + Number(item.stock || 0) * Number(item.average_cost || 0), 0);
-  const overdueLoans = state.toolLoans.filter(loanOverdue).length;
-  const laboratoryItems = state.serialItems.filter(item => {
-    const location = state.locations.find(entry => entry.id === item.current_location_id);
-    return location?.location_type === 'laboratorio' && ['laboratorio', 'manutencao', 'defeito', 'aguardando_triagem'].includes(item.status);
-  }).length;
-  $('#product-count').textContent = state.products.length;
-  $('#stock-total').textContent = total.toLocaleString('pt-BR');
-  $('#stock-value').textContent = currency(stockValue);
-  $('#ca-alert-total').textContent = caAlerts.length;
-  $('#dashboard-overdue-loans').textContent = overdueLoans;
-  $('#dashboard-lab-total').textContent = laboratoryItems;
+  const caAlerts = state.products.filter(caAlert);
+  const exits = state.movements.filter(item => item.type === 'saida' && !item.fieldUsage).length;
+  const openLoans = state.toolLoans.filter(item => !item.returned_at).length;
+  const returns = state.toolLoans.filter(item => item.returned_at).length;
+  const outOfStock = state.products.filter(item => Number(item.stock) === 0).length;
+  const reorder = state.products.filter(item => Number(item.stock) > 0 && low(item)).length;
+  $('#dashboard-exits-count').textContent = exits;
+  $('#dashboard-loans-count').textContent = openLoans;
+  $('#dashboard-returns-count').textContent = returns;
+  $('#dashboard-minimum-count').textContent = outOfStock;
+  $('#dashboard-reorder-count').textContent = reorder;
   renderDashboardOperations(caAlerts);
   renderProducts(); renderMovement(); renderUsers(); renderRegistry(); renderReceipts(); renderSerials(); renderLaboratory(); renderLoans(); renderInventory();
 }
@@ -1274,10 +1272,11 @@ $('#edit-remove-image').onclick = () => {
   $('#edit-remove-image').dataset.removed = 'true';
   setProductImagePreview('edit');
 };
-$('#view-low-stock-products').onclick = () => showProducts('low');
-$('#ca-alert-card').onclick = () => showProducts('ca');
-$('#overdue-loans-card').onclick = () => view('loans');
-$('#laboratory-card').onclick = () => view('laboratory');
+$('#dashboard-exits-card').onclick = () => { $('#history-type').value = 'saida'; view('movement'); renderMovement(); };
+$('#dashboard-loans-card').onclick = () => view('loans');
+$('#dashboard-returns-card').onclick = () => view('loans');
+$('#dashboard-minimum-card').onclick = () => { state.productFilter = 'all'; $('#product-status-filter').value = 'out'; view('products'); renderProducts(); };
+$('#dashboard-reorder-card').onclick = () => showProducts('low');
 $('#product-search').oninput = () => { state.productFilter = 'all'; renderProducts(); };
 $('#product-category-filter').onchange = () => { state.productFilter = 'all'; renderProducts(); };
 $('#product-status-filter').onchange = () => { state.productFilter = 'all'; renderProducts(); };
