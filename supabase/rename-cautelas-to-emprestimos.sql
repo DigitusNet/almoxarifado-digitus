@@ -1,34 +1,7 @@
--- Empréstimo de ferramentas e patrimônios rastreáveis.
--- Execute este arquivo inteiro no SQL Editor do Supabase após serial-transfers.sql.
+-- Atualiza mensagens já instaladas no banco de dados.
+-- Execute este arquivo uma única vez no SQL Editor do Supabase.
+-- Os identificadores internos (tool_loans e o valor "cautela") permanecem para preservar os registros existentes.
 
-create table if not exists public.tool_loans (
-  id uuid primary key default gen_random_uuid(),
-  serial_item_id uuid not null references public.serial_items(id) on delete restrict,
-  collaborator_id uuid references public.collaborators(id) on delete set null,
-  collaborator_name text not null,
-  loan_type text not null check (loan_type in ('cautela', 'temporario')),
-  due_at timestamptz,
-  note text,
-  issued_by uuid references public.profiles(id) on delete set null,
-  issued_at timestamptz not null default now(),
-  returned_at timestamptz,
-  returned_by uuid references public.profiles(id) on delete set null,
-  return_condition text check (return_condition in ('bom', 'avaria', 'manutencao', 'danificado')),
-  return_note text,
-  check ((loan_type = 'cautela') or due_at is not null)
-);
-
-create unique index if not exists tool_loans_open_serial_item_unique
-  on public.tool_loans (serial_item_id) where returned_at is null;
-create index if not exists tool_loans_collaborator_open_idx
-  on public.tool_loans (collaborator_id, issued_at desc) where returned_at is null;
-
-alter table public.tool_loans enable row level security;
-drop policy if exists "Authenticated users can view tool loans" on public.tool_loans;
-create policy "Authenticated users can view tool loans" on public.tool_loans
-  for select to authenticated using (true);
-
--- Impede movimentar um item emprestado fora da tela de devolução do empréstimo.
 create or replace function public.prevent_open_loan_serial_move()
 returns trigger
 language plpgsql
@@ -45,11 +18,6 @@ begin
   return new;
 end;
 $$;
-
-drop trigger if exists guard_open_tool_loan_move on public.serial_items;
-create trigger guard_open_tool_loan_move
-before update on public.serial_items
-for each row execute function public.prevent_open_loan_serial_move();
 
 create or replace function public.create_tool_loan(
   p_serial_item_id uuid,
@@ -178,3 +146,12 @@ end;
 $$;
 
 grant execute on function public.return_tool_loan(uuid, text, text) to authenticated;
+
+-- Ajusta também o texto exibido em registros já criados.
+update public.serial_movements
+set note = regexp_replace(note, '^Cautela registrada', 'Empréstimo registrado')
+where note like 'Cautela registrada%';
+
+update public.serial_movements
+set recipient = 'Devolução de empréstimo'
+where recipient = 'Devolução de cautela';
