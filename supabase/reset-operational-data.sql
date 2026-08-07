@@ -16,7 +16,8 @@ delete from public.inventory_sessions;
 
 delete from public.movements;
 delete from public.products;
-delete from storage.objects where bucket_id = 'product-images';
+-- As fotos antigas permanecem apenas como arquivos sem vínculo no Storage.
+-- Elas não aparecem no sistema depois que os produtos são apagados.
 
 delete from public.vehicles;
 delete from public.collaborators;
