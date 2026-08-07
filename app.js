@@ -1142,8 +1142,6 @@ function view(id) {
   document.querySelectorAll('.nav-link').forEach(button => button.classList.toggle('active', button.dataset.view === id));
   document.querySelector('main').classList.toggle('dashboard-mode', id === 'dashboard');
   $('#page-title').textContent = ({ dashboard:'Visão geral', products:'Produtos', movement:'Movimentações', receipts:'Recebimentos', serials:'Serial / MAC', laboratory:'Oficina', loans:'Empréstimos', inventory:'Inventário', registry:'Cadastros', users:'Usuários' })[id];
-  $('#header-action').hidden = id === 'users' || id === 'products' || id === 'receipts' || id === 'serials' || id === 'laboratory' || id === 'loans' || id === 'inventory' || id === 'registry';
-  $('#header-action').textContent = id === 'products' ? '+ Cadastrar produto' : '+ Nova movimentação';
 }
 
 document.querySelector('main').classList.add('dashboard-mode');
@@ -1205,7 +1203,6 @@ document.querySelectorAll('.nav-link').forEach(button => button.onclick = () => 
 document.querySelectorAll('[data-go]').forEach(button => button.onclick = () => button.dataset.go === 'products' ? showProducts() : view(button.dataset.go));
 document.querySelectorAll('[data-registry-filter]').forEach(button => button.onclick = () => setRegistryFilter(button.dataset.registryFilter));
 setRegistryFilter('collaborators');
-$('#header-action').onclick = () => $('.view.active').id === 'products' ? $('#product-dialog').showModal() : view('movement');
 $('#add-product').onclick = () => $('#product-dialog').showModal();
 $('#import-products').onclick = openProductImport;
 $('#product-import-file').onchange = readProductSpreadsheet;
