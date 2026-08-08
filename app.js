@@ -427,6 +427,12 @@ function caAlert(item) {
   if (days <= 30) return { type: 'warning', label: `CA vence em ${days} dia${days === 1 ? '' : 's'}` };
   return null;
 }
+function caExpired(item) {
+  if (!item.requires_ca || !item.ca_expiry_date) return false;
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+  return new Date(`${item.ca_expiry_date}T00:00:00`) < today;
+}
 const serialStatusName = status => ({ disponivel:'Disponível', com_colaborador:'Com colaborador', com_veiculo:'Com veículo', instalado_cliente:'Instalado no cliente', emprestado:'Emprestado', aguardando_triagem:'Aguardando triagem', laboratorio:'Oficina', manutencao:'Em manutenção', defeito:'Defeito', baixado:'Baixado' })[status] || status;
 const serialStatusClass = status => ({ disponivel:'ok', com_colaborador:'saida', com_veiculo:'saida', instalado_cliente:'saida', emprestado:'saida', aguardando_triagem:'low', laboratorio:'low', manutencao:'low', defeito:'out', baixado:'out' })[status] || 'low';
 const serialActionName = action => ({ transferencia:'Transferência', instalacao:'Instalação em cliente', laboratorio:'Envio à oficina', retorno:'Retorno ao almoxarifado', baixa:'Baixa / sucata' })[action] || action;
@@ -457,7 +463,6 @@ function getFieldStockItems() {
 }
 
 function render() {
-  const caAlerts = state.products.filter(caAlert);
   const exits = state.movements.filter(item => item.type === 'saida' && !item.fieldUsage).length;
   const openLoans = state.toolLoans.filter(item => !item.returned_at).length;
   const returns = state.toolLoans.filter(item => item.returned_at).length;
@@ -469,27 +474,27 @@ function render() {
   $('#dashboard-returns-count').textContent = returns;
   $('#dashboard-minimum-count').textContent = outOfStock;
   $('#dashboard-reorder-count').textContent = reorder;
-  renderDashboardOperations(caAlerts);
+  renderDashboardOperations();
   renderProducts(); renderMovement(); renderUsers(); renderRegistry(); renderReceipts(); renderSerials(); renderLaboratory(); renderLoans(); renderInventory();
 }
 
-function renderDashboardOperations(caAlerts) {
+function renderDashboardOperations() {
   const overdue = state.toolLoans.filter(loanOverdue).sort((a, b) => new Date(a.due_at) - new Date(b.due_at));
   const openReminders = state.reminders.filter(item => item.status === 'aberto').sort((a, b) => new Date(a.due_date) - new Date(b.due_date));
-  const expiring = [...caAlerts].sort((a, b) => new Date(a.ca_expiry_date) - new Date(b.ca_expiry_date));
+  const expired = state.products.filter(caExpired).sort((a, b) => new Date(a.ca_expiry_date) - new Date(b.ca_expiry_date));
   const openRequests = state.materialRequests.filter(item => item.status === 'aberta').sort((a, b) => new Date(b.created_at) - new Date(a.created_at));
   const canCompleteRequests = ['admin', 'operador'].includes(currentUser?.role);
   const canDeleteRequests = currentUser?.role === 'admin';
   $('#dashboard-overdue-loan-list-count').textContent = overdue.length;
   $('#dashboard-reminder-count').textContent = openReminders.length;
-  $('#dashboard-expiry-count').textContent = expiring.length;
+  $('#dashboard-expiry-count').textContent = expired.length;
   $('#dashboard-request-count').textContent = openRequests.length;
   $('#dashboard-overdue-loans-table').innerHTML = overdue.map((loan, index) => `<tr><td>${index + 1}</td><td>${esc(loan.collaborator_name || 'Não informado')}</td><td>${date(loan.due_at)}</td><td><button class="dashboard-icon-action" data-dashboard-loan="${loan.id}" type="button" aria-label="Ver empréstimo">◉</button></td></tr>`).join('') || '<tr><td colspan="4" class="empty">Nenhum empréstimo em atraso.</td></tr>';
   $('#dashboard-reminders-table').innerHTML = openReminders.map(item => `<tr><td>${esc(item.recipient)}</td><td>${esc(item.description)}</td><td>${date(item.due_date)}</td><td><button class="dashboard-icon-action danger" data-close-reminder="${item.id}" type="button" aria-label="Concluir lembrete">×</button></td></tr>`).join('') || '<tr><td colspan="4" class="empty">Nenhum lembrete registrado.</td></tr>';
-  $('#dashboard-expiring-table').innerHTML = expiring.map(item => `<tr><td>${esc(item.name)}</td><td>${esc(item.ca_number || 'CA não informado')}</td><td>${new Date(`${item.ca_expiry_date}T00:00:00`).toLocaleDateString('pt-BR')}</td><td><button class="dashboard-icon-action" data-dashboard-expiry="${item.id}" type="button" aria-label="Ver item">◉</button></td></tr>`).join('') || '<tr><td colspan="4" class="empty">Nenhum material próximo ao vencimento.</td></tr>';
+  $('#dashboard-expiring-table').innerHTML = expired.map(item => `<tr><td>${esc(item.name)}</td><td>${esc(item.ca_number || 'CA não informado')}</td><td>${new Date(`${item.ca_expiry_date}T00:00:00`).toLocaleDateString('pt-BR')}</td><td><button class="dashboard-icon-action" data-dashboard-expiry="${item.id}" type="button" aria-label="Ver item">◉</button></td></tr>`).join('') || '<tr><td colspan="4" class="empty">Nenhum material vencido.</td></tr>';
   $('#dashboard-requests-table').innerHTML = openRequests.map((item, index) => `<tr><td>${index + 1}</td><td>${esc(item.requester)}</td><td>${date(item.created_at)}</td><td><span class="dashboard-request-actions"><button class="dashboard-icon-action" data-dashboard-request="${item.id}" type="button" aria-label="Mostrar descrição da solicitação" aria-expanded="false">◉</button>${canCompleteRequests ? `<button class="dashboard-icon-action success" data-complete-request="${item.id}" type="button" aria-label="Concluir solicitação" title="Concluir solicitação">✓</button>` : ''}${canDeleteRequests ? `<button class="dashboard-icon-action danger" data-delete-request="${item.id}" type="button" aria-label="Apagar solicitação" title="Apagar solicitação">×</button>` : ''}</span></td></tr><tr id="dashboard-request-detail-${item.id}" class="dashboard-request-detail" hidden><td colspan="4"><b>Solicitação:</b> ${esc(item.description)}</td></tr>`).join('') || '<tr><td colspan="4" class="empty">Nenhuma solicitação de material.</td></tr>';
   document.querySelectorAll('[data-dashboard-loan]').forEach(button => button.onclick = () => view('loans'));
-  document.querySelectorAll('[data-dashboard-expiry]').forEach(button => button.onclick = () => { state.productFilter = 'ca'; $('#product-status-filter').value = 'ca'; view('products'); renderProducts(); });
+  document.querySelectorAll('[data-dashboard-expiry]').forEach(button => button.onclick = () => showProducts('expired'));
   document.querySelectorAll('[data-dashboard-request]').forEach(button => button.onclick = () => {
     const detail = $(`#dashboard-request-detail-${button.dataset.dashboardRequest}`);
     if (!detail) return;
@@ -534,13 +539,14 @@ function renderProducts() {
   categorySelect.value = categories.includes(selectedCategory) ? selectedCategory : '';
   const category = categorySelect.value, statusFilter = statusSelect.value;
   const products = state.products.filter(item => {
-    const matchesPreset = (state.productFilter !== 'low' || low(item)) && (state.productFilter !== 'ca' || caAlert(item));
+    const matchesPreset = (state.productFilter !== 'low' || low(item)) && (state.productFilter !== 'ca' || caAlert(item)) && (state.productFilter !== 'expired' || caExpired(item));
     const matchesCategory = !category || item.category === category;
     const matchesStatus = !statusFilter
       || statusFilter === 'available' && Number(item.stock) > 0 && !low(item)
       || statusFilter === 'low' && low(item) && Number(item.stock) > 0
       || statusFilter === 'out' && Number(item.stock) === 0
-      || statusFilter === 'ca' && Boolean(caAlert(item));
+      || statusFilter === 'ca' && Boolean(caAlert(item))
+      || statusFilter === 'expired' && caExpired(item);
     return matchesPreset && matchesCategory && matchesStatus && `${item.name} ${item.code} ${item.category}`.toLowerCase().includes(query);
   });
   $('#products-table').innerHTML = products.map(item => {
@@ -1244,7 +1250,7 @@ function showProducts(filter = 'all') {
   state.productFilter = filter;
   $('#product-search').value = '';
   $('#product-category-filter').value = '';
-  $('#product-status-filter').value = filter === 'low' ? 'low' : filter === 'ca' ? 'ca' : '';
+  $('#product-status-filter').value = filter === 'low' ? 'low' : filter === 'ca' ? 'ca' : filter === 'expired' ? 'expired' : '';
   view('products');
   renderProducts();
 }
@@ -1298,7 +1304,7 @@ async function start(session) {
 }
 
 document.querySelectorAll('.nav-link').forEach(button => button.onclick = () => button.dataset.view === 'products' ? showProducts() : view(button.dataset.view));
-document.querySelectorAll('[data-go]').forEach(button => button.onclick = () => button.dataset.go === 'products' ? showProducts() : view(button.dataset.go));
+document.querySelectorAll('[data-go]').forEach(button => button.onclick = () => button.dataset.go === 'products' ? showProducts() : button.dataset.go === 'products-expired' ? showProducts('expired') : view(button.dataset.go));
 document.querySelectorAll('[data-registry-filter]').forEach(button => button.onclick = () => setRegistryFilter(button.dataset.registryFilter));
 setRegistryFilter('collaborators');
 $('#add-product').onclick = () => $('#product-dialog').showModal();
