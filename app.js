@@ -737,13 +737,15 @@ function renderRegistry() {
   const collaboratorsTable = $('#collaborators-table'), vehiclesTable = $('#vehicles-table'), locationsTable = $('#locations-table'), suppliersTable = $('#suppliers-table');
   if (!collaboratorsTable || !vehiclesTable || !locationsTable || !suppliersTable) return;
   const collaborators = state.collaborators;
-  collaboratorsTable.innerHTML = collaborators.map(item => `<tr><td><b>${esc(item.name)}</b><small>${esc(item.job_title || 'Sem cargo informado')}</small></td><td>${esc(item.department || '—')}</td><td>${esc(item.phone || '—')}</td><td>${item.active ? '<span class="badge ok">Ativo</span>' : '<span class="badge out">Inativo</span>'}</td><td><div class="table-actions"><button class="secondary-button" data-toggle-collaborator="${item.id}">${item.active ? 'Desativar' : 'Reativar'}</button><button class="danger-button" data-delete-collaborator="${item.id}">Remover</button></div></td></tr>`).join('') || '<tr><td colspan="5" class="empty">Nenhum colaborador cadastrado.</td></tr>';
+  const canEditCollaborators = currentUser?.role === 'admin';
+  collaboratorsTable.innerHTML = collaborators.map(item => `<tr><td><b>${esc(item.name)}</b><small>${esc(item.job_title || 'Sem cargo informado')}</small></td><td>${esc(item.department || '—')}</td><td>${esc(item.phone || '—')}</td><td>${item.active ? '<span class="badge ok">Ativo</span>' : '<span class="badge out">Inativo</span>'}</td><td><div class="table-actions">${canEditCollaborators ? `<button class="secondary-button" data-edit-collaborator="${item.id}">Editar</button>` : ''}<button class="secondary-button" data-toggle-collaborator="${item.id}">${item.active ? 'Desativar' : 'Reativar'}</button><button class="danger-button" data-delete-collaborator="${item.id}">Remover</button></div></td></tr>`).join('') || '<tr><td colspan="5" class="empty">Nenhum colaborador cadastrado.</td></tr>';
   vehiclesTable.innerHTML = state.vehicles.map(item => `<tr><td><b>${esc(item.name)}</b><small>${esc(item.plate || 'Sem placa informada')}</small></td><td>${esc(state.collaborators.find(collaborator => collaborator.id === item.responsible_id)?.name || '—')}</td><td>${item.active ? '<span class="badge ok">Ativo</span>' : '<span class="badge out">Inativo</span>'}</td><td><div class="table-actions"><button class="secondary-button" data-toggle-vehicle="${item.id}">${item.active ? 'Desativar' : 'Reativar'}</button><button class="danger-button" data-delete-vehicle="${item.id}">Remover</button></div></td></tr>`).join('') || '<tr><td colspan="4" class="empty">Nenhum veículo cadastrado.</td></tr>';
   locationsTable.innerHTML = state.locations.map(item => `<tr><td><b>${esc(item.name)}</b></td><td>${esc(({ central:'Almoxarifado central', laboratorio:'Oficina', outro:'Outro', colaborador:'Colaborador', veiculo:'Veículo', cliente:'Cliente' })[item.location_type] || item.location_type)}</td><td>${item.active ? '<span class="badge ok">Ativo</span>' : '<span class="badge out">Inativo</span>'}</td><td>${item.location_type === 'central' ? '—' : `<button class="secondary-button" data-toggle-location="${item.id}">${item.active ? 'Desativar' : 'Reativar'}</button>`}</td></tr>`).join('') || '<tr><td colspan="4" class="empty">Nenhum local cadastrado.</td></tr>';
   suppliersTable.innerHTML = state.suppliers.map(item => `<tr><td><b>${esc(item.name)}</b><small>${esc(item.email || 'Sem e-mail informado')}</small></td><td>${esc(item.cnpj || '—')}</td><td>${esc([item.contact_name, item.phone].filter(Boolean).join(' · ') || '—')}</td><td>${item.active ? '<span class="badge ok">Ativo</span>' : '<span class="badge out">Inativo</span>'}</td><td><div class="table-actions"><button class="secondary-button" data-toggle-supplier="${item.id}">${item.active ? 'Desativar' : 'Reativar'}</button><button class="danger-button" data-delete-supplier="${item.id}">Remover</button></div></td></tr>`).join('') || '<tr><td colspan="5" class="empty">Nenhum fornecedor cadastrado.</td></tr>';
   $('#collaborator-options').innerHTML = collaborators.filter(item => item.active).map(item => `<option value="${esc(item.name)}"></option>`).join('');
   $('#vehicle-options').innerHTML = state.vehicles.filter(item => item.active).map(item => `<option value="${esc(item.name)}">${esc(item.plate || '')}</option>`).join('');
   $('#vehicle-responsible').innerHTML = '<option value="">Sem responsável definido</option>' + collaborators.filter(item => item.active).map(item => `<option value="${item.id}">${esc(item.name)}</option>`).join('');
+  document.querySelectorAll('[data-edit-collaborator]').forEach(button => button.onclick = () => openCollaboratorEditor(button.dataset.editCollaborator));
   document.querySelectorAll('[data-toggle-collaborator]').forEach(button => button.onclick = () => toggleCollaborator(button.dataset.toggleCollaborator));
   document.querySelectorAll('[data-toggle-vehicle]').forEach(button => button.onclick = () => toggleVehicle(button.dataset.toggleVehicle));
   document.querySelectorAll('[data-delete-collaborator]').forEach(button => button.onclick = () => deleteCollaborator(button.dataset.deleteCollaborator));
@@ -751,6 +753,18 @@ function renderRegistry() {
   document.querySelectorAll('[data-toggle-location]').forEach(button => button.onclick = () => toggleLocation(button.dataset.toggleLocation));
   document.querySelectorAll('[data-toggle-supplier]').forEach(button => button.onclick = () => toggleSupplier(button.dataset.toggleSupplier));
   document.querySelectorAll('[data-delete-supplier]').forEach(button => button.onclick = () => deleteSupplier(button.dataset.deleteSupplier));
+}
+
+function openCollaboratorEditor(id) {
+  if (currentUser?.role !== 'admin') return alert('Apenas administradores podem editar colaboradores.');
+  const collaborator = state.collaborators.find(item => item.id === id);
+  if (!collaborator) return;
+  $('#edit-collaborator-id').value = collaborator.id;
+  $('#edit-collaborator-name').value = collaborator.name || '';
+  $('#edit-collaborator-job-title').value = collaborator.job_title || '';
+  $('#edit-collaborator-department').value = collaborator.department || '';
+  $('#edit-collaborator-phone').value = collaborator.phone || '';
+  $('#edit-collaborator-dialog').showModal();
 }
 
 function setRegistryFilter(filter = 'collaborators') {
@@ -1619,6 +1633,21 @@ $('#collaborator-form').onsubmit = async event => {
   });
   if (error) return alert(error.message);
   event.target.reset(); $('#collaborator-dialog').close(); await load(); view('registry');
+};
+
+$('#edit-collaborator-form').onsubmit = async event => {
+  event.preventDefault();
+  if (currentUser?.role !== 'admin') return alert('Apenas administradores podem editar colaboradores.');
+  const { error } = await supabase.from('collaborators').update({
+    name: $('#edit-collaborator-name').value.trim(),
+    job_title: $('#edit-collaborator-job-title').value.trim() || null,
+    department: $('#edit-collaborator-department').value.trim() || null,
+    phone: $('#edit-collaborator-phone').value.trim() || null,
+    updated_at: new Date().toISOString()
+  }).eq('id', $('#edit-collaborator-id').value);
+  if (error) return alert(error.message);
+  $('#edit-collaborator-dialog').close();
+  await load();
 };
 
 $('#supplier-form').onsubmit = async event => {
