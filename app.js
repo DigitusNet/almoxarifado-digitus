@@ -1529,6 +1529,8 @@ $('#add-product').onclick = () => $('#product-dialog').showModal();
 $('#import-products').onclick = openProductImport;
 $('#product-import-file').onchange = readProductSpreadsheet;
 $('#confirm-product-import').onclick = confirmProductImport;
+$('#serial-import-file').onchange = readSerialSpreadsheet;
+$('#confirm-serial-import').onclick = confirmSerialImport;
 $('#scan-product-code').onclick = () => openCodeScanner('products');
 $('#scan-movement-code').onclick = () => openCodeScanner('movement');
 $('#add-receipt').onclick = openReceiptDialog;
