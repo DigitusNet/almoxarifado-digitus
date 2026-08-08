@@ -1223,8 +1223,13 @@ async function deleteUser(id) {
   }
 }
 
-function view(id) {
+function view(id, options = {}) {
+  const { rememberReturn = true } = options;
   if (id === 'users' && currentUser?.role !== 'admin') id = 'dashboard';
+  const activeView = document.querySelector('.view.active')?.id;
+  if (rememberReturn && id !== 'dashboard' && activeView !== id) {
+    window.history.pushState({ digitusReturn: 'dashboard' }, '', window.location.href);
+  }
   document.querySelectorAll('.view').forEach(element => element.classList.toggle('active', element.id === id));
   document.querySelectorAll('.nav-link').forEach(button => button.classList.toggle('active', button.dataset.view === id));
   document.querySelector('main').classList.toggle('dashboard-mode', id === 'dashboard');
@@ -1232,6 +1237,7 @@ function view(id) {
 }
 
 document.querySelector('main').classList.add('dashboard-mode');
+window.addEventListener('popstate', () => view('dashboard', { rememberReturn: false }));
 
 function showProducts(filter = 'all') {
   state.productFilter = filter;
