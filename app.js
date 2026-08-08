@@ -1535,6 +1535,7 @@ $('#add-receipt').onclick = openReceiptDialog;
 $('#import-xml').onclick = openXmlImportDialog;
 $('#add-receipt-line').onclick = () => addReceiptLine();
 $('#add-user').onclick = () => $('#user-dialog').showModal();
+$('#import-serials').onclick = openSerialImport;
 $('#add-serial').onclick = () => {
   if (!state.products.some(item => item.tracking_mode === 'serializado')) return alert('Cadastre ou edite um item e escolha o controle “Por serial / MAC” antes de registrar uma unidade.');
   $('#serial-dialog').showModal();
