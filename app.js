@@ -384,7 +384,6 @@ async function readSerialSpreadsheet(event) {
 async function confirmSerialImport() {
   if (!pendingSerialImport.length) return;
   const button = $('#confirm-serial-import');
-  if (!confirm(`Importar ${pendingSerialImport.length} unidade(s) rastreáveis para o sistema?`)) return;
   button.disabled = true;
   try {
     button.textContent = 'Conferindo produtos…';
