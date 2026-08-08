@@ -869,6 +869,77 @@ function findImportedProduct(item) {
   ));
 }
 
+function xmlAutoProductId(index) {
+  return `auto-create-${index}`;
+}
+
+function xmlUnitOfMeasure(value) {
+  return spreadsheetUnit(value);
+}
+
+function xmlProductKey(item, index) {
+  const code = normalizedScanCode(item.code);
+  const name = normalizedScanCode(item.name);
+  return code ? `code:${code}` : name ? `name:${name}` : `item:${index}`;
+}
+
+function xmlGeneratedProductCode(item, index) {
+  const code = String(item.code || '').trim();
+  if (code) return code;
+  const invoiceReference = String(importedXmlInvoice?.accessKey || importedXmlInvoice?.invoiceNumber || Date.now()).replace(/[^a-zA-Z0-9]/g, '').slice(-16);
+  return `XML-${invoiceReference || 'NF'}-${index + 1}`;
+}
+
+function xmlProductPayload(item, index) {
+  return {
+    name: String(item.name || 'Item sem descrição').trim(),
+    code: xmlGeneratedProductCode(item, index),
+    category: 'Produtos',
+    stock: 0,
+    minimum_stock: 0,
+    unit_of_measure: xmlUnitOfMeasure(item.unit),
+    tracking_mode: 'quantidade',
+    description: `Cadastrado automaticamente pela NF-e ${importedXmlInvoice?.invoiceNumber || ''}`.trim(),
+    average_cost: Number(item.unitCost || 0),
+    requires_ca: false,
+    ca_number: null,
+    ca_expiry_date: null
+  };
+}
+
+async function createMissingXmlProducts() {
+  const grouped = new Map();
+  importedXmlInvoice.items.forEach((item, index) => {
+    if (item.productId !== xmlAutoProductId(index)) return;
+    const existing = findImportedProduct(item);
+    if (existing) {
+      item.productId = existing.id;
+      return;
+    }
+    const key = xmlProductKey(item, index);
+    const group = grouped.get(key) || { item, indexes: [] };
+    group.indexes.push(index);
+    grouped.set(key, group);
+  });
+
+  for (const { item, indexes } of grouped.values()) {
+    const referenceIndex = indexes[0];
+    const payload = xmlProductPayload(item, referenceIndex);
+    let { data: createdProduct, error } = await supabase.from('products').insert(payload).select().single();
+    if (error?.code === '23505') {
+      const existing = await supabase.from('products').select('*').eq('code', payload.code).maybeSingle();
+      if (existing.error) throw existing.error;
+      createdProduct = existing.data;
+      error = createdProduct ? null : error;
+    }
+    if (error || !createdProduct) throw error || new Error(`Não foi possível cadastrar automaticamente “${item.name}”.`);
+    indexes.forEach(index => {
+      importedXmlInvoice.items[index].productId = createdProduct.id;
+      importedXmlInvoice.items[index].createdUnitCost = Number(createdProduct.average_cost || 0);
+    });
+  }
+}
+
 function renderImportedXmlItems() {
   const list = $('#xml-import-items');
   if (!importedXmlInvoice) {
@@ -876,7 +947,11 @@ function renderImportedXmlItems() {
     return;
   }
   const selectableProducts = receiptProducts();
-  list.innerHTML = importedXmlInvoice.items.map((item, index) => `<div class="xml-import-item"><div><b>${esc(item.name)}</b><small>Código XML: ${esc(item.code || 'não informado')} · ${quantity(item.quantity)} ${esc(item.unit)}${item.unitCost !== null ? ` · ${currency(item.unitCost)}` : ''}</small></div><label>Produto no sistema <select data-xml-item-product="${index}"><option value="">Não importar este item</option>${selectableProducts.map(productItem => `<option value="${productItem.id}" ${productItem.id === item.productId ? 'selected' : ''}>${esc(productItem.name)} (${esc(productItem.code)})</option>`).join('')}</select></label></div>`).join('');
+  list.innerHTML = importedXmlInvoice.items.map((item, index) => {
+    const autoId = xmlAutoProductId(index);
+    const willCreate = item.productId === autoId;
+    return `<div class="xml-import-item"><div><b>${esc(item.name)}</b><small>Código XML: ${esc(item.code || 'não informado')} · ${quantity(item.quantity)} ${esc(item.unit)}${item.unitCost !== null ? ` · ${currency(item.unitCost)}` : ''}</small></div><label>Produto no sistema <select data-xml-item-product="${index}"><option value="">Não importar este item</option><option value="${autoId}" ${willCreate ? 'selected' : ''}>Cadastrar automaticamente este produto</option>${selectableProducts.map(productItem => `<option value="${productItem.id}" ${productItem.id === item.productId ? 'selected' : ''}>${esc(productItem.name)} (${esc(productItem.code)})</option>`).join('')}</select></label></div>`;
+  }).join('');
   document.querySelectorAll('[data-xml-item-product]').forEach(select => select.onchange = () => {
     importedXmlInvoice.items[Number(select.dataset.xmlItemProduct)].productId = select.value;
   });
@@ -891,6 +966,7 @@ function showXmlImportError(message = '') {
 function openXmlImportDialog() {
   importedXmlInvoice = null;
   $('#xml-file-form').reset();
+  $('#xml-auto-create-products').checked = true;
   $('#xml-import-preview').hidden = true;
   showXmlImportError();
   populateReceiptSuppliers();
@@ -1787,7 +1863,10 @@ $('#xml-file-form').onsubmit = async event => {
     if (!file) throw new Error('Selecione o arquivo XML da nota fiscal.');
     if (file.size > 8 * 1024 * 1024) throw new Error('O XML é muito grande. Selecione um arquivo de até 8 MB.');
     importedXmlInvoice = parseInvoiceXml(await file.text());
-    importedXmlInvoice.items.forEach(item => { item.productId = findImportedProduct(item)?.id || ''; });
+    const autoCreate = $('#xml-auto-create-products').checked;
+    importedXmlInvoice.items.forEach((item, index) => {
+      item.productId = findImportedProduct(item)?.id || (autoCreate ? xmlAutoProductId(index) : '');
+    });
     $('#xml-import-supplier').value = importedXmlInvoice.supplier;
     $('#xml-import-invoice').value = importedXmlInvoice.invoiceNumber;
     $('#xml-import-note').value = '';
@@ -1802,6 +1881,16 @@ $('#xml-file-form').onsubmit = async event => {
   }
 };
 
+$('#xml-auto-create-products').onchange = event => {
+  if (!importedXmlInvoice) return;
+  importedXmlInvoice.items.forEach((item, index) => {
+    const autoId = xmlAutoProductId(index);
+    if (event.target.checked && !item.productId) item.productId = autoId;
+    if (!event.target.checked && item.productId === autoId) item.productId = '';
+  });
+  renderImportedXmlItems();
+};
+
 $('#confirm-xml-import').onclick = async () => {
   try {
     if (!importedXmlInvoice) throw new Error('Selecione e leia um XML antes de confirmar.');
@@ -1809,10 +1898,11 @@ $('#confirm-xml-import').onclick = async () => {
     const invoiceNumber = $('#xml-import-invoice').value.trim();
     if (!supplierName) throw new Error('Informe o fornecedor para registrar o recebimento.');
     if (!invoiceNumber) throw new Error('Informe o número da nota fiscal.');
+    await createMissingXmlProducts();
     const lines = importedXmlInvoice.items
       .filter(item => item.productId)
-      .map(item => ({ product_id: item.productId, quantity: item.quantity, unit_cost: item.unitCost ?? Number(product(item.productId)?.average_cost || 0) }));
-    if (!lines.length) throw new Error('Associe pelo menos um item do XML a um produto do sistema.');
+      .map(item => ({ product_id: item.productId, quantity: item.quantity, unit_cost: item.unitCost ?? item.createdUnitCost ?? Number(product(item.productId)?.average_cost || 0) }));
+    if (!lines.length) throw new Error('Escolha ao menos um item para importar.');
     const importNote = importedXmlInvoice.accessKey ? `Importado do XML da NF-e · chave ${importedXmlInvoice.accessKey}` : 'Importado do XML da NF-e';
     const note = [$('#xml-import-note').value.trim(), importNote].filter(Boolean).join(' · ');
     await registerReceipt({ supplierName, invoiceNumber, note, lines });
