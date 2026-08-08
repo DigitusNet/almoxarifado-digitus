@@ -463,6 +463,7 @@ function render() {
   const returns = state.toolLoans.filter(item => item.returned_at).length;
   const outOfStock = state.products.filter(item => Number(item.stock) === 0).length;
   const reorder = state.products.filter(item => Number(item.stock) > 0 && low(item)).length;
+  $('#dashboard-items-count').textContent = state.products.length;
   $('#dashboard-exits-count').textContent = exits;
   $('#dashboard-loans-count').textContent = openLoans;
   $('#dashboard-returns-count').textContent = returns;
@@ -1401,6 +1402,7 @@ $('#edit-remove-image').onclick = () => {
   $('#edit-remove-image').dataset.removed = 'true';
   setProductImagePreview('edit');
 };
+$('#dashboard-items-card').onclick = () => showProducts('all');
 $('#dashboard-exits-card').onclick = () => { $('#history-type').value = 'saida'; view('movement'); renderMovement(); };
 $('#dashboard-loans-card').onclick = () => view('loans');
 $('#dashboard-returns-card').onclick = () => view('loans');
