@@ -84,6 +84,7 @@ let barcodeDetector = null;
 let importedXmlInvoice = null;
 let editingProductImagePath = null;
 let pendingProductImport = [];
+let pendingSerialImport = [];
 const normalizedScanCode = value => String(value || '').trim().replace(/[^a-z0-9]/gi, '').toLocaleLowerCase('pt-BR');
 const normalizedSpreadsheetText = value => String(value ?? '').trim();
 const normalizedSpreadsheetHeader = value => normalizedSpreadsheetText(value).normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim();
@@ -103,6 +104,19 @@ const spreadsheetColumns = {
   requiresCa: ['exige ca', 'controle de ca', 'tem ca'],
   caNumber: ['numero do ca', 'número do ca', 'ca'],
   caExpiry: ['validade do ca', 'vencimento do ca', 'data de validade do ca']
+};
+
+const serialSpreadsheetColumns = {
+  item: ['item', 'produto', 'nome do item', 'nome do produto'],
+  serial: ['numero de serie', 'número de série', 'serial'],
+  mac: ['mac address', 'mac'],
+  asset: ['codigo patrimonial', 'código patrimonial', 'patrimonio', 'patrimônio'],
+  status: ['status inicial', 'status'],
+  location: ['local atual', 'local', 'localizacao', 'localização'],
+  customer: ['cliente se ja instalado', 'cliente (se já instalado)', 'cliente'],
+  customerReference: ['referencia do cliente contrato', 'referência do cliente / contrato', 'contrato', 'referencia', 'referência'],
+  notes: ['observacao', 'observação', 'nota', 'notas'],
+  addToStock: ['adicionar esta unidade ao saldo do estoque', 'adicionar ao saldo do estoque', 'adicionar ao estoque']
 };
 
 function spreadsheetCell(row, aliases) {
@@ -150,6 +164,55 @@ function spreadsheetDate(value) {
   return isoDate ? isoDate[0] : null;
 }
 
+function spreadsheetYes(value) {
+  return ['sim', 's', 'true', '1', 'yes'].includes(normalizedSpreadsheetHeader(value));
+}
+
+function serialStatusFromSpreadsheet(value) {
+  const text = normalizedSpreadsheetHeader(value);
+  if (!text || text.includes('dispon')) return 'disponivel';
+  if (text.includes('instal') || text.includes('cliente')) return 'instalado_cliente';
+  if (text.includes('manutenc')) return 'manutencao';
+  if (text.includes('defeito')) return 'defeito';
+  if (text.includes('triagem') || text.includes('oficina') || text.includes('laboratorio')) return 'laboratorio';
+  if (text.includes('baix') || text.includes('sucat')) return 'baixado';
+  return null;
+}
+
+function serialProductCode(value) {
+  const text = normalizedSpreadsheetText(value);
+  const match = text.match(/\(([^()]+)\)\s*$/);
+  return normalizedSpreadsheetText(match?.[1] || text);
+}
+
+function cleanSpreadsheetPlaceholder(value) {
+  const text = normalizedSpreadsheetText(value);
+  const normalized = normalizedSpreadsheetHeader(text);
+  return !text || ['nao instalado', 'sem contrato', 'na', 'n a', 'none', 'null', 'nenhum', 'sem cliente', '-'].includes(normalized) ? null : text;
+}
+
+function productPayloadFromSpreadsheet(row, { serialTracking = false } = {}) {
+  const caNumber = normalizedSpreadsheetText(spreadsheetCell(row, spreadsheetColumns.caNumber));
+  const caExpiry = spreadsheetDate(spreadsheetCell(row, spreadsheetColumns.caExpiry));
+  const caValue = normalizedSpreadsheetHeader(spreadsheetCell(row, spreadsheetColumns.requiresCa));
+  return {
+    name: normalizedSpreadsheetText(spreadsheetCell(row, spreadsheetColumns.name)),
+    code: normalizedSpreadsheetText(spreadsheetCell(row, spreadsheetColumns.code)),
+    category: normalizedSpreadsheetText(spreadsheetCell(row, spreadsheetColumns.category)) || 'Produtos',
+    stock: spreadsheetNumber(spreadsheetCell(row, spreadsheetColumns.stock)),
+    minimum_stock: spreadsheetNumber(spreadsheetCell(row, spreadsheetColumns.minimum)),
+    brand: normalizedSpreadsheetText(spreadsheetCell(row, spreadsheetColumns.brand)) || null,
+    model: normalizedSpreadsheetText(spreadsheetCell(row, spreadsheetColumns.model)) || null,
+    unit_of_measure: spreadsheetUnit(spreadsheetCell(row, spreadsheetColumns.unit)),
+    tracking_mode: serialTracking ? 'serializado' : spreadsheetTracking(spreadsheetCell(row, spreadsheetColumns.tracking)),
+    description: normalizedSpreadsheetText(spreadsheetCell(row, spreadsheetColumns.description)) || null,
+    average_cost: spreadsheetNumber(spreadsheetCell(row, spreadsheetColumns.averageCost)),
+    requires_ca: ['sim', 's', 'true', '1'].includes(caValue) || Boolean(caNumber || caExpiry),
+    ca_number: caNumber || null,
+    ca_expiry_date: caExpiry
+  };
+}
+
 function resetProductImportPreview() {
   pendingProductImport = [];
   $('#product-import-error').hidden = true;
@@ -192,25 +255,7 @@ async function readProductSpreadsheet(event) {
       if (!name || !code) return ignored.push(`Linha ${line}: informe nome e código.`);
       if (usedCodes.has(normalizedCode)) return ignored.push(`Linha ${line}: código ${code} já existe.`);
       usedCodes.add(normalizedCode);
-      const caNumber = normalizedSpreadsheetText(spreadsheetCell(row, spreadsheetColumns.caNumber));
-      const caExpiry = spreadsheetDate(spreadsheetCell(row, spreadsheetColumns.caExpiry));
-      const caValue = normalizedSpreadsheetHeader(spreadsheetCell(row, spreadsheetColumns.requiresCa));
-      prepared.push({
-        name,
-        code,
-        category: normalizedSpreadsheetText(spreadsheetCell(row, spreadsheetColumns.category)) || 'Produtos',
-        stock: spreadsheetNumber(spreadsheetCell(row, spreadsheetColumns.stock)),
-        minimum_stock: spreadsheetNumber(spreadsheetCell(row, spreadsheetColumns.minimum)),
-        brand: normalizedSpreadsheetText(spreadsheetCell(row, spreadsheetColumns.brand)) || null,
-        model: normalizedSpreadsheetText(spreadsheetCell(row, spreadsheetColumns.model)) || null,
-        unit_of_measure: spreadsheetUnit(spreadsheetCell(row, spreadsheetColumns.unit)),
-        tracking_mode: spreadsheetTracking(spreadsheetCell(row, spreadsheetColumns.tracking)),
-        description: normalizedSpreadsheetText(spreadsheetCell(row, spreadsheetColumns.description)) || null,
-        average_cost: spreadsheetNumber(spreadsheetCell(row, spreadsheetColumns.averageCost)),
-        requires_ca: ['sim', 's', 'true', '1'].includes(caValue) || Boolean(caNumber || caExpiry),
-        ca_number: caNumber || null,
-        ca_expiry_date: caExpiry
-      });
+      prepared.push(productPayloadFromSpreadsheet(row));
     });
 
     pendingProductImport = prepared;
@@ -231,6 +276,165 @@ async function readProductSpreadsheet(event) {
   } catch (error) {
     $('#product-import-error').textContent = error.message || 'Não foi possível ler esta planilha.';
     $('#product-import-error').hidden = false;
+  }
+}
+
+function resetSerialImportPreview() {
+  pendingSerialImport = [];
+  $('#serial-import-error').hidden = true;
+  $('#serial-import-error').textContent = '';
+  $('#serial-import-summary').hidden = true;
+  $('#serial-import-summary').innerHTML = '';
+  $('#serial-import-preview').hidden = true;
+  $('#serial-import-preview').innerHTML = '';
+  $('#confirm-serial-import').hidden = true;
+  $('#confirm-serial-import').disabled = false;
+  $('#confirm-serial-import').textContent = 'Importar unidades';
+}
+
+function openSerialImport() {
+  if (currentUser?.role !== 'admin') return alert('Apenas administradores podem importar unidades em lote.');
+  $('#serial-import-file').value = '';
+  resetSerialImportPreview();
+  $('#serial-import-dialog').showModal();
+}
+
+async function readSerialSpreadsheet(event) {
+  resetSerialImportPreview();
+  const file = event.target.files?.[0];
+  if (!file) return;
+  try {
+    const XLSX = await import('xlsx');
+    const workbook = XLSX.read(await file.arrayBuffer(), { type: 'array', cellDates: false });
+    const unitSheet = workbook.SheetNames.map(name => ({ name, rows: XLSX.utils.sheet_to_json(workbook.Sheets[name], { defval: '', raw: false }) }))
+      .find(({ rows }) => rows.length && hasSpreadsheetColumn(rows, serialSpreadsheetColumns.item) && hasSpreadsheetColumn(rows, serialSpreadsheetColumns.serial) && hasSpreadsheetColumn(rows, serialSpreadsheetColumns.mac));
+    if (!unitSheet) throw new Error('Não encontrei a aba de unidades. Ela precisa ter Item, Número de série e MAC Address.');
+    const productsByCode = new Map(state.products.map(item => [normalizedScanCode(item.code), item]));
+    const locationByName = new Map(state.locations.filter(item => item.active).map(item => [normalizedSpreadsheetHeader(item.name), item]));
+    const centralLocation = state.locations.find(item => item.active && item.location_type === 'central');
+    const usedSerials = new Set(state.serialItems.map(item => normalizedScanCode(item.serial_number)).filter(Boolean));
+    const usedMacs = new Set(state.serialItems.map(item => normalizedScanCode(item.mac_address)).filter(Boolean));
+    const usedAssets = new Set(state.serialItems.map(item => normalizedScanCode(item.asset_tag)).filter(Boolean));
+    const errors = [];
+    const prepared = [];
+    unitSheet.rows.forEach((row, index) => {
+      const line = index + 2;
+      const itemName = normalizedSpreadsheetText(spreadsheetCell(row, serialSpreadsheetColumns.item));
+      const productCode = serialProductCode(itemName);
+      const serialNumber = normalizedSpreadsheetText(spreadsheetCell(row, serialSpreadsheetColumns.serial)) || null;
+      const macAddress = normalizedSpreadsheetText(spreadsheetCell(row, serialSpreadsheetColumns.mac)) || null;
+      const assetTag = normalizedSpreadsheetText(spreadsheetCell(row, serialSpreadsheetColumns.asset)) || null;
+      const itemStatus = serialStatusFromSpreadsheet(spreadsheetCell(row, serialSpreadsheetColumns.status));
+      if (!productCode || (!serialNumber && !macAddress && !assetTag)) return errors.push(`Linha ${line}: informe o código do item e ao menos um identificador.`);
+      if (!itemStatus) return errors.push(`Linha ${line}: status inicial não reconhecido.`);
+      if (!productsByCode.has(normalizedScanCode(productCode))) return errors.push(`Linha ${line}: o código ${productCode} não foi encontrado entre os produtos cadastrados.`);
+      const identifiers = [[serialNumber, usedSerials, 'serial'], [macAddress, usedMacs, 'MAC'], [assetTag, usedAssets, 'patrimônio']];
+      const duplicated = identifiers.find(([value, values]) => value && values.has(normalizedScanCode(value)));
+      if (duplicated) return errors.push(`Linha ${line}: ${duplicated[2]} já está cadastrado ou se repete na planilha.`);
+      identifiers.forEach(([value, values]) => { if (value) values.add(normalizedScanCode(value)); });
+      const rawLocation = normalizedSpreadsheetText(spreadsheetCell(row, serialSpreadsheetColumns.location));
+      const matchedLocation = locationByName.get(normalizedSpreadsheetHeader(rawLocation));
+      prepared.push({
+        productCode,
+        serialNumber,
+        macAddress,
+        assetTag,
+        status: itemStatus,
+        locationId: matchedLocation?.id || (itemStatus === 'disponivel' ? centralLocation?.id || null : null),
+        customerName: cleanSpreadsheetPlaceholder(spreadsheetCell(row, serialSpreadsheetColumns.customer)),
+        customerReference: cleanSpreadsheetPlaceholder(spreadsheetCell(row, serialSpreadsheetColumns.customerReference)),
+        notes: cleanSpreadsheetPlaceholder(spreadsheetCell(row, serialSpreadsheetColumns.notes)),
+        addToStockRequested: spreadsheetYes(spreadsheetCell(row, serialSpreadsheetColumns.addToStock))
+      });
+    });
+    if (errors.length) throw new Error(`${errors.slice(0, 3).join(' ')}${errors.length > 3 ? ` E mais ${errors.length - 3} erro(s).` : ''}`);
+    if (!prepared.length) throw new Error('Nenhuma unidade válida foi encontrada nesta planilha.');
+
+    const incomingByCode = new Map();
+    prepared.forEach(item => {
+      const key = normalizedScanCode(item.productCode);
+      if (!incomingByCode.has(key)) incomingByCode.set(key, []);
+      incomingByCode.get(key).push(item);
+    });
+    incomingByCode.forEach((items, code) => {
+      const existing = productsByCode.get(code);
+      const available = items.filter(item => item.status === 'disponivel' && item.addToStockRequested);
+      const required = Math.max(0, available.length - Number(existing.stock || 0));
+      let remaining = required;
+      items.forEach(item => {
+        item.addToStock = item.status === 'disponivel' && item.addToStockRequested && remaining-- > 0;
+      });
+    });
+    pendingSerialImport = prepared;
+    const stockEntries = prepared.filter(item => item.addToStock).length;
+    const summary = $('#serial-import-summary');
+    summary.hidden = false;
+    summary.innerHTML = `<b>${prepared.length} unidade${prepared.length === 1 ? '' : 's'} pronta${prepared.length === 1 ? '' : 's'} para importar.</b><span>${stockEntries ? `${stockEntries} unidade(s) completarão o saldo atual; as demais já estão contempladas no estoque da planilha.` : 'O saldo atual dos produtos será preservado; as unidades não serão somadas novamente.'}</span>`;
+    const preview = $('#serial-import-preview');
+    preview.hidden = false;
+    const visible = prepared.slice(0, 8);
+    preview.innerHTML = `<b>Prévia da aba ${esc(unitSheet.name)}</b>${visible.map(item => `<div><span>${esc(item.productCode)}</span><small>${esc(item.serialNumber || item.macAddress || item.assetTag)} · ${esc(serialStatusName(item.status))}</small></div>`).join('')}${prepared.length > visible.length ? `<small>e mais ${prepared.length - visible.length} unidade(s).</small>` : ''}`;
+    $('#confirm-serial-import').hidden = false;
+  } catch (error) {
+    $('#serial-import-error').textContent = error.message || 'Não foi possível ler esta planilha.';
+    $('#serial-import-error').hidden = false;
+  }
+}
+
+async function confirmSerialImport() {
+  if (!pendingSerialImport.length) return;
+  const button = $('#confirm-serial-import');
+  if (!confirm(`Importar ${pendingSerialImport.length} unidade(s) rastreáveis para o sistema?`)) return;
+  button.disabled = true;
+  try {
+    button.textContent = 'Conferindo produtos…';
+    const { data: allProducts, error: productsError } = await supabase.from('products').select('*');
+    if (productsError) throw productsError;
+    const productsByCode = new Map((allProducts || []).map(item => [normalizedScanCode(item.code), item]));
+    const serialProductIds = [...new Set(pendingSerialImport.map(item => productsByCode.get(normalizedScanCode(item.productCode))?.id).filter(Boolean))];
+    for (const productId of serialProductIds) {
+      const item = allProducts.find(productItem => productItem.id === productId);
+      if (item?.tracking_mode !== 'serializado') {
+        const { error } = await supabase.from('products').update({ tracking_mode: 'serializado' }).eq('id', productId);
+        if (error) throw error;
+      }
+    }
+    const batchSize = 10;
+    let imported = 0;
+    for (let index = 0; index < pendingSerialImport.length; index += batchSize) {
+      const batch = pendingSerialImport.slice(index, index + batchSize);
+      button.textContent = `Importando ${Math.min(index + batch.length, pendingSerialImport.length)} de ${pendingSerialImport.length}…`;
+      const results = await Promise.all(batch.map(item => {
+        const itemProduct = productsByCode.get(normalizedScanCode(item.productCode));
+        return supabase.rpc('register_serial_item', {
+          p_product_id: itemProduct?.id,
+          p_serial_number: item.serialNumber,
+          p_mac_address: item.macAddress,
+          p_asset_tag: item.assetTag,
+          p_status: item.status,
+          p_location_id: item.locationId,
+          p_customer_name: item.customerName,
+          p_customer_reference: item.customerReference,
+          p_notes: item.notes,
+          p_add_to_stock: item.addToStock
+        });
+      }));
+      const failed = results.find(result => result.error);
+      if (failed) throw failed.error;
+      imported += batch.length;
+    }
+    $('#serial-import-dialog').close();
+    resetSerialImportPreview();
+    await load();
+    view('serials');
+    alert(`${imported} unidade${imported === 1 ? '' : 's'} rastreável${imported === 1 ? '' : 'eis'} importada${imported === 1 ? '' : 's'} com sucesso.`);
+  } catch (error) {
+    await load();
+    $('#serial-import-error').textContent = error.message || 'A importação foi interrompida. Confira as unidades já registradas antes de tentar novamente.';
+    $('#serial-import-error').hidden = false;
+  } finally {
+    button.disabled = false;
+    button.textContent = 'Importar unidades';
   }
 }
 
