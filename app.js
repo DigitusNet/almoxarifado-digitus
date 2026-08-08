@@ -1130,16 +1130,13 @@ function renderLoans() {
   table.innerHTML = activeLoans.map(loan => {
     const item = state.serialItems.find(entry => entry.id === loan.serial_item_id), itemProduct = item && product(item.product_id);
     const overdue = loanOverdue(loan), due = loan.loan_type === 'temporario' ? (loan.due_at ? date(loan.due_at) : 'Sem prazo') : 'Sem prazo';
-    return `<tr><td><b>${esc(itemProduct?.name || 'Ferramenta')}</b><small>Serial: ${esc(item?.serial_number || '—')} · Patrimônio: ${esc(item?.asset_tag || '—')}</small></td><td>${esc(loan.collaborator_name || state.collaborators.find(collaborator => collaborator.id === loan.collaborator_id)?.name || '—')}</td><td>${esc(loanTypeName(loan.loan_type))}</td><td>${date(loan.issued_at)}</td><td>${due}</td><td><span class="badge ${overdue ? 'out' : 'low'}">${overdue ? 'Atrasada' : 'Em aberto'}</span></td><td><div class="table-actions"><button class="secondary-button" data-print-loan="${loan.id}">Termo</button><button class="primary small-primary" data-return-loan="${loan.id}">Devolver</button></div></td></tr>`;
+    return `<tr><td><b>${esc(itemProduct?.name || 'Item')}</b><small>Serial: ${esc(item?.serial_number || '—')} · Patrimônio: ${esc(item?.asset_tag || '—')}</small></td><td>${esc(loan.collaborator_name || state.collaborators.find(collaborator => collaborator.id === loan.collaborator_id)?.name || '—')}</td><td>${esc(loanTypeName(loan.loan_type))}</td><td>${date(loan.issued_at)}</td><td>${due}</td><td><span class="badge ${overdue ? 'out' : 'low'}">${overdue ? 'Atrasada' : 'Em aberto'}</span></td><td><div class="table-actions"><button class="secondary-button" data-print-loan="${loan.id}">Termo</button><button class="primary small-primary" data-return-loan="${loan.id}">Devolver</button></div></td></tr>`;
   }).join('') || '<tr><td colspan="7" class="empty">Nenhum empréstimo em aberto.</td></tr>';
 
-  const loanableItems = state.serialItems.filter(item => {
-    const itemProduct = product(item.product_id), category = String(itemProduct?.category || '').toLowerCase();
-    return item.status === 'disponivel' && ['ferramentas', 'patrimônio', 'patrimonio'].includes(category);
-  });
+  const loanableItems = state.serialItems.filter(item => item.status === 'disponivel');
   loanItem.innerHTML = loanableItems.map(item => {
     const itemProduct = product(item.product_id);
-    return `<option value="${item.id}">${esc(itemProduct?.name || 'Ferramenta')} · ${esc(item.asset_tag || item.serial_number || item.mac_address || 'Sem identificador')}</option>`;
+    return `<option value="${item.id}">${esc(itemProduct?.name || 'Item')} · ${esc(item.asset_tag || item.serial_number || item.mac_address || 'Sem identificador')}</option>`;
   }).join('');
   $('#loan-collaborator').innerHTML = '<option value="">Selecione</option>' + state.collaborators.filter(item => item.active).map(item => `<option value="${item.id}">${esc(item.name)}</option>`).join('');
   document.querySelectorAll('[data-return-loan]').forEach(button => button.onclick = () => openLoanReturn(button.dataset.returnLoan));
@@ -1542,7 +1539,7 @@ $('#add-serial').onclick = () => {
   $('#serial-dialog').showModal();
 };
 $('#add-loan').onclick = () => {
-  if (!state.serialItems.some(item => item.status === 'disponivel' && ['ferramentas', 'patrimônio', 'patrimonio'].includes(String(product(item.product_id)?.category || '').toLowerCase()))) return alert('Cadastre uma ferramenta ou patrimônio rastreável e disponível antes de registrar um empréstimo.');
+  if (!state.serialItems.some(item => item.status === 'disponivel')) return alert('Cadastre uma unidade rastreável e disponível antes de registrar um empréstimo.');
   $('#loan-dialog').showModal();
 };
 $('#start-inventory').onclick = () => {
