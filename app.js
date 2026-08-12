@@ -805,15 +805,25 @@ function receiptLineHtml(selected = '') {
   const products = receiptProducts();
   const selectedProduct = product(selected);
   const unitCost = Number(selectedProduct?.average_cost || 0).toFixed(2);
-  return `<div class="receipt-line"><label>Material <select data-receipt-product required><option value="">Selecione</option>${products.map(item => `<option value="${item.id}" ${item.id === selected ? 'selected' : ''}>${esc(item.name)} (${stockLabel(item)})</option>`).join('')}</select></label><label>Quantidade <input data-receipt-quantity type="number" min="0.001" step="0.001" required value="1" /></label><label>Valor unitário (R$) <input data-receipt-unit-cost type="number" min="0" step="0.01" required value="${unitCost}" /></label><button class="receipt-line-remove" data-remove-receipt-line type="button" aria-label="Remover material">×</button></div>`;
+  return `<div class="receipt-line"><label>Material <select data-receipt-product required><option value="">Selecione</option><option value="__new__" ${selected === '__new__' ? 'selected' : ''}>+ Cadastrar novo material nesta entrega</option>${products.map(item => `<option value="${item.id}" ${item.id === selected ? 'selected' : ''}>${esc(item.name)} (${stockLabel(item)})</option>`).join('')}</select></label><label>Quantidade <input data-receipt-quantity type="number" min="0.001" step="0.001" required value="1" /></label><label>Valor unitário (R$) <input data-receipt-unit-cost type="number" min="0" step="0.01" required value="${unitCost}" /></label><button class="receipt-line-remove" data-remove-receipt-line type="button" aria-label="Remover material">×</button><div class="receipt-new-product" data-receipt-new-product ${selected === '__new__' ? '' : 'hidden'}><label>Nome do novo material <input data-receipt-new-name ${selected === '__new__' ? 'required' : ''} placeholder="Ex.: Cabo de rede CAT6" /></label><label>Código <input data-receipt-new-code ${selected === '__new__' ? 'required' : ''} placeholder="Ex.: CAB-CAT6" /></label><label>Categoria <select data-receipt-new-category><option value="Produtos">Produtos</option><option value="Equipamentos">Equipamentos</option><option value="Insumos">Insumos</option><option value="EPI">EPI</option><option value="Patrimônio">Patrimônio</option><option value="Ferramentas">Ferramentas</option></select></label><label>Unidade <select data-receipt-new-unit><option value="unidade">Unidade</option><option value="metro">Metro</option><option value="par">Par</option><option value="caixa">Caixa</option></select></label></div></div>`;
+}
+
+function toggleReceiptNewProductFields(line) {
+  const isNewProduct = line.querySelector('[data-receipt-product]').value === '__new__';
+  const newProductFields = line.querySelector('[data-receipt-new-product]');
+  newProductFields.hidden = !isNewProduct;
+  newProductFields.querySelectorAll('[data-receipt-new-name], [data-receipt-new-code]').forEach(input => { input.required = isNewProduct; });
 }
 
 function bindReceiptLineEvents() {
   document.querySelectorAll('[data-remove-receipt-line]').forEach(button => button.onclick = () => button.closest('.receipt-line').remove());
   document.querySelectorAll('[data-receipt-product]').forEach(select => select.onchange = () => {
     const item = product(select.value);
-    select.closest('.receipt-line').querySelector('[data-receipt-unit-cost]').value = Number(item?.average_cost || 0).toFixed(2);
+    const line = select.closest('.receipt-line');
+    if (item) line.querySelector('[data-receipt-unit-cost]').value = Number(item.average_cost || 0).toFixed(2);
+    toggleReceiptNewProductFields(line);
   });
+  document.querySelectorAll('.receipt-line').forEach(toggleReceiptNewProductFields);
 }
 
 function addReceiptLine(selected = '') {
@@ -822,12 +832,38 @@ function addReceiptLine(selected = '') {
 }
 
 function openReceiptDialog() {
-  if (!receiptProducts().length) return alert('Cadastre um material controlado por quantidade antes de registrar um recebimento. Itens por Serial/MAC devem ser cadastrados na tela Serial / MAC.');
   $('#receipt-form').reset();
   populateReceiptSuppliers();
   $('#receipt-lines').innerHTML = '';
   addReceiptLine();
   $('#receipt-dialog').showModal();
+}
+
+async function createProductsForReceipt(lines) {
+  const pendingByCode = new Map();
+  for (const line of lines.filter(item => item.isNewProduct)) {
+    const code = line.product_code.trim();
+    const existing = state.products.find(item => String(item.code || '').trim().toLocaleLowerCase('pt-BR') === code.toLocaleLowerCase('pt-BR'));
+    if (existing?.is_active === false) throw new Error(`O código ${code} pertence ao produto arquivado “${existing.name}”. Reative-o pela tela Produtos antes de receber novamente.`);
+    if (existing) {
+      line.product_id = existing.id;
+      continue;
+    }
+    const previous = pendingByCode.get(code.toLocaleLowerCase('pt-BR'));
+    if (previous && previous.name !== line.product_name.trim()) throw new Error(`O código ${code} foi informado para dois materiais diferentes.`);
+    pendingByCode.set(code.toLocaleLowerCase('pt-BR'), {
+      name: line.product_name.trim(), code, category: line.category, unit_of_measure: line.unit_of_measure,
+      tracking_mode: 'quantidade', stock: 0, minimum_stock: 0, average_cost: line.unit_cost,
+      description: 'Cadastrado automaticamente junto com o recebimento.'
+    });
+  }
+  if (!pendingByCode.size) return lines;
+  const { data, error } = await supabase.from('products').insert([...pendingByCode.values()]).select('*');
+  if (error) throw new Error(`Não foi possível cadastrar os novos materiais: ${error.message}`);
+  const createdByCode = new Map(data.map(item => [String(item.code).trim().toLocaleLowerCase('pt-BR'), item]));
+  lines.filter(item => item.isNewProduct && !item.product_id).forEach(line => { line.product_id = createdByCode.get(line.product_code.trim().toLocaleLowerCase('pt-BR'))?.id; });
+  if (lines.some(item => !item.product_id)) throw new Error('Não foi possível identificar um dos produtos criados para o recebimento.');
+  return lines;
 }
 
 async function registerReceipt({ supplierName, invoiceNumber, note, lines }) {
@@ -1889,10 +1925,16 @@ $('#receipt-form').onsubmit = async event => {
   event.preventDefault();
   try {
     const lines = [...document.querySelectorAll('.receipt-line')].map(line => ({
-      product_id: line.querySelector('[data-receipt-product]').value,
+      product_id: line.querySelector('[data-receipt-product]').value === '__new__' ? '' : line.querySelector('[data-receipt-product]').value,
+      isNewProduct: line.querySelector('[data-receipt-product]').value === '__new__',
+      product_name: line.querySelector('[data-receipt-new-name]').value,
+      product_code: line.querySelector('[data-receipt-new-code]').value,
+      category: line.querySelector('[data-receipt-new-category]').value,
+      unit_of_measure: line.querySelector('[data-receipt-new-unit]').value,
       quantity: Number(line.querySelector('[data-receipt-quantity]').value),
       unit_cost: Number(line.querySelector('[data-receipt-unit-cost]').value)
     }));
+    await createProductsForReceipt(lines);
     await registerReceipt({
       supplierName: $('#receipt-supplier').value,
       invoiceNumber: $('#receipt-invoice').value,
