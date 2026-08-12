@@ -5,6 +5,7 @@ export default async function handler(req, res) {
     res.setHeader('Allow', 'DELETE');
     return res.status(405).json({ error: 'Método não permitido.' });
   }
+
   try {
     const url = process.env.SUPABASE_URL || process.env.VITE_SUPABASE_URL;
     const serviceKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
@@ -19,46 +20,19 @@ export default async function handler(req, res) {
     if (sessionError || !user) return res.status(401).json({ error: 'Sessão inválida.' });
 
     const { data: profile, error: profileError } = await sessionClient.from('profiles').select('role').eq('id', user.id).single();
-    if (profileError || profile?.role !== 'admin') return res.status(403).json({ error: 'Apenas administradores podem apagar produtos.' });
+    if (profileError || profile?.role !== 'admin') return res.status(403).json({ error: 'Apenas administradores podem remover produtos.' });
+
     const admin = createClient(url, serviceKey);
+    const { data, error } = await sessionClient.rpc('delete_or_archive_product', { p_product_id: id });
+    if (error) throw error;
 
-    const { data: product, error: productError } = await admin.from('products').select('*').eq('id', id).maybeSingle();
-    if (productError) throw productError;
-    if (!product) return res.status(404).json({ error: 'Produto não encontrado.' });
-
-    const { data: serialItems, error: serialItemsError } = await admin.from('serial_items').select('id').eq('product_id', id);
-    if (serialItemsError) throw serialItemsError;
-    const serialIds = serialItems.map(item => item.id);
-
-    if (serialIds.length) {
-      const { error: loansError } = await admin.from('tool_loans').delete().in('serial_item_id', serialIds);
-      if (loansError) throw loansError;
-
-      const { error: serialMovementsError } = await admin.from('serial_movements').delete().in('serial_item_id', serialIds);
-      if (serialMovementsError) throw serialMovementsError;
-
-      const { error: serialDeleteError } = await admin.from('serial_items').delete().in('id', serialIds);
-      if (serialDeleteError) throw serialDeleteError;
-    }
-
-    const { error: movementsError } = await admin.from('movements').delete().eq('product_id', id);
-    if (movementsError) throw movementsError;
-
-    const { error: receiptItemsError } = await admin.from('receipt_items').delete().eq('product_id', id);
-    if (receiptItemsError) throw receiptItemsError;
-
-    const { error: inventoryCountsError } = await admin.from('inventory_counts').delete().eq('product_id', id);
-    if (inventoryCountsError) throw inventoryCountsError;
-
-    const { error: deleteError } = await admin.from('products').delete().eq('id', id);
-    if (deleteError) throw deleteError;
-
-    if (product.image_path) {
-      const { error: imageError } = await admin.storage.from('product-images').remove([product.image_path]);
+    if (data?.action === 'deleted' && data.image_path) {
+      const { error: imageError } = await admin.storage.from('product-images').remove([data.image_path]);
       if (imageError) console.warn('Não foi possível remover a foto do produto:', imageError.message);
     }
-    return res.status(204).end();
+
+    return res.status(200).json(data || { action: 'deleted' });
   } catch (error) {
-    return res.status(500).json({ error: error.message || 'Não foi possível apagar o produto.' });
+    return res.status(500).json({ error: error.message || 'Não foi possível remover o produto.' });
   }
 }

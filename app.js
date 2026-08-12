@@ -66,6 +66,7 @@ function openPasswordReset() {
   if (!dialog.open) dialog.showModal();
 }
 const product = id => state.products.find(item => String(item.id) === String(id));
+const activeProducts = () => state.products.filter(item => item.is_active !== false);
 const low = item => item.stock <= item.minimum;
 const date = value => new Date(value).toLocaleString('pt-BR', { dateStyle: 'short', timeStyle: 'short' });
 const status = item => item.stock === 0 ? '<span class="badge out">Sem estoque</span>' : low(item) ? '<span class="badge low">Estoque baixo</span>' : '<span class="badge ok">Disponível</span>';
@@ -156,6 +157,7 @@ function spreadsheetTracking(value) {
 }
 
 function spreadsheetDate(value) {
+  if (value instanceof Date && !Number.isNaN(value.getTime())) return value.toISOString().slice(0, 10);
   const text = normalizedSpreadsheetText(value);
   if (!text) return null;
   const brDate = text.match(/^(\d{1,2})[\/-](\d{1,2})[\/-](\d{4})$/);
@@ -232,15 +234,33 @@ function openProductImport() {
   $('#product-import-dialog').showModal();
 }
 
+function spreadsheetRows(data) {
+  const [headerRow, ...dataRows] = data || [];
+  const headers = (headerRow || []).map(value => normalizedSpreadsheetText(value));
+  if (!headers.some(Boolean)) return [];
+  return dataRows
+    .filter(row => (row || []).some(value => normalizedSpreadsheetText(value)))
+    .map(row => Object.fromEntries(headers.map((header, index) => [header, row?.[index] ?? ''])));
+}
+
+async function readSpreadsheetSheets(file) {
+  if (!file.name.toLowerCase().endsWith('.xlsx')) throw new Error('Use uma planilha no formato .xlsx.');
+  if (file.size > 10 * 1024 * 1024) throw new Error('A planilha é muito grande. Selecione um arquivo de até 10 MB.');
+  const { default: readExcelFile } = await import('read-excel-file/browser');
+  const sheets = await readExcelFile(file);
+  const parsedSheets = sheets.map(sheet => ({ name: sheet.sheet, rows: spreadsheetRows(sheet.data) }));
+  const totalRows = parsedSheets.reduce((total, sheet) => total + sheet.rows.length, 0);
+  if (totalRows > 20000) throw new Error('A planilha tem mais de 20.000 linhas. Divida o arquivo antes de importar.');
+  return parsedSheets;
+}
+
 async function readProductSpreadsheet(event) {
   resetProductImportPreview();
   const file = event.target.files?.[0];
   if (!file) return;
   try {
-    const XLSX = await import('xlsx');
-    const workbook = XLSX.read(await file.arrayBuffer(), { type: 'array', cellDates: false });
-    const firstSheet = workbook.Sheets[workbook.SheetNames[0]];
-    const rows = XLSX.utils.sheet_to_json(firstSheet, { defval: '', raw: false });
+    const sheets = await readSpreadsheetSheets(file);
+    const rows = sheets.find(sheet => sheet.rows.length)?.rows || [];
     if (!rows.length) throw new Error('A planilha não possui linhas para importar.');
     if (!hasSpreadsheetColumn(rows, spreadsheetColumns.name) || !hasSpreadsheetColumn(rows, spreadsheetColumns.code)) throw new Error('Não encontrei as colunas Nome e Código. Use esses nomes no cabeçalho da planilha.');
 
@@ -304,12 +324,10 @@ async function readSerialSpreadsheet(event) {
   const file = event.target.files?.[0];
   if (!file) return;
   try {
-    const XLSX = await import('xlsx');
-    const workbook = XLSX.read(await file.arrayBuffer(), { type: 'array', cellDates: false });
-    const unitSheet = workbook.SheetNames.map(name => ({ name, rows: XLSX.utils.sheet_to_json(workbook.Sheets[name], { defval: '', raw: false }) }))
+    const unitSheet = (await readSpreadsheetSheets(file))
       .find(({ rows }) => rows.length && hasSpreadsheetColumn(rows, serialSpreadsheetColumns.item) && hasSpreadsheetColumn(rows, serialSpreadsheetColumns.serial) && hasSpreadsheetColumn(rows, serialSpreadsheetColumns.mac));
     if (!unitSheet) throw new Error('Não encontrei a aba de unidades. Ela precisa ter Item, Número de série e MAC Address.');
-    const productsByCode = new Map(state.products.map(item => [normalizedScanCode(item.code), item]));
+    const productsByCode = new Map(activeProducts().map(item => [normalizedScanCode(item.code), item]));
     const locationByName = new Map(state.locations.filter(item => item.active).map(item => [normalizedSpreadsheetHeader(item.name), item]));
     const centralLocation = state.locations.find(item => item.active && item.location_type === 'central');
     const usedSerials = new Set(state.serialItems.map(item => normalizedScanCode(item.serial_number)).filter(Boolean));
@@ -666,17 +684,22 @@ function getFieldStockItems() {
 }
 
 function render() {
+  const availableProducts = activeProducts();
   const exits = state.movements.filter(item => item.type === 'saida' && !item.fieldUsage).length;
   const openLoans = state.toolLoans.filter(item => !item.returned_at).length;
   const returns = state.toolLoans.filter(item => item.returned_at).length;
-  const outOfStock = state.products.filter(item => Number(item.stock) === 0).length;
-  const reorder = state.products.filter(item => Number(item.stock) > 0 && low(item)).length;
-  $('#dashboard-items-count').textContent = state.products.length;
+  const outOfStock = availableProducts.filter(item => Number(item.stock) === 0).length;
+  const reorder = availableProducts.filter(item => Number(item.stock) > 0 && low(item)).length;
+  $('#dashboard-items-count').textContent = availableProducts.length;
   $('#dashboard-exits-count').textContent = exits;
   $('#dashboard-loans-count').textContent = openLoans;
   $('#dashboard-returns-count').textContent = returns;
   $('#dashboard-minimum-count').textContent = outOfStock;
   $('#dashboard-reorder-count').textContent = reorder;
+  const valueCard = $('#dashboard-value-card');
+  const canViewStockValue = currentUser?.role === 'admin';
+  valueCard.hidden = !canViewStockValue;
+  if (canViewStockValue) $('#dashboard-value-count').textContent = currency(availableProducts.reduce((total, item) => total + Number(item.stock || 0) * Number(item.average_cost || 0), 0));
   renderDashboardOperations();
   renderProducts(); renderMovement(); renderUsers(); renderRegistry(); renderReceipts(); renderSerials(); renderLaboratory(); renderLoans(); renderInventory();
 }
@@ -684,7 +707,7 @@ function render() {
 function renderDashboardOperations() {
   const overdue = state.toolLoans.filter(loanOverdue).sort((a, b) => new Date(a.due_at) - new Date(b.due_at));
   const openReminders = state.reminders.filter(item => item.status === 'aberto').sort((a, b) => new Date(a.due_date) - new Date(b.due_date));
-  const expired = state.products.filter(caExpired).sort((a, b) => new Date(a.ca_expiry_date) - new Date(b.ca_expiry_date));
+  const expired = activeProducts().filter(caExpired).sort((a, b) => new Date(a.ca_expiry_date) - new Date(b.ca_expiry_date));
   const openRequests = state.materialRequests.filter(item => item.status === 'aberta').sort((a, b) => new Date(b.created_at) - new Date(a.created_at));
   const canCompleteRequests = ['admin', 'operador'].includes(currentUser?.role);
   const canDeleteRequests = currentUser?.role === 'admin';
@@ -737,11 +760,11 @@ function renderProducts() {
   const canEdit = ['admin', 'operador'].includes(currentUser?.role);
   const categorySelect = $('#product-category-filter'), statusSelect = $('#product-status-filter');
   const selectedCategory = categorySelect.value;
-  const categories = [...new Set(state.products.map(item => item.category).filter(Boolean))].sort((a, b) => a.localeCompare(b, 'pt-BR'));
+  const categories = [...new Set(activeProducts().map(item => item.category).filter(Boolean))].sort((a, b) => a.localeCompare(b, 'pt-BR'));
   categorySelect.innerHTML = '<option value="">Todas as categorias</option>' + categories.map(category => `<option value="${esc(category)}">${esc(category)}</option>`).join('');
   categorySelect.value = categories.includes(selectedCategory) ? selectedCategory : '';
   const category = categorySelect.value, statusFilter = statusSelect.value;
-  const products = state.products.filter(item => {
+  const products = activeProducts().filter(item => {
     const matchesPreset = (state.productFilter !== 'low' || low(item)) && (state.productFilter !== 'ca' || caAlert(item)) && (state.productFilter !== 'expired' || caExpired(item));
     const matchesCategory = !category || item.category === category;
     const matchesStatus = !statusFilter
@@ -764,15 +787,16 @@ function renderProducts() {
 function renderMovement() {
   const select = $('#movement-product'), selected = select.value;
   const canDelete = currentUser?.role === 'admin';
-  select.innerHTML = state.products.map(item => `<option value="${item.id}">${esc(item.name)} (${stockLabel(item)})</option>`).join('');
-  select.value = selected || state.products[0]?.id;
+  const products = activeProducts();
+  select.innerHTML = products.map(item => `<option value="${item.id}">${esc(item.name)} (${stockLabel(item)})</option>`).join('');
+  select.value = selected || products[0]?.id || '';
   const movements = getFilteredMovements();
   $('#movement-history').innerHTML = movements.map(item => `<div class="history-item"><span class="history-icon ${item.type === 'saida' ? 'out' : ''}">${item.type === 'entrada' ? '↓' : '↑'}</span><div><b>${movementName(item)} de ${quantity(item.quantity)} ${unitName(product(item.productId)?.unit_of_measure)} — ${esc(product(item.productId)?.name || 'Produto')}</b><small>${holderTypeName(item.holderType)}: ${esc(item.person)} · ${item.date}${item.workOrder ? ' · OS: ' + esc(item.workOrder) : ''}${item.note ? ' · ' + esc(item.note) : ''}</small></div>${canDelete ? `<button class="danger-button" data-delete-movement="${item.id}">Apagar</button>` : ''}</div>`).join('') || '<p class="empty">Nenhuma movimentação encontrada.</p>';
   document.querySelectorAll('[data-delete-movement]').forEach(button => button.onclick = () => deleteMovement(button.dataset.deleteMovement));
 }
 
 function receiptProducts() {
-  return state.products.filter(item => item.tracking_mode !== 'serializado');
+  return activeProducts().filter(item => item.tracking_mode !== 'serializado');
 }
 
 function receiptLineHtml(selected = '') {
@@ -863,7 +887,7 @@ function parseInvoiceXml(xmlContent) {
 function findImportedProduct(item) {
   const code = normalizedScanCode(item.code);
   const name = normalizedScanCode(item.name);
-  return state.products.find(productItem => productItem.tracking_mode !== 'serializado' && (
+  return activeProducts().find(productItem => productItem.tracking_mode !== 'serializado' && (
     code && normalizedScanCode(productItem.code) === code ||
     name && normalizedScanCode(productItem.name) === name
   ));
@@ -877,12 +901,6 @@ function xmlUnitOfMeasure(value) {
   return spreadsheetUnit(value);
 }
 
-function xmlProductKey(item, index) {
-  const code = normalizedScanCode(item.code);
-  const name = normalizedScanCode(item.name);
-  return code ? `code:${code}` : name ? `name:${name}` : `item:${index}`;
-}
-
 function xmlGeneratedProductCode(item, index) {
   const code = String(item.code || '').trim();
   if (code) return code;
@@ -890,54 +908,14 @@ function xmlGeneratedProductCode(item, index) {
   return `XML-${invoiceReference || 'NF'}-${index + 1}`;
 }
 
-function xmlProductPayload(item, index) {
-  return {
-    name: String(item.name || 'Item sem descrição').trim(),
-    code: xmlGeneratedProductCode(item, index),
-    category: 'Produtos',
-    stock: 0,
-    minimum_stock: 0,
-    unit_of_measure: xmlUnitOfMeasure(item.unit),
-    tracking_mode: 'quantidade',
-    description: `Cadastrado automaticamente pela NF-e ${importedXmlInvoice?.invoiceNumber || ''}`.trim(),
-    average_cost: Number(item.unitCost || 0),
-    requires_ca: false,
-    ca_number: null,
-    ca_expiry_date: null
-  };
-}
-
-async function createMissingXmlProducts() {
-  const grouped = new Map();
-  importedXmlInvoice.items.forEach((item, index) => {
-    if (item.productId !== xmlAutoProductId(index)) return;
-    const existing = findImportedProduct(item);
-    if (existing) {
-      item.productId = existing.id;
-      return;
-    }
-    const key = xmlProductKey(item, index);
-    const group = grouped.get(key) || { item, indexes: [] };
-    group.indexes.push(index);
-    grouped.set(key, group);
+async function registerXmlReceipt({ supplierName, invoiceNumber, note, items }) {
+  const { error } = await supabase.rpc('import_xml_receipt', {
+    p_supplier: String(supplierName || '').trim(),
+    p_invoice_number: String(invoiceNumber || '').trim(),
+    p_note: String(note || '').trim() || null,
+    p_items: items
   });
-
-  for (const { item, indexes } of grouped.values()) {
-    const referenceIndex = indexes[0];
-    const payload = xmlProductPayload(item, referenceIndex);
-    let { data: createdProduct, error } = await supabase.from('products').insert(payload).select().single();
-    if (error?.code === '23505') {
-      const existing = await supabase.from('products').select('*').eq('code', payload.code).maybeSingle();
-      if (existing.error) throw existing.error;
-      createdProduct = existing.data;
-      error = createdProduct ? null : error;
-    }
-    if (error || !createdProduct) throw error || new Error(`Não foi possível cadastrar automaticamente “${item.name}”.`);
-    indexes.forEach(index => {
-      importedXmlInvoice.items[index].productId = createdProduct.id;
-      importedXmlInvoice.items[index].createdUnitCost = Number(createdProduct.average_cost || 0);
-    });
-  }
+  if (error) throw error;
 }
 
 function renderImportedXmlItems() {
@@ -1072,7 +1050,7 @@ function renderSerials() {
   const table = $('#serials-table'), select = $('#serial-product');
   if (!table || !select) return;
   const selected = select.value;
-  const serialProducts = state.products.filter(item => item.tracking_mode === 'serializado');
+  const serialProducts = activeProducts().filter(item => item.tracking_mode === 'serializado');
   select.innerHTML = serialProducts.map(item => `<option value="${item.id}">${esc(item.name)} (${esc(item.code)})</option>`).join('');
   select.value = serialProducts.some(item => item.id === selected) ? selected : serialProducts[0]?.id || '';
   const search = $('#serial-search').value.trim().toLowerCase();
@@ -1477,16 +1455,15 @@ async function toggleLocation(id) {
 
 async function deleteProduct(id) {
   const item = product(id);
-  if (!item || !confirm(`Apagar o produto “${item.name}” e todas as movimentações dele? Esta ação não pode ser desfeita.`)) return;
+  if (!item || !confirm(`Remover o produto “${item.name}”? Se ele tiver histórico, será arquivado para preservar os registros.`)) return;
   try {
     const { data: { session } } = await supabase.auth.getSession();
     if (!session) throw new Error('Sessão inválida. Entre novamente no sistema.');
     const response = await fetch(`/api/products?id=${encodeURIComponent(id)}`, { method: 'DELETE', headers: { Authorization: `Bearer ${session.access_token}` } });
-    if (!response.ok) {
-      const data = await response.json().catch(() => ({}));
-      throw new Error(data.error || 'Não foi possível apagar o produto.');
-    }
+    const data = await response.json().catch(() => ({}));
+    if (!response.ok) throw new Error(data.error || 'Não foi possível remover o produto.');
     await load();
+    alert(data.action === 'archived' ? 'Produto arquivado. O histórico foi preservado.' : 'Produto removido.');
   } catch (error) {
     alert(error.message);
   }
@@ -1898,14 +1875,21 @@ $('#confirm-xml-import').onclick = async () => {
     const invoiceNumber = $('#xml-import-invoice').value.trim();
     if (!supplierName) throw new Error('Informe o fornecedor para registrar o recebimento.');
     if (!invoiceNumber) throw new Error('Informe o número da nota fiscal.');
-    await createMissingXmlProducts();
     const lines = importedXmlInvoice.items
-      .filter(item => item.productId)
-      .map(item => ({ product_id: item.productId, quantity: item.quantity, unit_cost: item.unitCost ?? item.createdUnitCost ?? Number(product(item.productId)?.average_cost || 0) }));
+      .map((item, index) => ({ item, index }))
+      .filter(({ item }) => item.productId)
+      .map(({ item, index }) => ({
+        product_id: item.productId === xmlAutoProductId(index) ? null : item.productId,
+        product_name: item.name,
+        product_code: xmlGeneratedProductCode(item, index),
+        unit_of_measure: xmlUnitOfMeasure(item.unit),
+        quantity: item.quantity,
+        unit_cost: item.unitCost ?? Number(product(item.productId)?.average_cost || 0)
+      }));
     if (!lines.length) throw new Error('Escolha ao menos um item para importar.');
     const importNote = importedXmlInvoice.accessKey ? `Importado do XML da NF-e · chave ${importedXmlInvoice.accessKey}` : 'Importado do XML da NF-e';
     const note = [$('#xml-import-note').value.trim(), importNote].filter(Boolean).join(' · ');
-    await registerReceipt({ supplierName, invoiceNumber, note, lines });
+    await registerXmlReceipt({ supplierName, invoiceNumber, note, items: lines });
     $('#xml-import-dialog').close();
     importedXmlInvoice = null;
     await load();

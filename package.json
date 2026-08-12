@@ -13,7 +13,7 @@
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.57.0",
-    "xlsx": "^0.18.5"
+    "read-excel-file": "9.3.10"
   },
   "allowScripts": {
     "esbuild@0.28.1": true
