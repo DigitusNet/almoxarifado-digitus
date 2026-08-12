@@ -677,6 +677,7 @@ function caExpired(item) {
 const serialStatusName = status => ({ disponivel:'Disponível', com_colaborador:'Com colaborador', com_veiculo:'Com veículo', instalado_cliente:'Instalado no cliente', emprestado:'Emprestado', aguardando_triagem:'Aguardando triagem', laboratorio:'Oficina', manutencao:'Em manutenção', defeito:'Defeito', baixado:'Baixado' })[status] || status;
 const serialStatusClass = status => ({ disponivel:'ok', com_colaborador:'saida', com_veiculo:'saida', instalado_cliente:'saida', emprestado:'saida', aguardando_triagem:'low', laboratorio:'low', manutencao:'low', defeito:'out', baixado:'out' })[status] || 'low';
 const serialActionName = action => ({ transferencia:'Transferência', instalacao:'Instalação em cliente', laboratorio:'Envio à oficina', retorno:'Retorno ao almoxarifado', baixa:'Baixa / sucata' })[action] || action;
+const isLaboratorySerial = item => ['laboratorio', 'manutencao', 'defeito', 'aguardando_triagem'].includes(item.status);
 const loanTypeName = type => type === 'cautela' ? 'Empréstimo sem prazo' : 'Empréstimo temporário';
 const loanOverdue = loan => !loan.returned_at && loan.loan_type === 'temporario' && loan.due_at && new Date(loan.due_at) < new Date();
 
@@ -1197,16 +1198,11 @@ function renderLaboratory() {
   if (!table) return;
   const search = $('#lab-search').value.trim().toLowerCase();
   const items = state.serialItems.filter(item => {
-    const location = state.locations.find(entry => entry.id === item.current_location_id);
     const itemProduct = product(item.product_id);
-    const isLaboratoryItem = location?.location_type === 'laboratorio' && ['laboratorio', 'manutencao', 'defeito', 'aguardando_triagem'].includes(item.status);
     const text = `${itemProduct?.name || ''} ${itemProduct?.code || ''} ${item.serial_number || ''} ${item.mac_address || ''} ${item.asset_tag || ''}`.toLowerCase();
-    return isLaboratoryItem && (!search || text.includes(search));
+    return isLaboratorySerial(item) && (!search || text.includes(search));
   });
-  const allLaboratoryItems = state.serialItems.filter(item => {
-    const location = state.locations.find(entry => entry.id === item.current_location_id);
-    return location?.location_type === 'laboratorio' && ['laboratorio', 'manutencao', 'defeito', 'aguardando_triagem'].includes(item.status);
-  });
+  const allLaboratoryItems = state.serialItems.filter(isLaboratorySerial);
   $('#lab-total').textContent = allLaboratoryItems.length;
   $('#lab-pending-total').textContent = allLaboratoryItems.filter(item => ['manutencao', 'defeito'].includes(item.status)).length;
   table.innerHTML = items.map(item => {
