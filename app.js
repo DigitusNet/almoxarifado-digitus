@@ -77,6 +77,26 @@ const unitName = unit => ({ unidade: 'un.', metro: 'm', par: 'par', caixa: 'cx.'
 const quantity = value => Number(value || 0).toLocaleString('pt-BR', { maximumFractionDigits: 3 });
 const currency = value => Number(value || 0).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });
 const stockLabel = item => `${quantity(item.stock)} ${unitName(item.unit_of_measure)}`;
+
+function renderDashboardStockValue(products = state.products, loading = false) {
+  const valueCard = $('#dashboard-value-card');
+  const canViewStockValue = currentUser?.role === 'admin';
+  valueCard.hidden = !canViewStockValue;
+  if (!canViewStockValue) return;
+  $('#dashboard-value-count').textContent = loading ? 'Carregando…' : currency(products.filter(item => item.is_active !== false).reduce((total, item) => total + Number(item.stock || 0) * Number(item.average_cost || 0), 0));
+}
+
+async function preloadDashboardStockValue() {
+  if (currentUser?.role !== 'admin') return;
+  try {
+    const { data, error } = await supabase.from('products').select('stock, average_cost, is_active');
+    if (error || currentUser?.role !== 'admin') return;
+    renderDashboardStockValue(data || []);
+  } catch (error) {
+    console.warn('Não foi possível antecipar o valor do estoque:', error.message);
+  }
+}
+
 let scannerStream = null;
 let scannerFrame = null;
 let scannerSession = 0;
@@ -696,10 +716,7 @@ function render() {
   $('#dashboard-returns-count').textContent = returns;
   $('#dashboard-minimum-count').textContent = outOfStock;
   $('#dashboard-reorder-count').textContent = reorder;
-  const valueCard = $('#dashboard-value-card');
-  const canViewStockValue = currentUser?.role === 'admin';
-  valueCard.hidden = !canViewStockValue;
-  if (canViewStockValue) $('#dashboard-value-count').textContent = currency(availableProducts.reduce((total, item) => total + Number(item.stock || 0) * Number(item.average_cost || 0), 0));
+  renderDashboardStockValue(availableProducts);
   renderDashboardOperations();
   renderProducts(); renderMovement(); renderUsers(); renderRegistry(); renderReceipts(); renderSerials(); renderLaboratory(); renderLoans(); renderInventory(); renderStatement();
 }
@@ -1393,12 +1410,12 @@ function renderInventory() {
   }
 
   const history = state.inventorySessions.filter(item => item.status === 'finalizado').slice(0, 8);
-  $('#inventory-history-table').innerHTML = history.map(item => `<tr><td><b>${esc(item.title)}</b><small>${esc(item.final_note || 'Sem observação')}</small></td><td>${esc(item.category || 'Todo o almoxarifado')}</td><td>${date(item.started_at)}</td><td>${item.closed_at ? date(item.closed_at) : '—'}</td><td><span class="badge ok">Finalizado</span></td></tr>`).join('') || '<tr><td colspan="5" class="empty">Nenhum inventário finalizado ainda.</td></tr>';
+  $('#inventory-history-table').innerHTML = history.map(item => `<tr><td><b>${esc(item.title)}</b><small>${esc(item.final_note || 'Sem observação')}</small></td><td>${esc(item.category || 'Todo o almoxarifado')}</td><td>${date(item.started_at)}</td><td>${item.closed_at ? date(item.closed_at) : '—'}</td><td><span class="badge ok">Finalizado</span></td></tr>`).join('') || '<tr><td colspan="5" class="empty">Nenhuma conferência finalizada ainda.</td></tr>';
 }
 
 async function saveInventoryCounts(silent = false) {
   const session = activeInventory();
-  if (!session) throw new Error('Não há inventário em aberto.');
+  if (!session) throw new Error('Não há conferência em aberto.');
   const counts = [...document.querySelectorAll('[data-inventory-count]')].filter(input => input.value !== '').map(input => ({
     product_id: input.dataset.inventoryCount,
     counted_stock: Number(input.value),
@@ -1420,12 +1437,12 @@ async function finishInventory() {
     const hasDifferences = counts.some(item => inventoryDifference(item) !== 0);
     const note = $('#inventory-final-note').value.trim();
     if (hasDifferences && !note) throw new Error('Informe uma justificativa para os ajustes encontrados.');
-    if (!confirm('Finalizar o inventário? Os ajustes serão registrados como movimentações e não poderão ser desfeitos por esta tela.')) return;
+    if (!confirm('Finalizar a conferência? Os ajustes serão registrados como movimentações e não poderão ser desfeitos por esta tela.')) return;
     const { error } = await supabase.rpc('finish_inventory', { p_inventory_id: session.id, p_final_note: note || null });
     if (error) throw error;
     $('#inventory-final-note').value = '';
     await load();
-    alert('Inventário finalizado e estoque ajustado com sucesso.');
+    alert('Conferência finalizada e estoque ajustado com sucesso.');
   } catch (error) {
     alert(error.message);
   }
@@ -1613,7 +1630,7 @@ function view(id, options = {}) {
   document.querySelectorAll('.view').forEach(element => element.classList.toggle('active', element.id === id));
   document.querySelectorAll('.nav-link').forEach(button => button.classList.toggle('active', button.dataset.view === id));
   document.querySelector('main').classList.toggle('dashboard-mode', id === 'dashboard');
-  $('#page-title').textContent = ({ dashboard:'Visão geral', products:'Produtos', movement:'Movimentações', receipts:'Recebimentos', serials:'Serial / MAC', laboratory:'Oficina', loans:'Empréstimos', inventory:'Inventário', registry:'Cadastros', users:'Usuários', statement:'Extrato financeiro' })[id];
+  $('#page-title').textContent = ({ dashboard:'Visão geral', products:'Produtos', movement:'Movimentações', receipts:'Recebimentos', serials:'Serial / MAC', laboratory:'Oficina', loans:'Empréstimos', inventory:'Conferência de estoque', registry:'Cadastros', users:'Usuários', statement:'Extrato financeiro' })[id];
 }
 
 document.querySelector('main').classList.add('dashboard-mode');
@@ -1675,6 +1692,10 @@ async function start(session) {
   document.querySelectorAll('[data-view="users"]').forEach(button => { button.hidden = !isAdmin; });
   document.querySelectorAll('[data-view="statement"]').forEach(button => { button.hidden = !isAdmin; });
   renderAccountMenu();
+  if (isAdmin) {
+    renderDashboardStockValue([], true);
+    void preloadDashboardStockValue();
+  }
   try { await load(); } catch (error) { alert(error.message); }
 }
 
@@ -1704,7 +1725,7 @@ $('#add-loan').onclick = () => {
   $('#loan-dialog').showModal();
 };
 $('#start-inventory').onclick = () => {
-  if (activeInventory()) return alert('Já existe um inventário em aberto. Finalize-o antes de iniciar outro.');
+  if (activeInventory()) return alert('Já existe uma conferência em aberto. Finalize-a antes de iniciar outra.');
   $('#inventory-start-form').reset();
   renderInventory();
   $('#inventory-start-dialog').showModal();
