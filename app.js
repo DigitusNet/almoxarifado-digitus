@@ -701,7 +701,7 @@ function render() {
   valueCard.hidden = !canViewStockValue;
   if (canViewStockValue) $('#dashboard-value-count').textContent = currency(availableProducts.reduce((total, item) => total + Number(item.stock || 0) * Number(item.average_cost || 0), 0));
   renderDashboardOperations();
-  renderProducts(); renderMovement(); renderUsers(); renderRegistry(); renderReceipts(); renderSerials(); renderLaboratory(); renderLoans(); renderInventory();
+  renderProducts(); renderMovement(); renderUsers(); renderRegistry(); renderReceipts(); renderSerials(); renderLaboratory(); renderLoans(); renderInventory(); renderStatement();
 }
 
 function renderDashboardOperations() {
@@ -974,6 +974,74 @@ function renderReceipts() {
     return `<tr><td><b>${esc(receipt.supplier)}</b><small>${esc(receipt.note || 'Sem observação')}</small></td><td>${esc(receipt.invoice_number || '—')}</td><td>${summary}</td><td>${date(receipt.received_at)}</td><td><button class="secondary-button" data-receipt-details="${receipt.id}">Detalhes</button></td></tr>`;
   }).join('') || '<tr><td colspan="5" class="empty">Nenhum recebimento registrado.</td></tr>';
   document.querySelectorAll('[data-receipt-details]').forEach(button => button.onclick = () => openReceiptDetails(button.dataset.receiptDetails));
+}
+
+function financialEntries() {
+  const receiptsById = new Map(state.receipts.map(item => [String(item.id), item]));
+  const receiptEntries = state.receiptItems.map(item => {
+    const receipt = receiptsById.get(String(item.receipt_id));
+    const unitCost = Number(item.unit_cost || 0);
+    const itemName = item.product_name || product(item.product_id)?.name || 'Produto removido';
+    return {
+      id: `receipt-${item.id}`,
+      date: receipt?.received_at || item.created_at,
+      type: 'entrada',
+      description: `Recebimento${receipt?.supplier ? ` · ${receipt.supplier}` : ''}${receipt?.invoice_number ? ` · NF ${receipt.invoice_number}` : ''}`,
+      item: itemName,
+      code: item.product_code || product(item.product_id)?.code || '',
+      quantity: Number(item.quantity || 0),
+      unitCost,
+      total: Number(item.quantity || 0) * unitCost
+    };
+  });
+  const movementEntries = state.movements
+    .filter(item => !(item.type === 'entrada' && String(item.person || '').startsWith('Recebimento:')))
+    .map(item => {
+      const itemProduct = product(item.productId);
+      const unitCost = Number(itemProduct?.average_cost || 0);
+      return {
+        id: `movement-${item.id}`,
+        date: item.createdAt,
+        type: item.type === 'entrada' ? 'entrada' : 'saida',
+        description: `${movementName(item)}${item.person ? ` · ${item.person}` : ''}${item.workOrder ? ` · ${item.workOrder}` : ''}`,
+        item: itemProduct?.name || 'Produto removido',
+        code: itemProduct?.code || '',
+        quantity: Number(item.quantity || 0),
+        unitCost,
+        total: Number(item.quantity || 0) * unitCost
+      };
+    });
+  return [...receiptEntries, ...movementEntries].sort((a, b) => new Date(b.date || 0) - new Date(a.date || 0));
+}
+
+function renderStatement() {
+  const table = $('#statement-table');
+  if (!table || currentUser?.role !== 'admin') return;
+  const entries = financialEntries();
+  const stockValue = activeProducts().reduce((total, item) => total + Number(item.stock || 0) * Number(item.average_cost || 0), 0);
+  const entryEntries = entries.filter(item => item.type === 'entrada');
+  const outputEntries = entries.filter(item => item.type === 'saida');
+  $('#statement-stock-value').textContent = currency(stockValue);
+  $('#statement-entry-value').textContent = currency(entryEntries.reduce((total, item) => total + item.total, 0));
+  $('#statement-output-value').textContent = currency(outputEntries.reduce((total, item) => total + item.total, 0));
+  $('#statement-entry-count').textContent = `${entryEntries.length} lançamento${entryEntries.length === 1 ? '' : 's'}`;
+  $('#statement-output-count').textContent = `${outputEntries.length} lançamento${outputEntries.length === 1 ? '' : 's'}`;
+
+  const search = $('#statement-search').value.trim().toLocaleLowerCase('pt-BR');
+  const type = $('#statement-type').value;
+  const from = $('#statement-from').value;
+  const to = $('#statement-to').value;
+  const filtered = entries.filter(item => {
+    const itemDate = item.date ? new Date(item.date).toISOString().slice(0, 10) : '';
+    const text = `${item.description} ${item.item} ${item.code}`.toLocaleLowerCase('pt-BR');
+    return (!search || text.includes(search))
+      && (!type || item.type === type)
+      && (!from || itemDate >= from)
+      && (!to || itemDate <= to);
+  });
+  const periodBalance = filtered.reduce((total, item) => total + (item.type === 'entrada' ? item.total : -item.total), 0);
+  $('#statement-period-total').textContent = `Saldo do período: ${currency(periodBalance)}`;
+  table.innerHTML = filtered.map(item => `<tr><td>${date(item.date)}</td><td><span class="badge ${item.type === 'entrada' ? 'ok' : 'saida'}">${item.type === 'entrada' ? 'Entrada' : 'Saída'}</span></td><td>${esc(item.description)}</td><td><b>${esc(item.item)}</b><small>${esc(item.code || 'Sem código')}</small></td><td>${quantity(item.quantity)}</td><td>${currency(item.unitCost)}</td><td><b class="statement-total ${item.type}">${item.type === 'entrada' ? '+' : '-'} ${currency(item.total)}</b></td></tr>`).join('') || '<tr><td colspan="7" class="empty">Nenhum lançamento encontrado para este filtro.</td></tr>';
 }
 
 function populateReceiptSuppliers() {
@@ -1499,7 +1567,7 @@ async function deleteUser(id) {
 
 function view(id, options = {}) {
   const { rememberReturn = true } = options;
-  if (id === 'users' && currentUser?.role !== 'admin') id = 'dashboard';
+  if (['users', 'statement'].includes(id) && currentUser?.role !== 'admin') id = 'dashboard';
   const activeView = document.querySelector('.view.active')?.id;
   if (rememberReturn && id !== 'dashboard' && activeView !== id) {
     window.history.pushState({ digitusReturn: 'dashboard' }, '', window.location.href);
@@ -1507,7 +1575,7 @@ function view(id, options = {}) {
   document.querySelectorAll('.view').forEach(element => element.classList.toggle('active', element.id === id));
   document.querySelectorAll('.nav-link').forEach(button => button.classList.toggle('active', button.dataset.view === id));
   document.querySelector('main').classList.toggle('dashboard-mode', id === 'dashboard');
-  $('#page-title').textContent = ({ dashboard:'Visão geral', products:'Produtos', movement:'Movimentações', receipts:'Recebimentos', serials:'Serial / MAC', laboratory:'Oficina', loans:'Empréstimos', inventory:'Inventário', registry:'Cadastros', users:'Usuários' })[id];
+  $('#page-title').textContent = ({ dashboard:'Visão geral', products:'Produtos', movement:'Movimentações', receipts:'Recebimentos', serials:'Serial / MAC', laboratory:'Oficina', loans:'Empréstimos', inventory:'Inventário', registry:'Cadastros', users:'Usuários', statement:'Extrato financeiro' })[id];
 }
 
 document.querySelector('main').classList.add('dashboard-mode');
@@ -1564,8 +1632,10 @@ async function start(session) {
   // As ações administrativas ainda obedecem às permissões dos botões e do banco.
   ['users', 'receipts', 'serials', 'laboratory', 'loans', 'inventory', 'registry'].forEach(id => { $("#" + id).hidden = false; });
   $('#users').hidden = !isAdmin;
+  $('#statement').hidden = !isAdmin;
   $('#add-user').hidden = !isAdmin;
   document.querySelectorAll('[data-view="users"]').forEach(button => { button.hidden = !isAdmin; });
+  document.querySelectorAll('[data-view="statement"]').forEach(button => { button.hidden = !isAdmin; });
   renderAccountMenu();
   try { await load(); } catch (error) { alert(error.message); }
 }
@@ -1684,6 +1754,7 @@ $('#dashboard-loans-card').onclick = () => view('loans');
 $('#dashboard-returns-card').onclick = () => view('loans');
 $('#dashboard-minimum-card').onclick = () => { state.productFilter = 'all'; $('#product-status-filter').value = 'out'; view('products'); renderProducts(); };
 $('#dashboard-reorder-card').onclick = () => showProducts('low');
+$('#dashboard-value-card').onclick = () => { if (currentUser?.role === 'admin') view('statement'); };
 $('#product-search').oninput = () => { state.productFilter = 'all'; renderProducts(); };
 $('#product-category-filter').onchange = () => { state.productFilter = 'all'; renderProducts(); };
 $('#product-status-filter').onchange = () => { state.productFilter = 'all'; renderProducts(); };
@@ -1691,6 +1762,8 @@ $('#serial-search').oninput = renderSerials;
 $('#lab-search').oninput = renderLaboratory;
 document.querySelectorAll('[data-history-filter]').forEach(element => { element.oninput = renderMovement; element.onchange = renderMovement; });
 $('#clear-history-filters').onclick = () => { document.querySelectorAll('[data-history-filter]').forEach(element => { element.value = ''; }); renderMovement(); };
+document.querySelectorAll('[data-statement-filter]').forEach(element => { element.oninput = renderStatement; element.onchange = renderStatement; });
+$('#clear-statement-filters').onclick = () => { document.querySelectorAll('[data-statement-filter]').forEach(element => { element.value = ''; }); renderStatement(); };
 function updateMovementRecipientPlaceholder() {
   const placeholders = { tecnico: 'Ex.: João Silva — Equipe externa', veiculo: 'Ex.: Carro 01 — Equipe Norte', cliente: 'Ex.: Cliente ou endereço', outro: 'Descreva o destino' };
   const holderType = $('#movement-holder-type').value, recipient = $('#movement-person');

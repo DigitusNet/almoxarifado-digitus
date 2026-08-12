@@ -30,6 +30,7 @@
           <button class="nav-link" data-view="inventory">▤ <span>Inventário</span></button>
           <button class="nav-link" data-view="registry">☷ <span>Cadastros</span></button>
           <button class="nav-link" data-view="users">♙ <span>Usuários</span></button>
+          <button class="nav-link" data-view="statement" data-admin-only>▤ <span>Extrato</span></button>
         </nav>
         <div class="sidebar-footer account-menu-wrap">
           <span class="footer-meta">Versão inicial<br />Dados salvos neste navegador</span>
@@ -61,6 +62,7 @@
         <button class="nav-link" data-view="inventory" aria-label="Inventário">▤ <span>Inventário</span></button>
         <button class="nav-link" data-view="registry" aria-label="Cadastros">☷ <span>Cadastros</span></button>
         <button class="nav-link" data-view="users" aria-label="Usuários">♙ <span>Usuários</span></button>
+        <button class="nav-link" data-view="statement" data-admin-only aria-label="Extrato">▤ <span>Extrato</span></button>
       </nav>
 
       <main>
@@ -76,7 +78,7 @@
             <button class="metric dashboard-summary-card dashboard-summary-returns" id="dashboard-returns-card" type="button" aria-label="Ver devoluções"><span>Devoluções</span><strong id="dashboard-returns-count">0</strong><svg class="dashboard-summary-icon" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="8" /><path d="M16 12H8m3-3-3 3 3 3" /></svg></button>
             <button class="metric dashboard-summary-card dashboard-summary-minimum" id="dashboard-minimum-card" type="button" aria-label="Ver itens sem estoque"><span>Estoque mínimo</span><strong id="dashboard-minimum-count">0</strong><svg class="dashboard-summary-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3 2.8 20h18.4L12 3Z" /><path d="M12 9v5m0 3h.01" /></svg></button>
             <button class="metric dashboard-summary-card dashboard-summary-reorder" id="dashboard-reorder-card" type="button" aria-label="Ver itens em ponto de pedido"><span>Ponto de Pedido</span><strong id="dashboard-reorder-count">0</strong><svg class="dashboard-summary-icon" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="8" /><path d="M12 7v5l3 2" /></svg></button>
-            <div class="metric dashboard-summary-card dashboard-summary-value" id="dashboard-value-card" hidden><span>Valor total em estoque</span><strong id="dashboard-value-count">R$ 0,00</strong></div>
+            <button class="metric dashboard-summary-card dashboard-summary-value" id="dashboard-value-card" type="button" hidden aria-label="Abrir extrato financeiro"><span>Valor total em estoque</span><strong id="dashboard-value-count">R$ 0,00</strong></button>
           </div>
           <div class="dashboard-operations">
             <section class="panel dashboard-operation-panel"><div class="dashboard-operation-heading"><span class="dashboard-pager">‹ Anterior &nbsp; Próximo ›</span><h2>Empréstimos em atraso <b id="dashboard-overdue-loan-list-count">0</b></h2><button class="dashboard-heading-action" data-go="loans" type="button" aria-label="Ver empréstimos">▣</button></div><div class="table-wrap"><table><thead><tr><th>#</th><th>Solicitante</th><th>Data</th><th>Ação</th></tr></thead><tbody id="dashboard-overdue-loans-table"></tbody></table></div></section>
@@ -164,6 +166,16 @@
           <div class="toolbar toolbar-actions-only"><button class="primary" id="add-user">+ Adicionar usuário</button></div>
           <p id="users-load-note" class="users-load-note" hidden></p>
           <section class="panel table-panel"><div class="table-wrap"><table><thead><tr><th>Nome</th><th>E-mail</th><th>Função</th><th>Status</th><th>Ações</th></tr></thead><tbody id="users-table"></tbody></table></div></section>
+        </section>
+
+        <section id="statement" class="view" data-admin-only hidden>
+          <div class="statement-heading"><div><h2>Extrato financeiro</h2><p>Movimentações financeiras do estoque, calculadas pelos custos registrados.</p></div></div>
+          <div class="statement-summary">
+            <article class="statement-metric statement-balance"><span>Valor atual em estoque</span><strong id="statement-stock-value">R$ 0,00</strong></article>
+            <article class="statement-metric statement-entry"><span>Entradas registradas</span><strong id="statement-entry-value">R$ 0,00</strong><small id="statement-entry-count">0 lançamentos</small></article>
+            <article class="statement-metric statement-output"><span>Saídas registradas</span><strong id="statement-output-value">R$ 0,00</strong><small id="statement-output-count">0 lançamentos</small></article>
+          </div>
+          <section class="panel table-panel statement-panel"><div class="panel-heading"><h2>Lançamentos</h2><strong id="statement-period-total">R$ 0,00</strong></div><div class="statement-filters"><label>Buscar <input id="statement-search" data-statement-filter placeholder="Produto, fornecedor ou destino" /></label><label>Tipo <select id="statement-type" data-statement-filter><option value="">Todos</option><option value="entrada">Entradas</option><option value="saida">Saídas</option></select></label><label>De <input id="statement-from" data-statement-filter type="date" /></label><label>Até <input id="statement-to" data-statement-filter type="date" /></label><button class="text-button" id="clear-statement-filters" type="button">Limpar</button></div><div class="table-wrap"><table><thead><tr><th>Data</th><th>Tipo</th><th>Descrição</th><th>Item</th><th>Quantidade</th><th>Valor unitário</th><th>Total</th></tr></thead><tbody id="statement-table"></tbody></table></div><p class="statement-note">Recebimentos usam o custo unitário registrado na nota. Os demais lançamentos usam o custo médio atual do produto.</p></section>
         </section>
       </main>
     </div>
