@@ -758,6 +758,8 @@ function renderProducts() {
   const query = $('#product-search').value.toLowerCase();
   const canDelete = currentUser?.role === 'admin';
   const canEdit = ['admin', 'operador'].includes(currentUser?.role);
+  const canViewCosts = currentUser?.role === 'admin';
+  $('#products-cost-heading').hidden = !canViewCosts;
   const categorySelect = $('#product-category-filter'), statusSelect = $('#product-status-filter');
   const selectedCategory = categorySelect.value;
   const categories = [...new Set(activeProducts().map(item => item.category).filter(Boolean))].sort((a, b) => a.localeCompare(b, 'pt-BR'));
@@ -778,8 +780,8 @@ function renderProducts() {
   $('#products-table').innerHTML = products.map(item => {
     const ca = caAlert(item);
     const image = productImageUrl(item);
-    return `<tr><td><div class="product-name-cell">${image ? `<span class="product-thumbnail"><img src="${esc(image)}" alt="Foto de ${esc(item.name)}" /></span>` : ''}<div><b>${esc(item.name)}</b><small>${esc([item.brand, item.model].filter(Boolean).join(' · ') || (item.tracking_mode === 'serializado' ? 'Rastreável por serial/MAC' : 'Controle por quantidade'))}</small></div></div></td><td>${esc(item.code)}</td><td>${esc(item.category)}</td><td><b>${stockLabel(item)}</b><small>mínimo: ${quantity(item.minimum)} ${unitName(item.unit_of_measure)}</small></td><td>${status(item)}${ca ? `<small class="ca-status ${ca.type}">${esc(ca.label)} · validade: ${new Date(`${item.ca_expiry_date}T00:00:00`).toLocaleDateString('pt-BR')}</small>` : ''}</td><td><div class="table-actions">${canEdit ? `<button class="secondary-button" data-edit-product="${item.id}">Editar</button>` : ''}${canDelete ? `<button class="danger-button" data-delete-product="${item.id}">Apagar</button>` : ''}${!canEdit && !canDelete ? '—' : ''}</div></td></tr>`;
-  }).join('') || '<tr><td colspan="6" class="empty">Nenhum produto encontrado.</td></tr>';
+    return `<tr><td><div class="product-name-cell">${image ? `<span class="product-thumbnail"><img src="${esc(image)}" alt="Foto de ${esc(item.name)}" /></span>` : ''}<div><b>${esc(item.name)}</b><small>${esc([item.brand, item.model].filter(Boolean).join(' · ') || (item.tracking_mode === 'serializado' ? 'Rastreável por serial/MAC' : 'Controle por quantidade'))}</small></div></div></td><td>${esc(item.code)}</td><td>${esc(item.category)}</td>${canViewCosts ? `<td><b>${currency(item.average_cost)}</b><small>por ${unitName(item.unit_of_measure)}</small></td>` : ''}<td><b>${stockLabel(item)}</b><small>mínimo: ${quantity(item.minimum)} ${unitName(item.unit_of_measure)}</small></td><td>${status(item)}${ca ? `<small class="ca-status ${ca.type}">${esc(ca.label)} · validade: ${new Date(`${item.ca_expiry_date}T00:00:00`).toLocaleDateString('pt-BR')}</small>` : ''}</td><td><div class="table-actions">${canEdit ? `<button class="secondary-button" data-edit-product="${item.id}">Editar</button>` : ''}${canDelete ? `<button class="danger-button" data-delete-product="${item.id}">Apagar</button>` : ''}${!canEdit && !canDelete ? '—' : ''}</div></td></tr>`;
+  }).join('') || `<tr><td colspan="${canViewCosts ? 7 : 6}" class="empty">Nenhum produto encontrado.</td></tr>`;
   document.querySelectorAll('[data-edit-product]').forEach(button => button.onclick = () => openProductEditor(button.dataset.editProduct));
   document.querySelectorAll('[data-delete-product]').forEach(button => button.onclick = () => deleteProduct(button.dataset.deleteProduct));
 }
