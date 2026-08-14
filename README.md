@@ -12,8 +12,15 @@ O banco foi preparado com usuários, perfis e permissões. O primeiro usuário a
 
 ## Administração de usuários
 
-Para permitir que administradores criem usuários dentro do site, configure na Vercel a variável secreta `SUPABASE_SERVICE_ROLE_KEY`. Ela é usada somente pelo endpoint do servidor `/api/users` e nunca é enviada ao navegador.
+Para permitir que administradores criem e removam usuários dentro do site, publique as Edge Functions `admin-users` e `admin-products` no Supabase. Elas usam a chave segura `SUPABASE_SERVICE_ROLE_KEY` somente no servidor do Supabase e nunca a enviam ao navegador.
+
+No painel do Supabase, abra **Edge Functions → Deploy a new function → Via Editor** e publique:
+
+- `supabase/functions/admin-users/index.ts` como **admin-users**;
+- `supabase/functions/admin-products/index.ts` como **admin-products**.
+
+Mantenha a verificação de JWT ativada. As funções também validam se o usuário é administrador antes de executar qualquer ação.
 
 ## Recuperação de senha
 
-No Supabase, abra **Authentication → URL Configuration** e adicione a URL pública do sistema em **Redirect URLs**. Enquanto o sistema estiver na Vercel, use `https://almoxarifado-digitus.vercel.app/`. Assim, o link enviado por “Esqueci minha senha” volta para o sistema e permite definir a nova senha.
+No Supabase, abra **Authentication → URL Configuration** e adicione a URL pública do sistema em **Redirect URLs**. Assim, o link enviado por “Esqueci minha senha” volta para o sistema e permite definir a nova senha.

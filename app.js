@@ -8,6 +8,27 @@ const $ = selector => document.querySelector(selector);
 const esc = value => String(value ?? '').replace(/[&<>'"]/g, char => ({ '&':'&amp;','<':'&lt;','>':'&gt;',"'":'&#039;','"':'&quot;' }[char]));
 const accountAvatarKey = () => currentUser ? `digitus-account-avatar-${currentUser.id}` : '';
 
+async function invokeAdminFunction(name, method, body) {
+  const { data: { session } } = await supabase.auth.getSession();
+  if (!session) throw new Error('Sessão inválida. Entre novamente no sistema.');
+
+  const { data, error } = await supabase.functions.invoke(name, {
+    method,
+    headers: { Authorization: `Bearer ${session.access_token}` },
+    body,
+  });
+  if (!error) return data;
+
+  let message = error.message || 'Não foi possível concluir a operação.';
+  try {
+    const payload = await error.context?.json();
+    message = payload?.error || message;
+  } catch (_) {
+    // Mantém a mensagem padrão quando a resposta da função não puder ser lida.
+  }
+  throw new Error(message);
+}
+
 function accountInitials(name) {
   const words = String(name || '').trim().split(/\s+/).filter(Boolean);
   return (words.slice(0, 2).map(word => word[0]).join('') || 'DN').toUpperCase();
@@ -1456,12 +1477,9 @@ function renderUsers() {
 
 async function loadUsers() {
   if (currentUser?.role !== 'admin') return;
-  const { data: { session } } = await supabase.auth.getSession();
-  const response = await fetch('/api/users', { headers: { Authorization: `Bearer ${session.access_token}` } });
-  const data = await response.json();
-  if (!response.ok) throw new Error(data.error || 'Não foi possível carregar usuários.');
+  const data = await invokeAdminFunction('admin-users', 'GET');
   state.users = Array.isArray(data) ? data : (data.users || []);
-  state.usersLoadNote = data.partial ? 'Os perfis foram carregados. Para exibir todos os e-mails e administrar acessos, configure a chave segura do Supabase na Vercel.' : '';
+  state.usersLoadNote = '';
 }
 
 async function load() {
@@ -1576,11 +1594,7 @@ async function deleteProduct(id) {
   const item = product(id);
   if (!item || !confirm(`Remover o produto “${item.name}”? Se ele tiver histórico, será arquivado para preservar os registros.`)) return;
   try {
-    const { data: { session } } = await supabase.auth.getSession();
-    if (!session) throw new Error('Sessão inválida. Entre novamente no sistema.');
-    const response = await fetch(`/api/products?id=${encodeURIComponent(id)}`, { method: 'DELETE', headers: { Authorization: `Bearer ${session.access_token}` } });
-    const data = await response.json().catch(() => ({}));
-    if (!response.ok) throw new Error(data.error || 'Não foi possível remover o produto.');
+    const data = await invokeAdminFunction('admin-products', 'DELETE', { id });
     await load();
     alert(data.action === 'archived' ? 'Produto arquivado. O histórico foi preservado.' : 'Produto removido.');
   } catch (error) {
@@ -1604,12 +1618,7 @@ async function deleteUser(id) {
   const user = state.users.find(item => item.id === id);
   if (!user || !confirm(`Remover o acesso de ${user.email}? Esta ação não pode ser desfeita.`)) return;
   try {
-    const { data: { session } } = await supabase.auth.getSession();
-    const response = await fetch(`/api/users?id=${encodeURIComponent(id)}`, { method:'DELETE', headers:{ Authorization:`Bearer ${session.access_token}` } });
-    if (!response.ok) {
-      const data = await response.json();
-      throw new Error(data.error || 'Não foi possível remover o usuário.');
-    }
+    await invokeAdminFunction('admin-users', 'DELETE', { id });
     await loadUsers(); renderUsers();
   } catch (error) {
     alert(error.message);
@@ -2218,9 +2227,7 @@ $('#inventory-start-form').onsubmit = async event => {
 $('#user-form').onsubmit = async event => {
   event.preventDefault(); const errorText = $('#user-error'); errorText.hidden = true;
   try {
-    const { data: { session } } = await supabase.auth.getSession();
-    const response = await fetch('/api/users', { method:'POST', headers:{ 'Content-Type':'application/json', Authorization:`Bearer ${session.access_token}` }, body:JSON.stringify({ name:$('#user-name').value, email:$('#user-email').value, password:$('#user-password').value, role:$('#user-role').value }) });
-    const data = await response.json(); if (!response.ok) throw new Error(data.error || 'Não foi possível criar o usuário.');
+    await invokeAdminFunction('admin-users', 'POST', { name:$('#user-name').value, email:$('#user-email').value, password:$('#user-password').value, role:$('#user-role').value });
     event.target.reset(); $('#user-dialog').close(); await loadUsers(); renderUsers(); alert('Usuário criado com sucesso.');
   } catch (error) { errorText.textContent = error.message; errorText.hidden = false; }
 };
