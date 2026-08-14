@@ -12,7 +12,7 @@ O banco foi preparado com usuários, perfis e permissões. O primeiro usuário a
 
 ## Administração de usuários
 
-Para permitir que administradores criem e removam usuários dentro do site, publique as Edge Functions `admin-users` e `admin-products` no Supabase. Elas usam a chave segura `SUPABASE_SERVICE_ROLE_KEY` somente no servidor do Supabase e nunca a enviam ao navegador.
+Para permitir que administradores criem e removam usuários dentro do site, publique as Edge Functions `admin-users` e `admin-products` no Supabase. Elas usam as chaves seguras já fornecidas pelo servidor do Supabase e nunca enviam nenhuma chave secreta ao navegador.
 
 No painel do Supabase, abra **Edge Functions → Deploy a new function → Via Editor** e publique:
 

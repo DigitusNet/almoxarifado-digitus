@@ -16,10 +16,24 @@ function error(message: string, status = 400) {
   return response({ error: message }, status);
 }
 
+function environmentKey(legacyName: string, collectionName: string) {
+  const legacyKey = Deno.env.get(legacyName);
+  if (legacyKey) return legacyKey;
+
+  const rawKeys = Deno.env.get(collectionName);
+  if (!rawKeys) return null;
+  try {
+    const keys = JSON.parse(rawKeys) as Record<string, string>;
+    return keys.default || Object.values(keys)[0] || null;
+  } catch {
+    return null;
+  }
+}
+
 function getConfig() {
   const url = Deno.env.get('SUPABASE_URL');
-  const anonKey = Deno.env.get('SUPABASE_ANON_KEY') || Deno.env.get('SUPABASE_PUBLISHABLE_KEY');
-  const serviceKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY');
+  const anonKey = environmentKey('SUPABASE_ANON_KEY', 'SUPABASE_PUBLISHABLE_KEYS');
+  const serviceKey = environmentKey('SUPABASE_SERVICE_ROLE_KEY', 'SUPABASE_SECRET_KEYS');
   if (!url || !anonKey || !serviceKey) throw new Error('Configuração segura do Supabase ausente.');
   return { url, anonKey, serviceKey };
 }
