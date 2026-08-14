@@ -1188,7 +1188,7 @@ function setRegistryFilter(filter = 'collaborators') {
   document.querySelectorAll('[data-registry-action]').forEach(button => {
     button.hidden = button.dataset.registryAction !== selected;
   });
-  $('#registry-actions').hidden = false;
+  $('#registry-actions').hidden = !['admin', 'operador'].includes(currentUser?.role);
 }
 
 function renderSerials() {
@@ -1696,6 +1696,7 @@ async function start(session) {
   $('#add-user').hidden = !isAdmin;
   document.querySelectorAll('[data-view="users"]').forEach(button => { button.hidden = !isAdmin; });
   document.querySelectorAll('[data-view="statement"]').forEach(button => { button.hidden = !isAdmin; });
+  setRegistryFilter(document.querySelector('[data-registry-filter].active')?.dataset.registryFilter || 'collaborators');
   renderAccountMenu();
   if (isAdmin) {
     renderDashboardStockValue([], true);

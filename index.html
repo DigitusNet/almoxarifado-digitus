@@ -29,11 +29,11 @@
           <button class="nav-link" data-view="loans">⌂ <span>Empréstimos</span></button>
           <button class="nav-link" data-view="inventory">▤ <span>Conferência de estoque</span></button>
           <button class="nav-link" data-view="registry">☷ <span>Cadastros</span></button>
-          <button class="nav-link" data-view="users">♙ <span>Usuários</span></button>
+          <button class="nav-link" data-view="users" data-admin-only hidden>♙ <span>Usuários</span></button>
           <button class="nav-link" data-view="statement" data-admin-only>▤ <span>Extrato</span></button>
         </nav>
         <div class="sidebar-footer account-menu-wrap">
-          <span class="footer-meta">Versão inicial<br />Dados salvos neste navegador</span>
+          <span class="footer-meta">Plataforma Digitus Net<br />Dados salvos com segurança</span>
           <button class="account-button" id="account-button" type="button" aria-expanded="false" aria-controls="account-popover">
             <span class="account-avatar" id="account-avatar" aria-hidden="true"></span>
             <span class="account-button-name" id="account-button-name"></span>
@@ -61,7 +61,7 @@
         <button class="nav-link" data-view="loans" aria-label="Empréstimos">⌂ <span>Empréstimos</span></button>
         <button class="nav-link" data-view="inventory" aria-label="Conferência de estoque">▤ <span>Conferência de estoque</span></button>
         <button class="nav-link" data-view="registry" aria-label="Cadastros">☷ <span>Cadastros</span></button>
-        <button class="nav-link" data-view="users" aria-label="Usuários">♙ <span>Usuários</span></button>
+        <button class="nav-link" data-view="users" data-admin-only hidden aria-label="Usuários">♙ <span>Usuários</span></button>
         <button class="nav-link" data-view="statement" data-admin-only aria-label="Extrato">▤ <span>Extrato</span></button>
       </nav>
 
@@ -89,7 +89,7 @@
         </section>
 
         <section id="products" class="view">
-          <div class="toolbar"><div class="product-filter-controls"><label class="search"><span>⌕</span><input id="product-search" placeholder="Buscar por nome, categoria ou código" /></label><select id="product-category-filter" aria-label="Filtrar por categoria"><option value="">Todas as categorias</option></select><select id="product-status-filter" aria-label="Filtrar por situação"><option value="">Todas as situações</option><option value="available">Disponível</option><option value="low">Estoque baixo</option><option value="out">Sem estoque</option><option value="ca">CA em atenção</option><option value="expired">Materiais vencidos</option></select></div><div class="toolbar-actions"><button class="secondary-button" id="scan-product-code">⌁ Ler código</button><button class="secondary-button" id="import-products" data-manager-only hidden>↑ Importar planilha</button><button class="primary" id="add-product">+ Cadastrar produto</button></div></div>
+          <div class="toolbar"><div class="product-filter-controls"><label class="search"><span>⌕</span><input id="product-search" placeholder="Buscar por nome, categoria ou código" /></label><select id="product-category-filter" aria-label="Filtrar por categoria"><option value="">Todas as categorias</option></select><select id="product-status-filter" aria-label="Filtrar por situação"><option value="">Todas as situações</option><option value="available">Disponível</option><option value="low">Estoque baixo</option><option value="out">Sem estoque</option><option value="ca">CA em atenção</option><option value="expired">Materiais vencidos</option></select></div><div class="toolbar-actions"><button class="secondary-button" id="scan-product-code">⌁ Ler código</button><button class="secondary-button" id="import-products" data-manager-only hidden>↑ Importar planilha</button><button class="primary" id="add-product" data-manager-only hidden>+ Cadastrar produto</button></div></div>
           <section class="panel table-panel"><div class="table-wrap"><table><thead><tr><th>Produto</th><th>Código</th><th>Categoria</th><th id="products-cost-heading" data-admin-only hidden>Custo unitário</th><th>Estoque</th><th>Status</th><th>Ações</th></tr></thead><tbody id="products-table"></tbody></table></div></section>
         </section>
 
@@ -113,13 +113,13 @@
         </section>
 
         <section id="receipts" class="view" hidden>
-          <div class="toolbar toolbar-actions-only"><div class="toolbar-actions"><button class="secondary-button" id="import-xml">↥ Importar XML da NF-e</button><button class="primary" id="add-receipt">+ Novo recebimento</button></div></div>
+          <div class="toolbar toolbar-actions-only"><div class="toolbar-actions"><button class="secondary-button" id="import-xml" data-manager-only hidden>↥ Importar XML da NF-e</button><button class="primary" id="add-receipt" data-manager-only hidden>+ Novo recebimento</button></div></div>
           <div class="registry-intro"><b>Use esta tela para materiais controlados por quantidade.</b> Para ONUs, roteadores, ferramentas e outros itens por Serial/MAC, cadastre as unidades individualmente na tela Serial / MAC.</div>
           <section class="panel table-panel"><div class="section-panel-heading"><h2>Recebimentos recentes</h2></div><div class="table-wrap"><table><thead><tr><th>Fornecedor</th><th>Nota fiscal</th><th>Materiais</th><th>Recebido em</th><th>Ações</th></tr></thead><tbody id="receipts-table"></tbody></table></div></section>
         </section>
 
         <section id="serials" class="view" hidden>
-          <div class="toolbar toolbar-actions-only"><div class="toolbar-actions"><button class="secondary-button" id="import-serials" data-admin-only>↑ Importar unidades</button><button class="primary" id="add-serial">+ Cadastrar unidade</button></div></div>
+          <div class="toolbar toolbar-actions-only"><div class="toolbar-actions"><button class="secondary-button" id="import-serials" data-admin-only hidden>↑ Importar unidades</button><button class="primary" id="add-serial" data-manager-only hidden>+ Cadastrar unidade</button></div></div>
           <div class="registry-intro"><b>Use esta tela para os itens marcados como “Por serial / MAC”.</b> Cada ONU, roteador, switch, ferramenta ou patrimônio terá seu próprio registro e status.</div>
           <div class="toolbar serial-toolbar"><label class="search"><span>⌕</span><input id="serial-search" placeholder="Buscar por item, serial, MAC ou patrimônio" /></label></div>
           <section class="panel table-panel"><div class="table-wrap"><table><thead><tr><th>Item</th><th>Serial</th><th>MAC</th><th>Patrimônio</th><th>Local / cliente</th><th>Status</th><th>Ações</th></tr></thead><tbody id="serials-table"></tbody></table></div></section>
@@ -133,13 +133,13 @@
         </section>
 
         <section id="loans" class="view" hidden>
-          <div class="toolbar toolbar-actions-only"><button class="primary" id="add-loan">+ Registrar empréstimo</button></div>
+          <div class="toolbar toolbar-actions-only"><button class="primary" id="add-loan" data-manager-only hidden>+ Registrar empréstimo</button></div>
           <div class="loan-metrics"><article class="loan-metric"><span>Em aberto</span><strong id="open-loan-count">0</strong></article><article class="loan-metric warning"><span>Devoluções atrasadas</span><strong id="overdue-loan-count">0</strong></article></div>
           <section class="panel table-panel"><div class="section-panel-heading"><h2>Itens emprestados</h2></div><div class="table-wrap"><table><thead><tr><th>Item</th><th>Responsável</th><th>Tipo</th><th>Retirada</th><th>Devolução prevista</th><th>Status</th><th>Ações</th></tr></thead><tbody id="loans-table"></tbody></table></div></section>
         </section>
 
         <section id="inventory" class="view" hidden>
-          <div class="toolbar toolbar-actions-only"><button class="primary" id="start-inventory">+ Iniciar conferência</button></div>
+          <div class="toolbar toolbar-actions-only"><button class="primary" id="start-inventory" data-admin-only hidden>+ Iniciar conferência</button></div>
           <div class="registry-intro"><b>Faça a contagem física antes de preencher os campos.</b> Enquanto uma conferência estiver em aberto, evite registrar novas movimentações para que a conferência fique correta.</div>
           <section class="panel inventory-empty" id="inventory-empty"><h2>Nenhuma conferência em aberto</h2></section>
           <section class="inventory-session" id="inventory-session" hidden>
@@ -152,7 +152,7 @@
         </section>
 
         <section id="registry" class="view" hidden>
-          <div class="toolbar toolbar-actions-only" id="registry-actions"><div class="toolbar-actions"><button class="primary" id="add-collaborator" data-registry-action="collaborators">+ Cadastrar colaborador</button><button class="primary" id="add-vehicle" data-registry-action="vehicles" hidden>+ Cadastrar veículo</button><button class="primary" id="add-location" data-registry-action="locations" hidden>+ Cadastrar local</button><button class="primary" id="add-supplier" data-registry-action="suppliers" hidden>+ Cadastrar fornecedor</button></div></div>
+          <div class="toolbar toolbar-actions-only" id="registry-actions" data-manager-only hidden><div class="toolbar-actions"><button class="primary" id="add-collaborator" data-registry-action="collaborators">+ Cadastrar colaborador</button><button class="primary" id="add-vehicle" data-registry-action="vehicles" hidden>+ Cadastrar veículo</button><button class="primary" id="add-location" data-registry-action="locations" hidden>+ Cadastrar local</button><button class="primary" id="add-supplier" data-registry-action="suppliers" hidden>+ Cadastrar fornecedor</button></div></div>
           <div class="registry-filter" role="tablist" aria-label="Filtrar cadastros"><button class="active" type="button" data-registry-filter="collaborators">Colaboradores</button><button type="button" data-registry-filter="vehicles">Veículos</button><button type="button" data-registry-filter="locations">Locais</button><button type="button" data-registry-filter="suppliers">Fornecedores</button></div>
           <div class="grid-2 registry-grid" id="registry-grid">
             <section class="panel table-panel" data-registry-section="collaborators"><div class="section-panel-heading"><h2>Colaboradores</h2></div><div class="table-wrap"><table><thead><tr><th>Nome</th><th>Setor</th><th>Contato</th><th>Status</th><th>Ações</th></tr></thead><tbody id="collaborators-table"></tbody></table></div></section>
