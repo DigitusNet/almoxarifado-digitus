@@ -1785,13 +1785,20 @@ function setProductDialogEpiMode(prefix, epiMode) {
     ensureEpiCategory(category);
     category.value = 'EPI';
     $(`#${prefix}-requires-ca`).value = 'true';
+    $(`#${prefix}-unit`).value = 'unidade';
+    $(`#${prefix}-tracking`).value = 'quantidade';
+    $(`#${prefix}-ca-number`).required = true;
+    $(`#${prefix}-ca-expiry`).required = true;
   } else {
     removeTemporaryEpiCategory(category);
+    $(`#${prefix}-ca-number`).required = false;
+    $(`#${prefix}-ca-expiry`).required = false;
   }
   if (title) title.textContent = epiMode ? (prefix === 'new' ? 'Cadastrar EPI' : 'Editar EPI') : (prefix === 'new' ? 'Cadastrar item' : 'Editar item');
+  $(`#${prefix}-name-label`).textContent = epiMode ? 'Nome do EPI' : 'Nome do item';
   if (prefix === 'new') {
     $('#product-dialog-description').textContent = epiMode
-      ? 'Informe o CA para acompanhar a validade e registrar as entregas aos colaboradores.'
+      ? 'Informe apenas os dados necessários para identificar e controlar o EPI.'
       : 'Cadastre consumíveis, equipamentos, ferramentas ou patrimônios.';
   }
 }
@@ -2049,6 +2056,7 @@ updateLoanTypeForm();
 updateLaboratoryForm();
 
 function collectProductData(prefix) {
+  const epiMode = $(`#${prefix === 'new' ? 'product' : 'edit-product'}-form`).classList.contains('epi-mode');
   return {
     name: $(`#${prefix}-name`).value.trim(),
     code: $(`#${prefix}-code`).value.trim(),
@@ -2059,7 +2067,7 @@ function collectProductData(prefix) {
     tracking_mode: $(`#${prefix}-tracking`).value,
     description: $(`#${prefix}-description`).value.trim() || null,
     average_cost: Number($(`#${prefix}-average-cost`).value || 0),
-    requires_ca: $(`#${prefix}-requires-ca`).value === 'true',
+    requires_ca: epiMode || $(`#${prefix}-requires-ca`).value === 'true',
     ca_number: $(`#${prefix}-ca-number`).value.trim() || null,
     ca_expiry_date: $(`#${prefix}-ca-expiry`).value || null
   };
