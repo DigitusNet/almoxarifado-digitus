@@ -42,3 +42,14 @@ main{margin:0 auto}
 .epi-toolbar{align-items:center}.epi-toolbar .muted{max-width:620px;margin:0}.epi-metrics{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:14px;margin:0 0 16px}.epi-metrics .metric{min-height:108px}.epi-metrics .metric:nth-child(1){background:linear-gradient(135deg,#216588,#2e7b9e)}.epi-metrics .metric:nth-child(2){background:linear-gradient(135deg,#3c92bd,#55a8cf)}.epi-metrics .metric:nth-child(3){background:linear-gradient(135deg,#d87733,#e8995d)}.epi-metrics .metric:nth-child(4){background:linear-gradient(135deg,#c95957,#df7170)}#epis .table-panel>.panel-heading{padding:15px 16px 9px;border-bottom:1px solid #e6edf1}#epis .table-panel>.panel-heading small{margin:0}.epi-deliveries-panel{margin-top:16px}.product-dialog.epi-mode .product-category-row{grid-template-columns:1fr}.product-dialog.epi-mode .product-category-row>label:last-child,.product-dialog.epi-mode .epi-hidden-field,.product-dialog.epi-mode .epi-ca-requirement{display:none}.product-dialog.epi-mode .epi-ca-core{grid-template-columns:1fr}
 @media(max-width:1050px){.epi-metrics{grid-template-columns:repeat(2,minmax(0,1fr))}}
 @media(max-width:620px){.epi-toolbar{align-items:stretch}.epi-metrics{grid-template-columns:1fr}.epi-metrics .metric{min-height:92px}}
+
+/* A tela de recebimento reúne vários campos por material. Em desktop ela usa
+   uma janela ampla, evitando a barra de rolagem horizontal. */
+#receipt-dialog{width:min(1120px,calc(100vw - 48px));max-width:calc(100vw - 48px);max-height:calc(100vh - 48px)}
+#receipt-dialog .product-dialog{overflow-x:hidden}
+#receipt-dialog .receipt-line{grid-template-columns:minmax(200px,1.55fr) minmax(88px,.58fr) minmax(112px,.76fr) minmax(108px,.74fr) minmax(128px,.86fr) 36px}
+#receipt-dialog .receipt-line label,#receipt-dialog .receipt-new-product label{min-width:0}
+#receipt-dialog .receipt-line input,#receipt-dialog .receipt-line select{min-width:0;width:100%}
+#receipt-dialog .receipt-new-product{grid-template-columns:minmax(180px,1.35fr) minmax(130px,.92fr) minmax(125px,.85fr) minmax(115px,.76fr)}
+@media(max-width:840px){#receipt-dialog{width:calc(100vw - 24px);max-width:calc(100vw - 24px);max-height:calc(100vh - 24px)}#receipt-dialog .receipt-line{grid-template-columns:minmax(0,1fr) minmax(0,1fr)}#receipt-dialog .receipt-line label:first-child{grid-column:1/-1}#receipt-dialog .receipt-line-remove{grid-column:2;justify-self:end;width:36px}#receipt-dialog .receipt-new-product{grid-column:1/-1;grid-template-columns:minmax(0,1fr) minmax(0,1fr)}}
+@media(max-width:520px){#receipt-dialog .receipt-line,#receipt-dialog .receipt-new-product{grid-template-columns:1fr}#receipt-dialog .receipt-line-remove{grid-column:1;justify-self:end}}
