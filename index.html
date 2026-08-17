@@ -33,6 +33,16 @@
           <button class="nav-link" data-view="statement" data-admin-only>▤ <span>Extrato</span></button>
           <button class="nav-link" data-view="epis">⛑ <span>Controle de EPIs</span></button>
         </nav>
+        <div class="notifications-wrap">
+          <button class="notification-button" id="notifications-button" type="button" aria-expanded="false" aria-controls="notifications-popover" aria-label="Notificações de vencimento">
+            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M18 9a6 6 0 0 0-12 0c0 7-3 7-3 9h18c0-2-3-2-3-9M10 21h4" /></svg>
+            <b class="notification-badge" id="notification-badge" hidden>0</b>
+          </button>
+          <section class="notifications-popover" id="notifications-popover" hidden aria-label="Avisos de vencimento">
+            <header><strong>Notificações</strong><span id="notifications-total">Sem avisos</span></header>
+            <div id="notifications-list"></div>
+          </section>
+        </div>
         <div class="sidebar-footer account-menu-wrap">
           <span class="footer-meta">Plataforma Digitus Net<br />Dados salvos com segurança</span>
           <button class="account-button" id="account-button" type="button" aria-expanded="false" aria-controls="account-popover">
@@ -85,7 +95,7 @@
           <div class="dashboard-operations">
             <section class="panel dashboard-operation-panel"><div class="dashboard-operation-heading"><span class="dashboard-pager">‹ Anterior &nbsp; Próximo ›</span><h2>Empréstimos em atraso <b id="dashboard-overdue-loan-list-count">0</b></h2><button class="dashboard-heading-action" data-go="loans" type="button" aria-label="Ver empréstimos">▣</button></div><div class="table-wrap"><table><thead><tr><th>#</th><th>Solicitante</th><th>Data</th><th>Ação</th></tr></thead><tbody id="dashboard-overdue-loans-table"></tbody></table></div></section>
             <section class="panel dashboard-operation-panel"><div class="dashboard-operation-heading"><span></span><h2>Lembretes <b id="dashboard-reminder-count">0</b></h2><span class="dashboard-heading-buttons"><button class="dashboard-heading-action" type="button" aria-label="Ver lembretes">▣</button><button class="dashboard-heading-action" id="add-dashboard-reminder" data-manager-only hidden type="button" aria-label="Adicionar lembrete">+</button></span></div><div class="table-wrap"><table><thead><tr><th>Destinatário</th><th>Descrição</th><th>Data</th><th>Ação</th></tr></thead><tbody id="dashboard-reminders-table"></tbody></table></div></section>
-            <section class="panel dashboard-operation-panel"><div class="dashboard-operation-heading"><span class="dashboard-pager">‹ Anterior &nbsp; Próximo ›</span><h2>EPIs com CA vencido <b id="dashboard-expiry-count">0</b></h2><button class="dashboard-heading-action" data-go="epis-expired" type="button" aria-label="Ver EPIs com CA vencido">▣</button></div><div class="table-wrap"><table><thead><tr><th>EPI</th><th>Número do CA</th><th>Vencimento</th><th>Ação</th></tr></thead><tbody id="dashboard-expiring-table"></tbody></table></div></section>
+            <section class="panel dashboard-operation-panel"><div class="dashboard-operation-heading"><span class="dashboard-pager">‹ Anterior &nbsp; Próximo ›</span><h2>Materiais vencidos <b id="dashboard-expiry-count">0</b></h2><button class="dashboard-heading-action" id="dashboard-expiry-action" type="button" aria-label="Ver materiais vencidos">▣</button></div><div class="table-wrap"><table><thead><tr><th>Material</th><th>Lote</th><th>Vencimento</th><th>Ação</th></tr></thead><tbody id="dashboard-expiring-table"></tbody></table></div></section>
             <section class="panel dashboard-operation-panel"><div class="dashboard-operation-heading"><span></span><h2>Solicitações de materiais <b id="dashboard-request-count">0</b></h2><span class="dashboard-heading-buttons"><button class="dashboard-heading-action" type="button" aria-label="Ver solicitações">▣</button><button class="dashboard-heading-action" id="add-material-request" data-manager-only hidden type="button" aria-label="Adicionar solicitação">+</button></span></div><div class="table-wrap"><table><thead><tr><th>#</th><th>Solicitante</th><th>Data</th><th>Ação</th></tr></thead><tbody id="dashboard-requests-table"></tbody></table></div></section>
           </div>
         </section>

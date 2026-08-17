@@ -65,6 +65,12 @@ function setAccountMenu(open) {
   $('#account-button').setAttribute('aria-expanded', String(open));
 }
 
+function setNotificationsOpen(open) {
+  const popover = $('#notifications-popover');
+  popover.hidden = !open;
+  $('#notifications-button').setAttribute('aria-expanded', String(open));
+}
+
 function setLoginMessage(message = '', type = 'error') {
   const errorText = $('#login-error');
   errorText.textContent = message;
@@ -98,6 +104,7 @@ const movementName = item => item.fieldUsage ? 'Uso em OS' : item.type === 'entr
 const unitName = unit => ({ unidade: 'un.', metro: 'm', par: 'par', caixa: 'cx.' }[unit] || 'un.');
 const quantity = value => Number(value || 0).toLocaleString('pt-BR', { maximumFractionDigits: 3 });
 const currency = value => Number(value || 0).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });
+const dateOnly = value => value ? new Date(`${value}T00:00:00`).toLocaleDateString('pt-BR') : '—';
 const stockLabel = item => `${quantity(item.stock)} ${unitName(item.unit_of_measure)}`;
 
 function renderDashboardStockValue(products = state.products, loading = false) {
@@ -696,6 +703,40 @@ function caExpired(item) {
   today.setHours(0, 0, 0, 0);
   return new Date(`${item.ca_expiry_date}T00:00:00`) < today;
 }
+
+function expiryAlert(value) {
+  if (!value) return null;
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+  const expiry = new Date(`${value}T00:00:00`);
+  if (Number.isNaN(expiry.getTime())) return null;
+  const days = Math.ceil((expiry - today) / 86400000);
+  if (days < 0) return { type: 'expired', label: 'Vencido', days };
+  if (days === 0) return { type: 'expired', label: 'Vence hoje', days };
+  if (days <= 30) return { type: 'warning', label: `Vence em ${days} dia${days === 1 ? '' : 's'}`, days };
+  return null;
+}
+
+function expiredMaterialLots() {
+  return state.receiptItems
+    .filter(item => {
+      const material = product(item.product_id);
+      return material && !isEpiProduct(material) && Number(material.stock || 0) > 0 && expiryAlert(item.expiry_date)?.type === 'expired';
+    })
+    .sort((a, b) => new Date(`${a.expiry_date}T00:00:00`) - new Date(`${b.expiry_date}T00:00:00`));
+}
+
+function expiryNotifications() {
+  const epiNotifications = activeProducts()
+    .filter(isEpiProduct)
+    .map(item => ({ kind: 'epi', item, alert: caAlert(item), expiry: item.ca_expiry_date }))
+    .filter(item => item.alert);
+  const materialNotifications = state.receiptItems
+    .map(item => ({ kind: 'material', item, product: product(item.product_id), alert: expiryAlert(item.expiry_date), expiry: item.expiry_date }))
+    .filter(item => item.product && !isEpiProduct(item.product) && Number(item.product.stock || 0) > 0 && item.alert);
+  return [...epiNotifications, ...materialNotifications]
+    .sort((a, b) => new Date(`${a.expiry}T00:00:00`) - new Date(`${b.expiry}T00:00:00`));
+}
 const serialStatusName = status => ({ disponivel:'Disponível', com_colaborador:'Com colaborador', com_veiculo:'Com veículo', instalado_cliente:'Instalado no cliente', emprestado:'Emprestado', aguardando_triagem:'Aguardando triagem', laboratorio:'Oficina', manutencao:'Em manutenção', defeito:'Defeito', baixado:'Baixado' })[status] || status;
 const serialStatusClass = status => ({ disponivel:'ok', com_colaborador:'saida', com_veiculo:'saida', instalado_cliente:'saida', emprestado:'saida', aguardando_triagem:'low', laboratorio:'low', manutencao:'low', defeito:'out', baixado:'out' })[status] || 'low';
 const serialActionName = action => ({ transferencia:'Transferência', instalacao:'Instalação em cliente', laboratorio:'Envio à oficina', retorno:'Retorno ao almoxarifado', baixa:'Baixa / sucata' })[action] || action;
@@ -743,13 +784,14 @@ function render() {
   // continua considerando todo o patrimônio da empresa.
   renderDashboardStockValue(activeProducts());
   renderDashboardOperations();
+  renderNotifications();
   renderProducts(); renderEpis(); renderMovement(); renderUsers(); renderRegistry(); renderReceipts(); renderSerials(); renderLaboratory(); renderLoans(); renderInventory(); renderStatement();
 }
 
 function renderDashboardOperations() {
   const overdue = state.toolLoans.filter(loanOverdue).sort((a, b) => new Date(a.due_at) - new Date(b.due_at));
   const openReminders = state.reminders.filter(item => item.status === 'aberto').sort((a, b) => new Date(a.due_date) - new Date(b.due_date));
-  const expired = activeProducts().filter(isEpiProduct).filter(caExpired).sort((a, b) => new Date(a.ca_expiry_date) - new Date(b.ca_expiry_date));
+  const expired = expiredMaterialLots();
   const openRequests = state.materialRequests.filter(item => item.status === 'aberta').sort((a, b) => new Date(b.created_at) - new Date(a.created_at));
   const canCompleteRequests = ['admin', 'operador'].includes(currentUser?.role);
   const canDeleteRequests = currentUser?.role === 'admin';
@@ -759,10 +801,14 @@ function renderDashboardOperations() {
   $('#dashboard-request-count').textContent = openRequests.length;
   $('#dashboard-overdue-loans-table').innerHTML = overdue.map((loan, index) => `<tr><td>${index + 1}</td><td>${esc(loan.collaborator_name || 'Não informado')}</td><td>${date(loan.due_at)}</td><td><button class="dashboard-icon-action" data-dashboard-loan="${loan.id}" type="button" aria-label="Ver empréstimo">◉</button></td></tr>`).join('') || '<tr><td colspan="4" class="empty">Nenhum empréstimo em atraso.</td></tr>';
   $('#dashboard-reminders-table').innerHTML = openReminders.map(item => `<tr><td>${esc(item.recipient)}</td><td>${esc(item.description)}</td><td>${date(item.due_date)}</td><td><button class="dashboard-icon-action danger" data-close-reminder="${item.id}" type="button" aria-label="Concluir lembrete">×</button></td></tr>`).join('') || '<tr><td colspan="4" class="empty">Nenhum lembrete registrado.</td></tr>';
-  $('#dashboard-expiring-table').innerHTML = expired.map(item => `<tr><td>${esc(item.name)}</td><td>${esc(item.ca_number || 'CA não informado')}</td><td>${new Date(`${item.ca_expiry_date}T00:00:00`).toLocaleDateString('pt-BR')}</td><td><button class="dashboard-icon-action" data-dashboard-expiry="${item.id}" type="button" aria-label="Ver item">◉</button></td></tr>`).join('') || '<tr><td colspan="4" class="empty">Nenhum EPI com CA vencido.</td></tr>';
+  $('#dashboard-expiring-table').innerHTML = expired.map(item => `<tr><td>${esc(item.product_name || product(item.product_id)?.name || 'Material')}</td><td>${esc(item.batch_number || 'Não informado')}</td><td>${dateOnly(item.expiry_date)}</td><td><button class="dashboard-icon-action" data-dashboard-expiry="${item.receipt_id}" type="button" aria-label="Ver recebimento">◉</button></td></tr>`).join('') || '<tr><td colspan="4" class="empty">Nenhum material vencido.</td></tr>';
   $('#dashboard-requests-table').innerHTML = openRequests.map((item, index) => `<tr><td>${index + 1}</td><td>${esc(item.requester)}</td><td>${date(item.created_at)}</td><td><span class="dashboard-request-actions"><button class="dashboard-icon-action" data-dashboard-request="${item.id}" type="button" aria-label="Mostrar descrição da solicitação" aria-expanded="false">◉</button>${canCompleteRequests ? `<button class="dashboard-icon-action success" data-complete-request="${item.id}" type="button" aria-label="Concluir solicitação" title="Concluir solicitação">✓</button>` : ''}${canDeleteRequests ? `<button class="dashboard-icon-action danger" data-delete-request="${item.id}" type="button" aria-label="Apagar solicitação" title="Apagar solicitação">×</button>` : ''}</span></td></tr><tr id="dashboard-request-detail-${item.id}" class="dashboard-request-detail" hidden><td colspan="4"><b>Solicitação:</b> ${esc(item.description)}</td></tr>`).join('') || '<tr><td colspan="4" class="empty">Nenhuma solicitação de material.</td></tr>';
   document.querySelectorAll('[data-dashboard-loan]').forEach(button => button.onclick = () => view('loans'));
-  document.querySelectorAll('[data-dashboard-expiry]').forEach(button => button.onclick = () => showEpis('expired'));
+  $('#dashboard-expiry-action').onclick = () => view('receipts');
+  document.querySelectorAll('[data-dashboard-expiry]').forEach(button => button.onclick = () => {
+    view('receipts');
+    openReceiptDetails(button.dataset.dashboardExpiry);
+  });
   document.querySelectorAll('[data-dashboard-request]').forEach(button => button.onclick = () => {
     const detail = $(`#dashboard-request-detail-${button.dataset.dashboardRequest}`);
     if (!detail) return;
@@ -772,6 +818,32 @@ function renderDashboardOperations() {
   document.querySelectorAll('[data-complete-request]').forEach(button => button.onclick = () => completeMaterialRequest(button.dataset.completeRequest));
   document.querySelectorAll('[data-delete-request]').forEach(button => button.onclick = () => deleteMaterialRequest(button.dataset.deleteRequest));
   document.querySelectorAll('[data-close-reminder]').forEach(button => button.onclick = () => closeReminder(button.dataset.closeReminder));
+}
+
+function renderNotifications() {
+  const notices = expiryNotifications();
+  const badge = $('#notification-badge');
+  const total = $('#notifications-total');
+  const list = $('#notifications-list');
+  badge.hidden = notices.length === 0;
+  badge.textContent = notices.length > 99 ? '99+' : notices.length;
+  total.textContent = notices.length ? `${notices.length} aviso${notices.length === 1 ? '' : 's'}` : 'Sem avisos';
+  list.innerHTML = notices.map((notice, index) => {
+    const isEpi = notice.kind === 'epi';
+    const name = isEpi ? notice.item.name : (notice.item.product_name || notice.product.name);
+    const details = isEpi
+      ? `${notice.alert.label} · CA: ${notice.item.ca_number || 'não informado'} · ${dateOnly(notice.expiry)}`
+      : `${notice.alert.label} · Lote: ${notice.item.batch_number || 'não informado'} · ${dateOnly(notice.expiry)}`;
+    return `<button class="notification-item ${notice.alert.type}" data-expiry-notification="${index}" type="button"><strong>${esc(name)}</strong><small>${esc(details)}</small></button>`;
+  }).join('') || '<p class="notifications-empty">Nenhum aviso de vencimento no momento.</p>';
+  document.querySelectorAll('[data-expiry-notification]').forEach(button => button.onclick = () => {
+    const notice = notices[Number(button.dataset.expiryNotification)];
+    if (!notice) return;
+    setNotificationsOpen(false);
+    if (notice.kind === 'epi') return showEpis(notice.alert.type === 'expired' ? 'expired' : 'ca');
+    view('receipts');
+    openReceiptDetails(notice.item.receipt_id);
+  });
 }
 
 async function completeMaterialRequest(id) {
@@ -877,7 +949,7 @@ function receiptLineHtml(selected = '') {
   const products = receiptProducts();
   const selectedProduct = product(selected);
   const unitCost = Number(selectedProduct?.average_cost || 0).toFixed(2);
-  return `<div class="receipt-line"><label>Material <select data-receipt-product required><option value="">Selecione</option><option value="__new__" ${selected === '__new__' ? 'selected' : ''}>+ Cadastrar novo material nesta entrega</option>${products.map(item => `<option value="${item.id}" ${item.id === selected ? 'selected' : ''}>${esc(item.name)} (${stockLabel(item)})</option>`).join('')}</select></label><label>Quantidade <input data-receipt-quantity type="number" min="0.001" step="0.001" required value="1" /></label><label>Valor unitário (R$) <input data-receipt-unit-cost type="number" min="0" step="0.01" required value="${unitCost}" /></label><button class="receipt-line-remove" data-remove-receipt-line type="button" aria-label="Remover material">×</button><div class="receipt-new-product" data-receipt-new-product ${selected === '__new__' ? '' : 'hidden'}><label>Nome do novo material <input data-receipt-new-name ${selected === '__new__' ? 'required' : ''} placeholder="Ex.: Cabo de rede CAT6" /></label><label>Código <input data-receipt-new-code ${selected === '__new__' ? 'required' : ''} placeholder="Ex.: CAB-CAT6" /></label><label>Categoria <select data-receipt-new-category><option value="Produtos">Produtos</option><option value="Equipamentos">Equipamentos</option><option value="Insumos">Insumos</option><option value="Patrimônio">Patrimônio</option><option value="Ferramentas">Ferramentas</option></select></label><label>Unidade <select data-receipt-new-unit><option value="unidade">Unidade</option><option value="metro">Metro</option><option value="par">Par</option><option value="caixa">Caixa</option></select></label></div></div>`;
+  return `<div class="receipt-line"><label>Material <select data-receipt-product required><option value="">Selecione</option><option value="__new__" ${selected === '__new__' ? 'selected' : ''}>+ Cadastrar novo material nesta entrega</option>${products.map(item => `<option value="${item.id}" ${item.id === selected ? 'selected' : ''}>${esc(item.name)} (${stockLabel(item)})</option>`).join('')}</select></label><label>Quantidade <input data-receipt-quantity type="number" min="0.001" step="0.001" required value="1" /></label><label>Valor unitário (R$) <input data-receipt-unit-cost type="number" min="0" step="0.01" required value="${unitCost}" /></label><label>Lote <input data-receipt-batch maxlength="80" placeholder="Opcional" /></label><label>Validade <input data-receipt-expiry type="date" /></label><button class="receipt-line-remove" data-remove-receipt-line type="button" aria-label="Remover material">×</button><div class="receipt-new-product" data-receipt-new-product ${selected === '__new__' ? '' : 'hidden'}><label>Nome do novo material <input data-receipt-new-name ${selected === '__new__' ? 'required' : ''} placeholder="Ex.: Cabo de rede CAT6" /></label><label>Código <input data-receipt-new-code ${selected === '__new__' ? 'required' : ''} placeholder="Ex.: CAB-CAT6" /></label><label>Categoria <select data-receipt-new-category><option value="Produtos">Produtos</option><option value="Equipamentos">Equipamentos</option><option value="Insumos">Insumos</option><option value="Patrimônio">Patrimônio</option><option value="Ferramentas">Ferramentas</option></select></label><label>Unidade <select data-receipt-new-unit><option value="unidade">Unidade</option><option value="metro">Metro</option><option value="par">Par</option><option value="caixa">Caixa</option></select></label></div></div>`;
 }
 
 function toggleReceiptNewProductFields(line) {
@@ -1069,7 +1141,8 @@ function openReceiptDetails(id) {
   $('#receipt-details-subtitle').textContent = `${receipt.invoice_number ? `NF: ${receipt.invoice_number} · ` : ''}${date(receipt.received_at)}${receipt.note ? ` · ${receipt.note}` : ''}`;
   $('#receipt-details-list').innerHTML = items.map(item => {
     const unitCost = Number(item.unit_cost || 0);
-    return `<div class="serial-history-item"><b>${esc(item.product_name)}</b><small>${quantity(item.quantity)} ${unitName(item.unit_of_measure)} · Código: ${esc(item.product_code)}${unitCost ? ` · ${currency(unitCost)} cada · Total: ${currency(Number(item.quantity) * unitCost)}` : ''}</small></div>`;
+    const lot = [item.batch_number ? `Lote: ${esc(item.batch_number)}` : '', item.expiry_date ? `Validade: ${dateOnly(item.expiry_date)}` : ''].filter(Boolean).join(' · ');
+    return `<div class="serial-history-item"><b>${esc(item.product_name)}</b><small>${quantity(item.quantity)} ${unitName(item.unit_of_measure)} · Código: ${esc(item.product_code)}${unitCost ? ` · ${currency(unitCost)} cada · Total: ${currency(Number(item.quantity) * unitCost)}` : ''}${lot ? ` · ${lot}` : ''}</small></div>`;
   }).join('') || '<p class="empty">Nenhum material encontrado neste recebimento.</p>';
   $('#receipt-details-dialog').showModal();
 }
@@ -1854,6 +1927,12 @@ async function logout() {
 $('#account-button').onclick = event => {
   event.stopPropagation();
   setAccountMenu($('#account-popover').hidden);
+  setNotificationsOpen(false);
+};
+$('#notifications-button').onclick = event => {
+  event.stopPropagation();
+  setNotificationsOpen($('#notifications-popover').hidden);
+  setAccountMenu(false);
 };
 $('#change-account-avatar').onclick = () => $('#account-avatar-input').click();
 $('#account-avatar-input').onchange = event => {
@@ -1879,8 +1958,14 @@ $('#account-logout').onclick = logout;
 document.addEventListener('click', event => {
   const account = $('.account-menu-wrap');
   if (account && !account.contains(event.target)) setAccountMenu(false);
+  const notifications = $('.notifications-wrap');
+  if (notifications && !notifications.contains(event.target)) setNotificationsOpen(false);
 });
-document.addEventListener('keydown', event => { if (event.key === 'Escape') setAccountMenu(false); });
+document.addEventListener('keydown', event => {
+  if (event.key !== 'Escape') return;
+  setAccountMenu(false);
+  setNotificationsOpen(false);
+});
 document.querySelectorAll('[data-close-dialog]').forEach(button => button.onclick = () => button.closest('dialog').close());
 $('#product-dialog').addEventListener('close', () => setProductDialogEpiMode('new', false));
 $('#edit-product-dialog').addEventListener('close', () => setProductDialogEpiMode('edit', false));
@@ -2060,7 +2145,9 @@ $('#receipt-form').onsubmit = async event => {
       category: line.querySelector('[data-receipt-new-category]').value,
       unit_of_measure: line.querySelector('[data-receipt-new-unit]').value,
       quantity: Number(line.querySelector('[data-receipt-quantity]').value),
-      unit_cost: Number(line.querySelector('[data-receipt-unit-cost]').value)
+      unit_cost: Number(line.querySelector('[data-receipt-unit-cost]').value),
+      batch_number: line.querySelector('[data-receipt-batch]').value.trim() || null,
+      expiry_date: line.querySelector('[data-receipt-expiry]').value || null
     }));
     await createProductsForReceipt(lines);
     await registerReceipt({
