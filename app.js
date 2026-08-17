@@ -88,6 +88,7 @@ function openPasswordReset() {
 }
 const product = id => state.products.find(item => String(item.id) === String(id));
 const activeProducts = () => state.products.filter(item => item.is_active !== false);
+const isEpiProduct = item => item?.category === 'EPI';
 const low = item => item.stock <= item.minimum;
 const date = value => new Date(value).toLocaleString('pt-BR', { dateStyle: 'short', timeStyle: 'short' });
 const status = item => item.stock === 0 ? '<span class="badge out">Sem estoque</span>' : low(item) ? '<span class="badge low">Estoque baixo</span>' : '<span class="badge ok">Disponível</span>';
@@ -726,7 +727,7 @@ function getFieldStockItems() {
 }
 
 function render() {
-  const availableProducts = activeProducts();
+  const availableProducts = activeProducts().filter(item => !isEpiProduct(item));
   const exits = state.movements.filter(item => item.type === 'saida' && !item.fieldUsage).length;
   const openLoans = state.toolLoans.filter(item => !item.returned_at).length;
   const returns = state.toolLoans.filter(item => item.returned_at).length;
@@ -738,15 +739,17 @@ function render() {
   $('#dashboard-returns-count').textContent = returns;
   $('#dashboard-minimum-count').textContent = outOfStock;
   $('#dashboard-reorder-count').textContent = reorder;
-  renderDashboardStockValue(availableProducts);
+  // O painel de Produtos separa os EPIs, mas o valor total do estoque
+  // continua considerando todo o patrimônio da empresa.
+  renderDashboardStockValue(activeProducts());
   renderDashboardOperations();
-  renderProducts(); renderMovement(); renderUsers(); renderRegistry(); renderReceipts(); renderSerials(); renderLaboratory(); renderLoans(); renderInventory(); renderStatement();
+  renderProducts(); renderEpis(); renderMovement(); renderUsers(); renderRegistry(); renderReceipts(); renderSerials(); renderLaboratory(); renderLoans(); renderInventory(); renderStatement();
 }
 
 function renderDashboardOperations() {
   const overdue = state.toolLoans.filter(loanOverdue).sort((a, b) => new Date(a.due_at) - new Date(b.due_at));
   const openReminders = state.reminders.filter(item => item.status === 'aberto').sort((a, b) => new Date(a.due_date) - new Date(b.due_date));
-  const expired = activeProducts().filter(caExpired).sort((a, b) => new Date(a.ca_expiry_date) - new Date(b.ca_expiry_date));
+  const expired = activeProducts().filter(isEpiProduct).filter(caExpired).sort((a, b) => new Date(a.ca_expiry_date) - new Date(b.ca_expiry_date));
   const openRequests = state.materialRequests.filter(item => item.status === 'aberta').sort((a, b) => new Date(b.created_at) - new Date(a.created_at));
   const canCompleteRequests = ['admin', 'operador'].includes(currentUser?.role);
   const canDeleteRequests = currentUser?.role === 'admin';
@@ -756,10 +759,10 @@ function renderDashboardOperations() {
   $('#dashboard-request-count').textContent = openRequests.length;
   $('#dashboard-overdue-loans-table').innerHTML = overdue.map((loan, index) => `<tr><td>${index + 1}</td><td>${esc(loan.collaborator_name || 'Não informado')}</td><td>${date(loan.due_at)}</td><td><button class="dashboard-icon-action" data-dashboard-loan="${loan.id}" type="button" aria-label="Ver empréstimo">◉</button></td></tr>`).join('') || '<tr><td colspan="4" class="empty">Nenhum empréstimo em atraso.</td></tr>';
   $('#dashboard-reminders-table').innerHTML = openReminders.map(item => `<tr><td>${esc(item.recipient)}</td><td>${esc(item.description)}</td><td>${date(item.due_date)}</td><td><button class="dashboard-icon-action danger" data-close-reminder="${item.id}" type="button" aria-label="Concluir lembrete">×</button></td></tr>`).join('') || '<tr><td colspan="4" class="empty">Nenhum lembrete registrado.</td></tr>';
-  $('#dashboard-expiring-table').innerHTML = expired.map(item => `<tr><td>${esc(item.name)}</td><td>${esc(item.ca_number || 'CA não informado')}</td><td>${new Date(`${item.ca_expiry_date}T00:00:00`).toLocaleDateString('pt-BR')}</td><td><button class="dashboard-icon-action" data-dashboard-expiry="${item.id}" type="button" aria-label="Ver item">◉</button></td></tr>`).join('') || '<tr><td colspan="4" class="empty">Nenhum material vencido.</td></tr>';
+  $('#dashboard-expiring-table').innerHTML = expired.map(item => `<tr><td>${esc(item.name)}</td><td>${esc(item.ca_number || 'CA não informado')}</td><td>${new Date(`${item.ca_expiry_date}T00:00:00`).toLocaleDateString('pt-BR')}</td><td><button class="dashboard-icon-action" data-dashboard-expiry="${item.id}" type="button" aria-label="Ver item">◉</button></td></tr>`).join('') || '<tr><td colspan="4" class="empty">Nenhum EPI com CA vencido.</td></tr>';
   $('#dashboard-requests-table').innerHTML = openRequests.map((item, index) => `<tr><td>${index + 1}</td><td>${esc(item.requester)}</td><td>${date(item.created_at)}</td><td><span class="dashboard-request-actions"><button class="dashboard-icon-action" data-dashboard-request="${item.id}" type="button" aria-label="Mostrar descrição da solicitação" aria-expanded="false">◉</button>${canCompleteRequests ? `<button class="dashboard-icon-action success" data-complete-request="${item.id}" type="button" aria-label="Concluir solicitação" title="Concluir solicitação">✓</button>` : ''}${canDeleteRequests ? `<button class="dashboard-icon-action danger" data-delete-request="${item.id}" type="button" aria-label="Apagar solicitação" title="Apagar solicitação">×</button>` : ''}</span></td></tr><tr id="dashboard-request-detail-${item.id}" class="dashboard-request-detail" hidden><td colspan="4"><b>Solicitação:</b> ${esc(item.description)}</td></tr>`).join('') || '<tr><td colspan="4" class="empty">Nenhuma solicitação de material.</td></tr>';
   document.querySelectorAll('[data-dashboard-loan]').forEach(button => button.onclick = () => view('loans'));
-  document.querySelectorAll('[data-dashboard-expiry]').forEach(button => button.onclick = () => showProducts('expired'));
+  document.querySelectorAll('[data-dashboard-expiry]').forEach(button => button.onclick = () => showEpis('expired'));
   document.querySelectorAll('[data-dashboard-request]').forEach(button => button.onclick = () => {
     const detail = $(`#dashboard-request-detail-${button.dataset.dashboardRequest}`);
     if (!detail) return;
@@ -801,28 +804,58 @@ function renderProducts() {
   $('#products-cost-heading').hidden = !canViewCosts;
   const categorySelect = $('#product-category-filter'), statusSelect = $('#product-status-filter');
   const selectedCategory = categorySelect.value;
-  const categories = [...new Set(activeProducts().map(item => item.category).filter(Boolean))].sort((a, b) => a.localeCompare(b, 'pt-BR'));
+  const categories = [...new Set(activeProducts().filter(item => !isEpiProduct(item)).map(item => item.category).filter(Boolean))].sort((a, b) => a.localeCompare(b, 'pt-BR'));
   categorySelect.innerHTML = '<option value="">Todas as categorias</option>' + categories.map(category => `<option value="${esc(category)}">${esc(category)}</option>`).join('');
   categorySelect.value = categories.includes(selectedCategory) ? selectedCategory : '';
   const category = categorySelect.value, statusFilter = statusSelect.value;
   const products = activeProducts().filter(item => {
-    const matchesPreset = (state.productFilter !== 'low' || low(item)) && (state.productFilter !== 'ca' || caAlert(item)) && (state.productFilter !== 'expired' || caExpired(item));
+    if (isEpiProduct(item)) return false;
+    const matchesPreset = state.productFilter !== 'low' || low(item);
     const matchesCategory = !category || item.category === category;
     const matchesStatus = !statusFilter
       || statusFilter === 'available' && Number(item.stock) > 0 && !low(item)
       || statusFilter === 'low' && low(item) && Number(item.stock) > 0
-      || statusFilter === 'out' && Number(item.stock) === 0
-      || statusFilter === 'ca' && Boolean(caAlert(item))
-      || statusFilter === 'expired' && caExpired(item);
+      || statusFilter === 'out' && Number(item.stock) === 0;
     return matchesPreset && matchesCategory && matchesStatus && `${item.name} ${item.code} ${item.category}`.toLowerCase().includes(query);
   });
   $('#products-table').innerHTML = products.map(item => {
-    const ca = caAlert(item);
     const image = productImageUrl(item);
-    return `<tr><td><div class="product-name-cell">${image ? `<span class="product-thumbnail"><img src="${esc(image)}" alt="Foto de ${esc(item.name)}" /></span>` : ''}<div><b>${esc(item.name)}</b><small>${esc([item.brand, item.model].filter(Boolean).join(' · ') || (item.tracking_mode === 'serializado' ? 'Rastreável por serial/MAC' : 'Controle por quantidade'))}</small></div></div></td><td>${esc(item.code)}</td><td>${esc(item.category)}</td>${canViewCosts ? `<td><b>${currency(item.average_cost)}</b><small>por ${unitName(item.unit_of_measure)}</small></td>` : ''}<td><b>${stockLabel(item)}</b><small>mínimo: ${quantity(item.minimum)} ${unitName(item.unit_of_measure)}</small></td><td>${status(item)}${ca ? `<small class="ca-status ${ca.type}">${esc(ca.label)} · validade: ${new Date(`${item.ca_expiry_date}T00:00:00`).toLocaleDateString('pt-BR')}</small>` : ''}</td><td><div class="table-actions">${canEdit ? `<button class="secondary-button" data-edit-product="${item.id}">Editar</button>` : ''}${canDelete ? `<button class="danger-button" data-delete-product="${item.id}">Apagar</button>` : ''}${!canEdit && !canDelete ? '—' : ''}</div></td></tr>`;
+    return `<tr><td><div class="product-name-cell">${image ? `<span class="product-thumbnail"><img src="${esc(image)}" alt="Foto de ${esc(item.name)}" /></span>` : ''}<div><b>${esc(item.name)}</b><small>${esc([item.brand, item.model].filter(Boolean).join(' · ') || (item.tracking_mode === 'serializado' ? 'Rastreável por serial/MAC' : 'Controle por quantidade'))}</small></div></div></td><td>${esc(item.code)}</td><td>${esc(item.category)}</td>${canViewCosts ? `<td><b>${currency(item.average_cost)}</b><small>por ${unitName(item.unit_of_measure)}</small></td>` : ''}<td><b>${stockLabel(item)}</b><small>mínimo: ${quantity(item.minimum)} ${unitName(item.unit_of_measure)}</small></td><td>${status(item)}</td><td><div class="table-actions">${canEdit ? `<button class="secondary-button" data-edit-product="${item.id}">Editar</button>` : ''}${canDelete ? `<button class="danger-button" data-delete-product="${item.id}">Apagar</button>` : ''}${!canEdit && !canDelete ? '—' : ''}</div></td></tr>`;
   }).join('') || `<tr><td colspan="${canViewCosts ? 7 : 6}" class="empty">Nenhum produto encontrado.</td></tr>`;
   document.querySelectorAll('[data-edit-product]').forEach(button => button.onclick = () => openProductEditor(button.dataset.editProduct));
   document.querySelectorAll('[data-delete-product]').forEach(button => button.onclick = () => deleteProduct(button.dataset.deleteProduct));
+}
+
+function renderEpis() {
+  const table = $('#epis-table');
+  if (!table) return;
+  const filter = $('#epi-status-filter').value;
+  const canManage = ['admin', 'operador'].includes(currentUser?.role);
+  const canDelete = currentUser?.role === 'admin';
+  const epis = activeProducts().filter(isEpiProduct);
+  const caAttention = epis.filter(item => Boolean(caAlert(item)));
+  const expired = epis.filter(caExpired);
+  const filtered = epis.filter(item => !filter || filter === 'ca' && Boolean(caAlert(item)) || filter === 'expired' && caExpired(item));
+  const deliveries = state.movements
+    .filter(item => item.type === 'saida' && !item.fieldUsage && isEpiProduct(product(item.productId)))
+    .sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt))
+    .slice(0, 8);
+
+  $('#epi-items-count').textContent = epis.length;
+  $('#epi-stock-count').textContent = quantity(epis.reduce((total, item) => total + Number(item.stock || 0), 0));
+  $('#epi-ca-attention-count').textContent = caAttention.length;
+  $('#epi-ca-expired-count').textContent = expired.length;
+  table.innerHTML = filtered.map(item => {
+    const alert = caAlert(item);
+    const image = productImageUrl(item);
+    const caNumber = item.requires_ca ? (item.ca_number || 'Não informado') : 'Não se aplica';
+    const caExpiry = item.requires_ca ? (item.ca_expiry_date ? new Date(`${item.ca_expiry_date}T00:00:00`).toLocaleDateString('pt-BR') : 'Não informada') : '—';
+    return `<tr><td><div class="product-name-cell">${image ? `<span class="product-thumbnail"><img src="${esc(image)}" alt="Foto de ${esc(item.name)}" /></span>` : ''}<div><b>${esc(item.name)}</b><small>${esc([item.brand, item.model].filter(Boolean).join(' · ') || 'EPI')}</small></div></div></td><td>${esc(item.code)}</td><td>${esc(caNumber)}</td><td>${esc(caExpiry)}</td><td><b>${stockLabel(item)}</b><small>mínimo: ${quantity(item.minimum)} ${unitName(item.unit_of_measure)}</small></td><td>${status(item)}${alert ? `<small class="ca-status ${alert.type}">${esc(alert.label)}</small>` : ''}</td><td><div class="table-actions">${canManage ? `<button class="secondary-button" data-deliver-epi="${item.id}">Entregar</button><button class="secondary-button" data-edit-epi="${item.id}">Editar</button>` : ''}${canDelete ? `<button class="danger-button" data-delete-epi="${item.id}">Apagar</button>` : ''}${!canManage && !canDelete ? '—' : ''}</div></td></tr>`;
+  }).join('') || '<tr><td colspan="7" class="empty">Nenhum EPI encontrado para este filtro.</td></tr>';
+  $('#epi-deliveries-table').innerHTML = deliveries.map(item => `<tr><td>${date(item.createdAt)}</td><td><b>${esc(product(item.productId)?.name || 'EPI')}</b></td><td>${quantity(item.quantity)} ${unitName(product(item.productId)?.unit_of_measure)}</td><td>${esc(item.person || 'Não informado')}</td></tr>`).join('') || '<tr><td colspan="4" class="empty">Nenhuma entrega de EPI registrada.</td></tr>';
+  document.querySelectorAll('[data-deliver-epi]').forEach(button => button.onclick = () => openEpiDelivery(button.dataset.deliverEpi));
+  document.querySelectorAll('[data-edit-epi]').forEach(button => button.onclick = () => openProductEditor(button.dataset.editEpi));
+  document.querySelectorAll('[data-delete-epi]').forEach(button => button.onclick = () => deleteProduct(button.dataset.deleteEpi));
 }
 
 function renderMovement() {
@@ -844,7 +877,7 @@ function receiptLineHtml(selected = '') {
   const products = receiptProducts();
   const selectedProduct = product(selected);
   const unitCost = Number(selectedProduct?.average_cost || 0).toFixed(2);
-  return `<div class="receipt-line"><label>Material <select data-receipt-product required><option value="">Selecione</option><option value="__new__" ${selected === '__new__' ? 'selected' : ''}>+ Cadastrar novo material nesta entrega</option>${products.map(item => `<option value="${item.id}" ${item.id === selected ? 'selected' : ''}>${esc(item.name)} (${stockLabel(item)})</option>`).join('')}</select></label><label>Quantidade <input data-receipt-quantity type="number" min="0.001" step="0.001" required value="1" /></label><label>Valor unitário (R$) <input data-receipt-unit-cost type="number" min="0" step="0.01" required value="${unitCost}" /></label><button class="receipt-line-remove" data-remove-receipt-line type="button" aria-label="Remover material">×</button><div class="receipt-new-product" data-receipt-new-product ${selected === '__new__' ? '' : 'hidden'}><label>Nome do novo material <input data-receipt-new-name ${selected === '__new__' ? 'required' : ''} placeholder="Ex.: Cabo de rede CAT6" /></label><label>Código <input data-receipt-new-code ${selected === '__new__' ? 'required' : ''} placeholder="Ex.: CAB-CAT6" /></label><label>Categoria <select data-receipt-new-category><option value="Produtos">Produtos</option><option value="Equipamentos">Equipamentos</option><option value="Insumos">Insumos</option><option value="EPI">EPI</option><option value="Patrimônio">Patrimônio</option><option value="Ferramentas">Ferramentas</option></select></label><label>Unidade <select data-receipt-new-unit><option value="unidade">Unidade</option><option value="metro">Metro</option><option value="par">Par</option><option value="caixa">Caixa</option></select></label></div></div>`;
+  return `<div class="receipt-line"><label>Material <select data-receipt-product required><option value="">Selecione</option><option value="__new__" ${selected === '__new__' ? 'selected' : ''}>+ Cadastrar novo material nesta entrega</option>${products.map(item => `<option value="${item.id}" ${item.id === selected ? 'selected' : ''}>${esc(item.name)} (${stockLabel(item)})</option>`).join('')}</select></label><label>Quantidade <input data-receipt-quantity type="number" min="0.001" step="0.001" required value="1" /></label><label>Valor unitário (R$) <input data-receipt-unit-cost type="number" min="0" step="0.01" required value="${unitCost}" /></label><button class="receipt-line-remove" data-remove-receipt-line type="button" aria-label="Remover material">×</button><div class="receipt-new-product" data-receipt-new-product ${selected === '__new__' ? '' : 'hidden'}><label>Nome do novo material <input data-receipt-new-name ${selected === '__new__' ? 'required' : ''} placeholder="Ex.: Cabo de rede CAT6" /></label><label>Código <input data-receipt-new-code ${selected === '__new__' ? 'required' : ''} placeholder="Ex.: CAB-CAT6" /></label><label>Categoria <select data-receipt-new-category><option value="Produtos">Produtos</option><option value="Equipamentos">Equipamentos</option><option value="Insumos">Insumos</option><option value="Patrimônio">Patrimônio</option><option value="Ferramentas">Ferramentas</option></select></label><label>Unidade <select data-receipt-new-unit><option value="unidade">Unidade</option><option value="metro">Metro</option><option value="par">Par</option><option value="caixa">Caixa</option></select></label></div></div>`;
 }
 
 function toggleReceiptNewProductFields(line) {
@@ -1635,7 +1668,7 @@ function view(id, options = {}) {
   document.querySelectorAll('.view').forEach(element => element.classList.toggle('active', element.id === id));
   document.querySelectorAll('.nav-link').forEach(button => button.classList.toggle('active', button.dataset.view === id));
   document.querySelector('main').classList.toggle('dashboard-mode', id === 'dashboard');
-  $('#page-title').textContent = ({ dashboard:'Visão geral', products:'Produtos', movement:'Movimentações', receipts:'Recebimentos', serials:'Serial / MAC', laboratory:'Oficina', loans:'Empréstimos', inventory:'Conferência de estoque', registry:'Cadastros', users:'Usuários', statement:'Extrato financeiro' })[id];
+  $('#page-title').textContent = ({ dashboard:'Visão geral', products:'Produtos', epis:'Controle de EPIs', movement:'Movimentações', receipts:'Recebimentos', serials:'Serial / MAC', laboratory:'Oficina', loans:'Empréstimos', inventory:'Conferência de estoque', registry:'Cadastros', users:'Usuários', statement:'Extrato financeiro' })[id];
 }
 
 document.querySelector('main').classList.add('dashboard-mode');
@@ -1645,9 +1678,68 @@ function showProducts(filter = 'all') {
   state.productFilter = filter;
   $('#product-search').value = '';
   $('#product-category-filter').value = '';
-  $('#product-status-filter').value = filter === 'low' ? 'low' : filter === 'ca' ? 'ca' : filter === 'expired' ? 'expired' : '';
+  $('#product-status-filter').value = filter === 'low' ? 'low' : '';
   view('products');
   renderProducts();
+}
+
+function showEpis(filter = 'all') {
+  $('#epi-status-filter').value = filter === 'ca' ? 'ca' : filter === 'expired' ? 'expired' : '';
+  view('epis');
+  renderEpis();
+}
+
+function ensureEpiCategory(select) {
+  if (![...select.options].some(option => option.value === 'EPI')) {
+    const option = new Option('EPI', 'EPI');
+    option.dataset.temporaryEpiOption = 'true';
+    select.add(option);
+  }
+}
+
+function removeTemporaryEpiCategory(select) {
+  select.querySelector('option[data-temporary-epi-option="true"]')?.remove();
+}
+
+function setProductDialogEpiMode(prefix, epiMode) {
+  const form = $(`#${prefix === 'new' ? 'product' : 'edit-product'}-form`);
+  const title = $(`#${prefix === 'new' ? 'product' : 'edit-product'}-dialog-title`);
+  const category = $(`#${prefix}-category`);
+  const caFields = $(`#${prefix}-epi-ca-fields`);
+  form.classList.toggle('epi-mode', epiMode);
+  caFields.hidden = !epiMode;
+  if (epiMode) {
+    ensureEpiCategory(category);
+    category.value = 'EPI';
+    $(`#${prefix}-requires-ca`).value = 'true';
+  } else {
+    removeTemporaryEpiCategory(category);
+  }
+  if (title) title.textContent = epiMode ? (prefix === 'new' ? 'Cadastrar EPI' : 'Editar EPI') : (prefix === 'new' ? 'Cadastrar item' : 'Editar item');
+  if (prefix === 'new') {
+    $('#product-dialog-description').textContent = epiMode
+      ? 'Informe o CA para acompanhar a validade e registrar as entregas aos colaboradores.'
+      : 'Cadastre consumíveis, equipamentos, ferramentas ou patrimônios.';
+  }
+}
+
+function openNewProductDialog(epiMode = false) {
+  $('#product-form').reset();
+  setProductImagePreview('new');
+  setProductDialogEpiMode('new', epiMode);
+  $('#product-dialog').showModal();
+}
+
+function openEpiDelivery(id) {
+  const item = product(id);
+  if (!item || !isEpiProduct(item)) return;
+  view('movement');
+  renderMovement();
+  $('#movement-type').value = 'saida';
+  $('#movement-holder-type').value = 'tecnico';
+  $('#movement-product').value = item.id;
+  updateMovementMode();
+  $('#movement-person').focus();
 }
 
 function openProductEditor(id) {
@@ -1655,6 +1747,7 @@ function openProductEditor(id) {
   if (!item) return;
   editingProductImagePath = item.image_path || null;
   $('#edit-product-form').reset();
+  setProductDialogEpiMode('edit', isEpiProduct(item));
   $('#edit-product-id').value = item.id;
   $('#edit-name').value = item.name;
   $('#edit-code').value = item.code;
@@ -1690,7 +1783,7 @@ async function start(session) {
   document.querySelectorAll('[data-manager-only]').forEach(element => { element.hidden = !canManage; });
   // As telas continuam acessíveis no computador compartilhado do almoxarifado.
   // As ações administrativas ainda obedecem às permissões dos botões e do banco.
-  ['users', 'receipts', 'serials', 'laboratory', 'loans', 'inventory', 'registry'].forEach(id => { $("#" + id).hidden = false; });
+  ['users', 'receipts', 'serials', 'laboratory', 'loans', 'inventory', 'registry', 'epis'].forEach(id => { $("#" + id).hidden = false; });
   $('#users').hidden = !isAdmin;
   $('#statement').hidden = !isAdmin;
   $('#add-user').hidden = !isAdmin;
@@ -1705,11 +1798,12 @@ async function start(session) {
   try { await load(); } catch (error) { alert(error.message); }
 }
 
-document.querySelectorAll('.nav-link').forEach(button => button.onclick = () => button.dataset.view === 'products' ? showProducts() : view(button.dataset.view));
-document.querySelectorAll('[data-go]').forEach(button => button.onclick = () => button.dataset.go === 'products' ? showProducts() : button.dataset.go === 'products-expired' ? showProducts('expired') : view(button.dataset.go));
+document.querySelectorAll('.nav-link').forEach(button => button.onclick = () => button.dataset.view === 'products' ? showProducts() : button.dataset.view === 'epis' ? showEpis() : view(button.dataset.view));
+document.querySelectorAll('[data-go]').forEach(button => button.onclick = () => button.dataset.go === 'products' ? showProducts() : button.dataset.go === 'epis' ? showEpis() : button.dataset.go === 'epis-expired' ? showEpis('expired') : view(button.dataset.go));
 document.querySelectorAll('[data-registry-filter]').forEach(button => button.onclick = () => setRegistryFilter(button.dataset.registryFilter));
 setRegistryFilter('collaborators');
-$('#add-product').onclick = () => $('#product-dialog').showModal();
+$('#add-product').onclick = () => openNewProductDialog(false);
+$('#add-epi').onclick = () => openNewProductDialog(true);
 $('#import-products').onclick = openProductImport;
 $('#product-import-file').onchange = readProductSpreadsheet;
 $('#confirm-product-import').onclick = confirmProductImport;
@@ -1788,6 +1882,8 @@ document.addEventListener('click', event => {
 });
 document.addEventListener('keydown', event => { if (event.key === 'Escape') setAccountMenu(false); });
 document.querySelectorAll('[data-close-dialog]').forEach(button => button.onclick = () => button.closest('dialog').close());
+$('#product-dialog').addEventListener('close', () => setProductDialogEpiMode('new', false));
+$('#edit-product-dialog').addEventListener('close', () => setProductDialogEpiMode('edit', false));
 $('#code-scanner-dialog').addEventListener('close', stopCodeScanner);
 $('#scanner-manual-form').onsubmit = event => {
   event.preventDefault();
@@ -1823,6 +1919,7 @@ $('#dashboard-value-card').onclick = () => { if (currentUser?.role === 'admin') 
 $('#product-search').oninput = () => { state.productFilter = 'all'; renderProducts(); };
 $('#product-category-filter').onchange = () => { state.productFilter = 'all'; renderProducts(); };
 $('#product-status-filter').onchange = () => { state.productFilter = 'all'; renderProducts(); };
+$('#epi-status-filter').onchange = renderEpis;
 $('#serial-search').oninput = renderSerials;
 $('#lab-search').oninput = renderLaboratory;
 document.querySelectorAll('[data-history-filter]').forEach(element => { element.oninput = renderMovement; element.onchange = renderMovement; });
@@ -1897,7 +1994,9 @@ $('#product-form').onsubmit = async event => {
     const { error } = await supabase.from('products').insert(newProduct);
     if (error) throw error;
     productSaved = true;
-    event.target.reset(); setProductImagePreview('new'); $('#product-dialog').close(); await load(); view('products');
+    const nextView = isEpiProduct(newProduct) ? 'epis' : 'products';
+    event.target.reset(); setProductImagePreview('new'); $('#product-dialog').close(); await load();
+    nextView === 'epis' ? showEpis() : view('products');
   } catch (error) {
     if (uploadedImagePath && !productSaved) {
       try { await removeProductImage(uploadedImagePath); } catch (removeError) { console.warn('Não foi possível remover a foto enviada:', removeError.message); }
@@ -1928,7 +2027,9 @@ $('#edit-product-form').onsubmit = async event => {
       try { await removeProductImage(previousImagePath); } catch (removeError) { console.warn('Não foi possível remover a foto anterior:', removeError.message); }
     }
     editingProductImagePath = null;
-    $('#edit-product-dialog').close(); await load(); view('products');
+    const nextView = isEpiProduct(updatedProduct) ? 'epis' : 'products';
+    $('#edit-product-dialog').close(); await load();
+    nextView === 'epis' ? showEpis() : view('products');
   } catch (error) {
     if (uploadedImagePath) {
       try { await removeProductImage(uploadedImagePath); } catch (removeError) { console.warn('Não foi possível remover a foto enviada:', removeError.message); }
