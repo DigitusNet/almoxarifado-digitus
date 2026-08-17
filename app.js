@@ -4,6 +4,7 @@ const supabase = createClient(import.meta.env.VITE_SUPABASE_URL, import.meta.env
 let state = { products: [], movements: [], users: [], usersLoadNote: '', collaborators: [], vehicles: [], locations: [], suppliers: [], serialItems: [], serialMovements: [], toolLoans: [], receipts: [], receiptItems: [], inventorySessions: [], inventoryCounts: [], reminders: [], materialRequests: [], productFilter: 'all' };
 let currentUser = null;
 let passwordRecoveryMode = false;
+const passwordRecoveryStorageKey = 'digitus-password-recovery';
 const $ = selector => document.querySelector(selector);
 const esc = value => String(value ?? '').replace(/[&<>'"]/g, char => ({ '&':'&amp;','<':'&lt;','>':'&gt;',"'":'&#039;','"':'&quot;' }[char]));
 const accountAvatarKey = () => currentUser ? `digitus-account-avatar-${currentUser.id}` : '';
@@ -76,6 +77,12 @@ function setLoginMessage(message = '', type = 'error') {
   errorText.textContent = message;
   errorText.hidden = !message;
   errorText.classList.toggle('success', type === 'success');
+}
+
+function setPasswordRecoveryMode(enabled) {
+  passwordRecoveryMode = enabled;
+  if (enabled) sessionStorage.setItem(passwordRecoveryStorageKey, '1');
+  else sessionStorage.removeItem(passwordRecoveryStorageKey);
 }
 
 function togglePasswordVisibility(inputSelector, button) {
@@ -2433,7 +2440,7 @@ $('#login-form').onsubmit = async event => {
   event.preventDefault(); setLoginMessage();
   const { data, error } = await supabase.auth.signInWithPassword({ email:$('#login-email').value, password:$('#login-password').value });
   if (error) { setLoginMessage(error.message); return; }
-  passwordRecoveryMode = false;
+  setPasswordRecoveryMode(false);
   $('#auth-gate').hidden = true; await start(data.session);
 };
 
@@ -2466,7 +2473,7 @@ $('#reset-password-form').onsubmit = async event => {
     errorText.hidden = false;
     return;
   }
-  passwordRecoveryMode = false;
+  setPasswordRecoveryMode(false);
   event.target.reset();
   $('#reset-password-dialog').close();
   window.history.replaceState({}, document.title, window.location.pathname);
@@ -2482,12 +2489,52 @@ if (todayLabel) todayLabel.textContent = new Date().toLocaleDateString('pt-BR', 
 render();
 supabase.auth.onAuthStateChange(event => {
   if (event !== 'PASSWORD_RECOVERY') return;
-  passwordRecoveryMode = true;
+  setPasswordRecoveryMode(true);
   openPasswordReset();
 });
-const { data:{ session } } = await supabase.auth.getSession();
-const recoveryInUrl = window.location.hash.includes('type=recovery') || new URLSearchParams(window.location.search).get('type') === 'recovery';
-if (session && (passwordRecoveryMode || recoveryInUrl)) {
-  passwordRecoveryMode = true;
-  openPasswordReset();
-} else if (session) start(session); else $('#auth-gate').hidden = false;
+
+async function initializeAuthentication() {
+  const url = new URL(window.location.href);
+  const recoveryInUrl = window.location.hash.includes('type=recovery') || url.searchParams.get('type') === 'recovery';
+  const code = url.searchParams.get('code');
+  const tokenHash = url.searchParams.get('token_hash');
+  let session = null;
+
+  // Links mais novos do Supabase usam "code" (PKCE); alguns modelos de e-mail
+  // ainda usam token_hash. Ambos precisam ser trocados por uma sessão antes de
+  // abrir o formulário de nova senha.
+  if (code) {
+    const { data, error } = await supabase.auth.exchangeCodeForSession(code);
+    if (error) {
+      $('#auth-gate').hidden = false;
+      setLoginMessage('Este link de recuperação expirou ou já foi utilizado. Solicite um novo link.');
+      return;
+    }
+    session = data.session;
+    setPasswordRecoveryMode(true);
+    window.history.replaceState({}, document.title, window.location.pathname);
+  } else if (tokenHash && recoveryInUrl) {
+    const { data, error } = await supabase.auth.verifyOtp({ token_hash: tokenHash, type: 'recovery' });
+    if (error) {
+      $('#auth-gate').hidden = false;
+      setLoginMessage('Este link de recuperação expirou ou já foi utilizado. Solicite um novo link.');
+      return;
+    }
+    session = data.session;
+    setPasswordRecoveryMode(true);
+    window.history.replaceState({}, document.title, window.location.pathname);
+  } else {
+    ({ data: { session } } = await supabase.auth.getSession());
+  }
+
+  if (session && (passwordRecoveryMode || recoveryInUrl || sessionStorage.getItem(passwordRecoveryStorageKey) === '1')) {
+    setPasswordRecoveryMode(true);
+    openPasswordReset();
+  } else if (session) {
+    await start(session);
+  } else {
+    $('#auth-gate').hidden = false;
+  }
+}
+
+await initializeAuthentication();
