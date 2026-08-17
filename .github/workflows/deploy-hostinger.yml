@@ -35,15 +35,22 @@ jobs:
       - name: Compilar o site
         run: npm run build
 
+      - name: Instalar cliente SFTP
+        run: sudo apt-get update && sudo apt-get install -y lftp
+
       - name: Enviar para a Hostinger por SFTP
-        uses: wangyucode/sftp-upload-action@v3
-        with:
-          host: ${{ secrets.HOSTINGER_FTP_HOST }}
-          port: 65002
-          username: ${{ secrets.HOSTINGER_FTP_USERNAME }}
-          password: ${{ secrets.HOSTINGER_FTP_PASSWORD }}
-          localDir: ./dist
-          remoteDir: public_html
-          forceUpload: true
-          removeExtraFilesOnServer: false
-          concurrency: 2
+        env:
+          HOSTINGER_HOST: ${{ secrets.HOSTINGER_FTP_HOST }}
+          HOSTINGER_USERNAME: ${{ secrets.HOSTINGER_FTP_USERNAME }}
+          HOSTINGER_PASSWORD: ${{ secrets.HOSTINGER_FTP_PASSWORD }}
+        run: |
+          lftp <<EOF
+          set cmd:fail-exit yes
+          set net:timeout 30
+          set net:max-retries 2
+          set sftp:auto-confirm yes
+          open -p 65002 -u "$HOSTINGER_USERNAME","$HOSTINGER_PASSWORD" sftp://$HOSTINGER_HOST
+          cd public_html
+          mirror --reverse --verbose=1 --ignore-time --no-perms ./dist .
+          bye
+          EOF
