@@ -35,18 +35,15 @@ jobs:
       - name: Compilar o site
         run: npm run build
 
-      - name: Enviar para a Hostinger
-        uses: SamKirkland/FTP-Deploy-Action@v4.4.0
+      - name: Enviar para a Hostinger por SFTP
+        uses: wangyucode/sftp-upload-action@v3
         with:
-          server: ${{ secrets.HOSTINGER_FTP_HOST }}
+          host: ${{ secrets.HOSTINGER_FTP_HOST }}
+          port: 65002
           username: ${{ secrets.HOSTINGER_FTP_USERNAME }}
           password: ${{ secrets.HOSTINGER_FTP_PASSWORD }}
-          port: 21
-          protocol: ftp
-          local-dir: ./dist/
-          server-dir: ./public_html/
-          state-name: .ftp-deploy-sync-state.json
-          exclude: |
-            **/.git*
-            **/.git*/**
-            **/node_modules/**
+          localDir: ./dist
+          remoteDir: public_html
+          forceUpload: true
+          removeExtraFilesOnServer: false
+          concurrency: 2
