@@ -2495,15 +2495,28 @@ supabase.auth.onAuthStateChange(event => {
 
 async function initializeAuthentication() {
   const url = new URL(window.location.href);
-  const recoveryInUrl = window.location.hash.includes('type=recovery') || url.searchParams.get('type') === 'recovery';
+  const hashParams = new URLSearchParams(window.location.hash.replace(/^#/, ''));
+  const recoveryInUrl = hashParams.get('type') === 'recovery' || url.searchParams.get('type') === 'recovery';
   const code = url.searchParams.get('code');
   const tokenHash = url.searchParams.get('token_hash');
+  const accessToken = hashParams.get('access_token');
+  const refreshToken = hashParams.get('refresh_token');
   let session = null;
 
   // Links mais novos do Supabase usam "code" (PKCE); alguns modelos de e-mail
-  // ainda usam token_hash. Ambos precisam ser trocados por uma sessão antes de
-  // abrir o formulário de nova senha.
-  if (code) {
+  // ainda usam token_hash ou tokens na âncora da URL. Todos precisam ser
+  // convertidos em uma sessão antes de abrir o formulário de nova senha.
+  if (accessToken && refreshToken) {
+    const { data, error } = await supabase.auth.setSession({ access_token: accessToken, refresh_token: refreshToken });
+    if (error) {
+      $('#auth-gate').hidden = false;
+      setLoginMessage('Este link de recuperação expirou ou já foi utilizado. Solicite um novo link.');
+      return;
+    }
+    session = data.session;
+    setPasswordRecoveryMode(true);
+    window.history.replaceState({}, document.title, window.location.pathname);
+  } else if (code) {
     const { data, error } = await supabase.auth.exchangeCodeForSession(code);
     if (error) {
       $('#auth-gate').hidden = false;
