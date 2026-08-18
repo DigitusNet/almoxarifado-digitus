@@ -1319,12 +1319,13 @@ function renderSerials() {
   });
   table.innerHTML = serials.map(item => {
     const itemProduct = product(item.product_id), location = state.locations.find(entry => entry.id === item.current_location_id);
-    return `<tr><td><b>${esc(itemProduct?.name || 'Item removido')}</b><small>${esc(itemProduct?.code || '—')}</small></td><td>${esc(item.serial_number || '—')}</td><td>${esc(item.mac_address || '—')}</td><td>${esc(item.asset_tag || '—')}</td><td>${esc(location?.name || item.customer_name || '—')}</td><td><span class="badge ${serialStatusClass(item.status)}">${esc(serialStatusName(item.status))}</span></td><td><div class="table-actions">${item.status !== 'baixado' ? `<button class="secondary-button" data-move-serial="${item.id}">Mover</button>` : ''}<button class="text-button" data-history-serial="${item.id}">Histórico</button></div></td></tr>`;
+    return `<tr><td><b>${esc(itemProduct?.name || 'Item removido')}</b><small>${esc(itemProduct?.code || '—')}</small></td><td>${esc(item.serial_number || '—')}</td><td>${esc(item.mac_address || '—')}</td><td>${esc(item.asset_tag || '—')}</td><td>${esc(location?.name || item.customer_name || '—')}</td><td><span class="badge ${serialStatusClass(item.status)}">${esc(serialStatusName(item.status))}</span></td><td><div class="table-actions">${item.status !== 'baixado' ? `<button class="secondary-button" data-move-serial="${item.id}">Mover</button>` : ''}<button class="text-button" data-history-serial="${item.id}">Histórico</button><button class="danger-button" data-admin-only hidden data-delete-serial="${item.id}">Excluir</button></div></td></tr>`;
   }).join('') || '<tr><td colspan="7" class="empty">Nenhuma unidade rastreável encontrada.</td></tr>';
   const locations = state.locations.filter(item => item.active);
   $('#serial-location').innerHTML = '<option value="">Almoxarifado central</option>' + locations.map(item => `<option value="${item.id}">${esc(item.name)}</option>`).join('');
   document.querySelectorAll('[data-move-serial]').forEach(button => button.onclick = () => openSerialTransfer(button.dataset.moveSerial));
   document.querySelectorAll('[data-history-serial]').forEach(button => button.onclick = () => openSerialHistory(button.dataset.historySerial));
+  document.querySelectorAll('[data-delete-serial]').forEach(button => button.onclick = () => deleteSerialItem(button.dataset.deleteSerial));
 }
 
 function renderLaboratory() {
@@ -1418,6 +1419,7 @@ function openSerialHistory(id) {
   const item = state.serialItems.find(entry => entry.id === id), itemProduct = item && product(item.product_id);
   if (!item) return;
   $('#delete-serial-history').dataset.serialItemId = id;
+  $('#delete-serial-item').dataset.serialItemId = id;
   const movements = state.serialMovements.filter(entry => entry.serial_item_id === id);
   $('#serial-history-title').textContent = itemProduct?.name || 'Histórico do equipamento';
   $('#serial-history-subtitle').textContent = `Serial: ${item.serial_number || '—'} · MAC: ${item.mac_address || '—'} · Patrimônio: ${item.asset_tag || '—'}`;
@@ -1440,6 +1442,22 @@ async function deleteSerialHistory(id) {
   state.serialMovements = state.serialMovements.filter(entry => entry.serial_item_id !== id);
   $('#serial-history-list').innerHTML = '<p class="empty">Ainda não há movimentações para esta unidade.</p>';
   alert('Histórico apagado com sucesso.');
+}
+
+async function deleteSerialItem(id) {
+  if (currentUser?.role !== 'admin') return alert('Apenas administradores podem excluir unidades.');
+  const item = state.serialItems.find(entry => entry.id === id);
+  if (!item) return;
+  const itemProduct = product(item.product_id);
+  const identifier = item.mac_address || item.serial_number || item.asset_tag || itemProduct?.name || 'esta unidade';
+  if (!confirm(`Excluir definitivamente ${identifier}? Isso removerá a unidade, empréstimos e todo o histórico dela. Esta ação não pode ser desfeita.`)) return;
+  const { error } = await supabase.rpc('delete_serial_item', { p_serial_item_id: id });
+  if (error) return alert(error.message);
+  state.serialItems = state.serialItems.filter(entry => entry.id !== id);
+  state.serialMovements = state.serialMovements.filter(entry => entry.serial_item_id !== id);
+  $('#serial-history-dialog').close();
+  renderSerialPage();
+  alert('Unidade excluída com sucesso.');
 }
 
 function renderLoans() {
@@ -1985,6 +2003,7 @@ $('#add-supplier').onclick = () => $('#supplier-dialog').showModal();
 $('#add-dashboard-reminder').onclick = () => $('#reminder-dialog').showModal();
 $('#add-material-request').onclick = () => $('#material-request-dialog').showModal();
 $('#delete-serial-history').onclick = () => deleteSerialHistory($('#delete-serial-history').dataset.serialItemId);
+$('#delete-serial-item').onclick = () => deleteSerialItem($('#delete-serial-item').dataset.serialItemId);
 async function logout() {
   if (!confirm('Deseja sair da conta?')) return;
   const { error } = await supabase.auth.signOut();
