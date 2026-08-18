@@ -132,6 +132,11 @@ main{padding:20px 38px 52px 68px}.topbar{min-height:39px;margin-bottom:14px;padd
   .account-button-name{font-size:10px}
   .account-chevron{font-size:13px}
 }
+@media(min-width:851px) and (max-width:1900px){
+  .account-button{max-width:40px;padding:3px}
+  .account-button-name,.account-chevron{display:none}
+  .sidebar .nav-link{padding-left:4px;padding-right:4px;font-size:8.5px}
+}
 
 /* Quadro operacional do Painel, seguindo a distribuição em quatro blocos do modelo enviado. */
 .dashboard-operations{display:grid;grid-template-columns:1fr 1fr;gap:4px;margin-top:4px}
