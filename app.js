@@ -1417,6 +1417,7 @@ function updateSerialTransferForm() {
 function openSerialHistory(id) {
   const item = state.serialItems.find(entry => entry.id === id), itemProduct = item && product(item.product_id);
   if (!item) return;
+  $('#delete-serial-history').dataset.serialItemId = id;
   const movements = state.serialMovements.filter(entry => entry.serial_item_id === id);
   $('#serial-history-title').textContent = itemProduct?.name || 'Histórico do equipamento';
   $('#serial-history-subtitle').textContent = `Serial: ${item.serial_number || '—'} · MAC: ${item.mac_address || '—'} · Patrimônio: ${item.asset_tag || '—'}`;
@@ -1426,6 +1427,19 @@ function openSerialHistory(id) {
     return `<div class="serial-history-item"><div><b>${esc(serialActionName(entry.action))}</b><small>${esc(serialStatusName(entry.previous_status))} → ${esc(serialStatusName(entry.new_status))} · ${date(entry.created_at)}</small><small>${esc(from)} → ${esc(to)}${entry.work_order ? ` · OS: ${esc(entry.work_order)}` : ''}${entry.note ? ` · ${esc(entry.note)}` : ''}</small></div></div>`;
   }).join('') || '<p class="empty">Ainda não há movimentações para esta unidade.</p>';
   $('#serial-history-dialog').showModal();
+}
+
+async function deleteSerialHistory(id) {
+  if (currentUser?.role !== 'admin') return alert('Apenas administradores podem apagar históricos.');
+  const item = state.serialItems.find(entry => entry.id === id), itemProduct = item && product(item.product_id);
+  if (!item) return;
+  const identifier = item.mac_address || item.serial_number || item.asset_tag || itemProduct?.name || 'esta unidade';
+  if (!confirm(`Apagar todo o histórico de ${identifier}? A unidade e seus dados atuais serão preservados. Esta ação não pode ser desfeita.`)) return;
+  const { error } = await supabase.rpc('delete_serial_history', { p_serial_item_id: id });
+  if (error) return alert(error.message);
+  state.serialMovements = state.serialMovements.filter(entry => entry.serial_item_id !== id);
+  $('#serial-history-list').innerHTML = '<p class="empty">Ainda não há movimentações para esta unidade.</p>';
+  alert('Histórico apagado com sucesso.');
 }
 
 function renderLoans() {
@@ -1970,6 +1984,7 @@ $('#add-location').onclick = () => $('#location-dialog').showModal();
 $('#add-supplier').onclick = () => $('#supplier-dialog').showModal();
 $('#add-dashboard-reminder').onclick = () => $('#reminder-dialog').showModal();
 $('#add-material-request').onclick = () => $('#material-request-dialog').showModal();
+$('#delete-serial-history').onclick = () => deleteSerialHistory($('#delete-serial-history').dataset.serialItemId);
 async function logout() {
   if (!confirm('Deseja sair da conta?')) return;
   const { error } = await supabase.auth.signOut();
