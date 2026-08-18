@@ -1319,13 +1319,15 @@ function renderSerials() {
   });
   table.innerHTML = serials.map(item => {
     const itemProduct = product(item.product_id), location = state.locations.find(entry => entry.id === item.current_location_id);
-    return `<tr><td><b>${esc(itemProduct?.name || 'Item removido')}</b><small>${esc(itemProduct?.code || '—')}</small></td><td>${esc(item.serial_number || '—')}</td><td>${esc(item.mac_address || '—')}</td><td>${esc(item.asset_tag || '—')}</td><td>${esc(location?.name || item.customer_name || '—')}</td><td><span class="badge ${serialStatusClass(item.status)}">${esc(serialStatusName(item.status))}</span></td><td><div class="table-actions">${item.status !== 'baixado' ? `<button class="secondary-button" data-move-serial="${item.id}">Mover</button>` : ''}<button class="text-button" data-history-serial="${item.id}">Histórico</button><button class="danger-button" data-admin-only hidden data-delete-serial="${item.id}">Excluir</button></div></td></tr>`;
+    const canManageSerial = ['admin', 'operador'].includes(currentUser?.role);
+    return `<tr><td><b>${esc(itemProduct?.name || 'Item removido')}</b><small>${esc(itemProduct?.code || '—')}</small></td><td>${esc(item.serial_number || '—')}</td><td>${esc(item.mac_address || '—')}</td><td>${esc(item.asset_tag || '—')}</td><td>${esc(location?.name || item.customer_name || '—')}</td><td><span class="badge ${serialStatusClass(item.status)}">${esc(serialStatusName(item.status))}</span></td><td><div class="table-actions">${item.status !== 'baixado' ? `<button class="secondary-button" data-move-serial="${item.id}">Mover</button>` : ''}${canManageSerial ? `<button class="secondary-button" data-edit-serial="${item.id}">Editar</button>` : ''}<button class="text-button" data-history-serial="${item.id}">Histórico</button><button class="danger-button" data-admin-only hidden data-delete-serial="${item.id}">Excluir</button></div></td></tr>`;
   }).join('') || '<tr><td colspan="7" class="empty">Nenhuma unidade rastreável encontrada.</td></tr>';
   const locations = state.locations.filter(item => item.active);
   $('#serial-location').innerHTML = '<option value="">Almoxarifado central</option>' + locations.map(item => `<option value="${item.id}">${esc(item.name)}</option>`).join('');
   document.querySelectorAll('[data-move-serial]').forEach(button => button.onclick = () => openSerialTransfer(button.dataset.moveSerial));
   document.querySelectorAll('[data-history-serial]').forEach(button => button.onclick = () => openSerialHistory(button.dataset.historySerial));
   document.querySelectorAll('[data-delete-serial]').forEach(button => button.onclick = () => deleteSerialItem(button.dataset.deleteSerial));
+  document.querySelectorAll('[data-edit-serial]').forEach(button => button.onclick = () => openSerialEdit(button.dataset.editSerial));
 }
 
 function renderLaboratory() {
@@ -1458,6 +1460,26 @@ async function deleteSerialItem(id) {
   $('#serial-history-dialog').close();
   renderSerialPage();
   alert('Unidade excluída com sucesso.');
+}
+
+function openSerialEdit(id) {
+  if (!['admin', 'operador'].includes(currentUser?.role)) return alert('Apenas administradores e operadores podem editar unidades.');
+  const item = state.serialItems.find(entry => entry.id === id);
+  if (!item) return;
+  const products = activeProducts().filter(entry => entry.tracking_mode === 'serializado');
+  $('#edit-serial-product').innerHTML = products.map(entry => `<option value="${entry.id}">${esc(entry.name)} (${esc(entry.code)})</option>`).join('');
+  $('#edit-serial-product').value = item.product_id;
+  $('#edit-serial-location').innerHTML = '<option value="">Almoxarifado central</option>' + state.locations.filter(entry => entry.active !== false).map(entry => `<option value="${entry.id}">${esc(entry.name)}</option>`).join('');
+  $('#edit-serial-id').value = item.id;
+  $('#edit-serial-number').value = item.serial_number || '';
+  $('#edit-serial-mac').value = item.mac_address || '';
+  $('#edit-serial-asset-tag').value = item.asset_tag || '';
+  $('#edit-serial-status').value = item.status || 'disponivel';
+  $('#edit-serial-location').value = item.current_location_id || '';
+  $('#edit-serial-customer').value = item.customer_name || '';
+  $('#edit-serial-customer-reference').value = item.customer_reference || '';
+  $('#edit-serial-notes').value = item.notes || '';
+  $('#edit-serial-dialog').showModal();
 }
 
 function renderLoans() {
@@ -2431,6 +2453,29 @@ $('#serial-form').onsubmit = async event => {
   });
   if (error) return alert(error.message);
   event.target.reset(); $('#serial-add-stock').checked = true; updateSerialStockOption(); $('#serial-dialog').close(); await load(); view('serials');
+};
+
+$('#edit-serial-form').onsubmit = async event => {
+  event.preventDefault();
+  if (!['admin', 'operador'].includes(currentUser?.role)) return alert('Apenas administradores e operadores podem editar unidades.');
+  const id = $('#edit-serial-id').value;
+  const payload = {
+    product_id: $('#edit-serial-product').value,
+    serial_number: $('#edit-serial-number').value.trim() || null,
+    mac_address: $('#edit-serial-mac').value.trim() || null,
+    asset_tag: $('#edit-serial-asset-tag').value.trim() || null,
+    status: $('#edit-serial-status').value,
+    current_location_id: $('#edit-serial-location').value || null,
+    customer_name: $('#edit-serial-customer').value.trim() || null,
+    customer_reference: $('#edit-serial-customer-reference').value.trim() || null,
+    notes: $('#edit-serial-notes').value.trim() || null,
+    updated_at: new Date().toISOString()
+  };
+  const { error } = await supabase.from('serial_items').update(payload).eq('id', id);
+  if (error) return alert(error.message);
+  $('#edit-serial-dialog').close();
+  await load();
+  view('serials');
 };
 
 $('#serial-transfer-form').onsubmit = async event => {
