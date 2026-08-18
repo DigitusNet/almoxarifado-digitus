@@ -106,6 +106,21 @@ main{padding:20px 38px 52px 68px}.topbar{min-height:39px;margin-bottom:14px;padd
 @media(max-width:850px){.side-rail{display:none}.sidebar{height:auto;min-height:38px;align-items:center}.sidebar .nav-link{font-size:10px;padding:5px 8px}.sidebar .nav-link span{font-size:10px}.brand-lockup .wordmark{width:90px}main{padding:18px 16px 36px}.cards{grid-template-columns:repeat(2,1fr)}}
 @media(max-width:620px){.sidebar{overflow-x:auto}.sidebar .nav-link{font-size:0;padding:7px 8px}.sidebar .nav-link span{font-size:0}.sidebar .nav-link:first-letter{font-size:14px}.brand-lockup .wordmark{width:73px}.cards{grid-template-columns:1fr 1fr}.metric,.metric.warning{min-height:92px}.topbar{margin-bottom:12px}}
 
+/* Navegação compacta: os rótulos permanecem completos e não dependem de rolagem. */
+@media(min-width:851px){
+  .sidebar{height:auto;min-height:38px;padding:3px 8px;gap:6px}
+  .brand-lockup .wordmark{width:92px;max-height:23px}
+  .sidebar nav{gap:3px;overflow:visible;flex-wrap:nowrap}
+  .sidebar .nav-link{padding:3px 6px;font-size:9px;line-height:16px}
+  .sidebar .nav-link span{margin-left:2px}
+  .sidebar-footer{margin-left:auto}
+  .account-button{max-width:190px}
+}
+@media(min-width:851px) and (max-width:1450px){
+  .sidebar{align-items:flex-start;flex-wrap:wrap}
+  .sidebar nav{flex:1 1 720px;flex-wrap:wrap;overflow:visible}
+}
+
 /* Quadro operacional do Painel, seguindo a distribuição em quatro blocos do modelo enviado. */
 .dashboard-operations{display:grid;grid-template-columns:1fr 1fr;gap:4px;margin-top:4px}
 .dashboard-operation-panel{min-height:212px;padding:0;border:0;border-radius:4px;background:#f8fafb;box-shadow:none;overflow:hidden}
