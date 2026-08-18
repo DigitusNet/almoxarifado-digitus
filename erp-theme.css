@@ -121,6 +121,18 @@ main{padding:20px 38px 52px 68px}.topbar{min-height:39px;margin-bottom:14px;padd
   .sidebar nav{flex:1 1 720px;flex-wrap:wrap;overflow:visible}
 }
 
+/* Reserva espaço para o perfil e para as notificações, evitando sobreposição do último menu. */
+@media(min-width:851px){
+  .sidebar nav{gap:2px}
+  .sidebar .nav-link{padding-left:5px;padding-right:5px}
+  .notifications-wrap{margin-left:3px}
+  .notification-button{width:34px;height:34px}
+  .account-button{max-width:158px;padding:3px 6px 3px 4px;gap:5px}
+  .account-avatar{width:25px;height:25px;flex-basis:25px;font-size:10px}
+  .account-button-name{font-size:10px}
+  .account-chevron{font-size:13px}
+}
+
 /* Quadro operacional do Painel, seguindo a distribuição em quatro blocos do modelo enviado. */
 .dashboard-operations{display:grid;grid-template-columns:1fr 1fr;gap:4px;margin-top:4px}
 .dashboard-operation-panel{min-height:212px;padding:0;border:0;border-radius:4px;background:#f8fafb;box-shadow:none;overflow:hidden}
