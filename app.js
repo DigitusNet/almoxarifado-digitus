@@ -1505,7 +1505,7 @@ function renderLoans() {
 }
 
 function renderClientLoans() {
-  const table = $('#client-loans-table'), clientLoanItem = $('#client-loan-item');
+  const table = $('#client-loans-table'), clientLoanItem = $('#client-loan-item'), clientLoanSearch = $('#client-loan-search');
   if (!table || !clientLoanItem) return;
   const activeLoans = state.clientLoans.filter(loan => !loan.returned_at);
   $('#open-client-loan-count').textContent = `${activeLoans.length} em aberto`;
@@ -1520,11 +1520,24 @@ function renderClientLoans() {
     }).join('') || '<tr><td colspan="7" class="empty">Nenhum equipamento está emprestado a cliente.</td></tr>';
   }
 
-  const loanableItems = state.serialItems.filter(item => item.status === 'disponivel');
-  clientLoanItem.innerHTML = '<option value="">Selecione a unidade pelo MAC</option>' + loanableItems.map(item => {
+  const selectedItem = clientLoanItem.value;
+  const search = clientLoanSearch?.value.trim().toLowerCase() || '';
+  const normalizedSearch = search.replace(/[^a-z0-9]/g, '');
+  const loanableItems = state.serialItems.filter(item => {
+    if (item.status !== 'disponivel' || !search) return false;
+    const identifiers = [item.mac_address, item.serial_number, item.asset_tag].map(value => String(value || '').toLowerCase());
+    return identifiers.some(value => value.includes(search) || value.replace(/[^a-z0-9]/g, '').includes(normalizedSearch));
+  });
+  const placeholder = !search
+    ? 'Digite ou leia o MAC / serial acima'
+    : loanableItems.length
+      ? 'Selecione a unidade encontrada'
+      : 'Nenhuma unidade disponível encontrada';
+  clientLoanItem.innerHTML = `<option value="">${placeholder}</option>` + loanableItems.map(item => {
     const itemProduct = product(item.product_id);
     return `<option value="${item.id}">${esc(itemProduct?.name || 'Equipamento')} · MAC: ${esc(item.mac_address || '—')} · Serial: ${esc(item.serial_number || '—')}</option>`;
   }).join('');
+  if (loanableItems.some(item => item.id === selectedItem)) clientLoanItem.value = selectedItem;
   document.querySelectorAll('[data-return-client-loan]').forEach(button => button.onclick = () => openClientLoanReturn(button.dataset.returnClientLoan));
 }
 
@@ -2120,6 +2133,7 @@ $('#product-status-filter').onchange = () => { state.productFilter = 'all'; rend
 $('#epi-status-filter').onchange = renderEpis;
 $('#serial-search').oninput = renderSerials;
 $('#lab-search').oninput = renderLaboratory;
+$('#client-loan-search').oninput = renderClientLoans;
 document.querySelectorAll('[data-history-filter]').forEach(element => { element.oninput = renderMovement; element.onchange = renderMovement; });
 $('#clear-history-filters').onclick = () => { document.querySelectorAll('[data-history-filter]').forEach(element => { element.value = ''; }); renderMovement(); };
 document.querySelectorAll('[data-statement-filter]').forEach(element => { element.oninput = renderStatement; element.onchange = renderStatement; });
