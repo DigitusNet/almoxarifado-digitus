@@ -1957,10 +1957,9 @@ function openProductEditor(id) {
 
 function updateEditStockControl(trackingMode = $('#edit-tracking').value) {
   const serializado = trackingMode === 'serializado';
-  $('#edit-stock').disabled = serializado;
   $('#edit-stock-help').textContent = serializado
-    ? 'Itens por Serial / MAC têm o saldo calculado pelas unidades cadastradas. Para corrigir, cadastre, mova ou exclua a unidade na tela Serial / MAC.'
-    : 'Use este campo apenas para corrigir o saldo de itens controlados por quantidade.';
+    ? 'Este saldo é o total físico do item, inclusive unidades que ainda não possuem Serial/MAC cadastrado. Ao registrar um MAC que já está neste total, desmarque a opção para não somar novamente.'
+    : 'Use este campo para corrigir o saldo físico do item quando necessário.';
 }
 
 function setSelectValue(selector, value) {
@@ -2231,10 +2230,11 @@ $('#edit-product-form').onsubmit = async event => {
   let uploadedImagePath = null;
   try {
     const previousProduct = product(id);
-    const updatedProduct = { ...collectProductData('edit'), minimum_stock:Number($('#edit-minimum').value) };
-    if (previousProduct?.tracking_mode !== 'serializado' && updatedProduct.tracking_mode !== 'serializado') {
-      updatedProduct.stock = Number($('#edit-stock').value);
-    }
+    const updatedProduct = {
+      ...collectProductData('edit'),
+      stock: Number($('#edit-stock').value),
+      minimum_stock: Number($('#edit-minimum').value)
+    };
     const imageFile = $('#edit-image').files?.[0];
     let nextImagePath = previousImagePath;
     if (imageFile) {
