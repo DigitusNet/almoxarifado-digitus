@@ -1949,9 +1949,18 @@ function openProductEditor(id) {
   $('#edit-stock').value = item.stock;
   $('#edit-minimum').value = item.minimum;
   $('#edit-average-cost').value = Number(item.average_cost || 0).toFixed(2);
+  updateEditStockControl(item.tracking_mode || 'quantidade');
   $('#edit-remove-image').dataset.removed = 'false';
   setProductImagePreview('edit', editingProductImagePath, true);
   $('#edit-product-dialog').showModal();
+}
+
+function updateEditStockControl(trackingMode = $('#edit-tracking').value) {
+  const serializado = trackingMode === 'serializado';
+  $('#edit-stock').disabled = serializado;
+  $('#edit-stock-help').textContent = serializado
+    ? 'Itens por Serial / MAC têm o saldo calculado pelas unidades cadastradas. Para corrigir, cadastre, mova ou exclua a unidade na tela Serial / MAC.'
+    : 'Use este campo apenas para corrigir o saldo de itens controlados por quantidade.';
 }
 
 function setSelectValue(selector, value) {
@@ -2168,6 +2177,7 @@ updateSerialStockOption();
 $('#serial-transfer-action').onchange = updateSerialTransferForm;
 $('#loan-type').onchange = updateLoanTypeForm;
 $('#laboratory-action').onchange = updateLaboratoryForm;
+$('#edit-tracking').onchange = () => updateEditStockControl();
 updateLoanTypeForm();
 updateLaboratoryForm();
 
@@ -2220,7 +2230,11 @@ $('#edit-product-form').onsubmit = async event => {
   const previousImagePath = editingProductImagePath;
   let uploadedImagePath = null;
   try {
+    const previousProduct = product(id);
     const updatedProduct = { ...collectProductData('edit'), minimum_stock:Number($('#edit-minimum').value) };
+    if (previousProduct?.tracking_mode !== 'serializado' && updatedProduct.tracking_mode !== 'serializado') {
+      updatedProduct.stock = Number($('#edit-stock').value);
+    }
     const imageFile = $('#edit-image').files?.[0];
     let nextImagePath = previousImagePath;
     if (imageFile) {
