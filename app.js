@@ -1,10 +1,9 @@
 import { createClient } from '@supabase/supabase-js';
 
 const supabase = createClient(import.meta.env.VITE_SUPABASE_URL, import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY);
-let state = { products: [], movements: [], users: [], usersLoadNote: '', collaborators: [], vehicles: [], locations: [], suppliers: [], serialItems: [], serialMovements: [], toolLoans: [], clientLoans: [], clientLoansLoadError: '', digitalSignatures: [], digitalSignaturesLoadError: '', receipts: [], receiptItems: [], inventorySessions: [], inventoryCounts: [], reminders: [], materialRequests: [], productFilter: 'all' };
+let state = { products: [], movements: [], users: [], usersLoadNote: '', collaborators: [], vehicles: [], locations: [], suppliers: [], serialItems: [], serialMovements: [], toolLoans: [], clientLoans: [], clientLoansLoadError: '', receipts: [], receiptItems: [], inventorySessions: [], inventoryCounts: [], reminders: [], materialRequests: [], productFilter: 'all' };
 let currentUser = null;
 let passwordRecoveryMode = false;
-let digitalSignatureHasStroke = false;
 const passwordRecoveryStorageKey = 'digitus-password-recovery';
 const $ = selector => document.querySelector(selector);
 const esc = value => String(value ?? '').replace(/[&<>'"]/g, char => ({ '&':'&amp;','<':'&lt;','>':'&gt;',"'":'&#039;','"':'&quot;' }[char]));
@@ -793,7 +792,7 @@ function render() {
   renderDashboardStockValue(activeProducts());
   renderDashboardOperations();
   renderNotifications();
-  renderProducts(); renderEpis(); renderMovement(); renderUsers(); renderRegistry(); renderReceipts(); renderSerials(); renderLaboratory(); renderLoans(); renderClientLoans(); renderDigitalSignatures(); renderInventory(); renderStatement();
+  renderProducts(); renderEpis(); renderMovement(); renderUsers(); renderRegistry(); renderReceipts(); renderSerials(); renderLaboratory(); renderLoans(); renderClientLoans(); renderInventory(); renderStatement();
 }
 
 function renderDashboardOperations() {
@@ -1529,132 +1528,6 @@ function renderClientLoans() {
   document.querySelectorAll('[data-return-client-loan]').forEach(button => button.onclick = () => openClientLoanReturn(button.dataset.returnClientLoan));
 }
 
-function signatureLoanDetails(loanId) {
-  const loan = state.clientLoans.find(item => item.id === loanId);
-  const serialItem = loan && state.serialItems.find(item => item.id === loan.serial_item_id);
-  const itemProduct = serialItem && product(serialItem.product_id);
-  return { loan, serialItem, itemProduct };
-}
-
-function renderDigitalSignatures() {
-  const table = $('#digital-signatures-table');
-  if (!table) return;
-  if (state.digitalSignaturesLoadError) {
-    table.innerHTML = '<tr><td colspan="6" class="empty">O teste de assinaturas digitais ainda não foi ativado no banco de dados.</td></tr>';
-    return;
-  }
-  table.innerHTML = state.digitalSignatures.map(signature => {
-    const { loan, serialItem, itemProduct } = signatureLoanDetails(signature.client_loan_id);
-    const registeredBy = state.users.find(user => user.id === signature.signed_by)?.full_name || (currentUser?.id === signature.signed_by ? (currentUser?.name || currentUser?.email) : '—');
-    return `<tr><td><b>${esc(itemProduct?.name || 'Equipamento')}</b><small>MAC: ${esc(serialItem?.mac_address || '—')} · Serial: ${esc(serialItem?.serial_number || '—')}</small></td><td><b>${esc(signature.signer_name || loan?.customer_name || '—')}</b><small>${esc(signature.signer_document || loan?.customer_document || 'Documento não informado')}</small></td><td>${date(signature.signed_at)}</td><td>${esc(registeredBy || '—')}</td><td><span class="badge ok">Assinado</span></td><td><div class="table-actions"><button class="secondary-button" data-print-digital-signature="${signature.id}">Gerar PDF</button></div></td></tr>`;
-  }).join('') || '<tr><td colspan="6" class="empty">Nenhuma assinatura digital registrada.</td></tr>';
-  document.querySelectorAll('[data-print-digital-signature]').forEach(button => button.onclick = () => printDigitalSignature(button.dataset.printDigitalSignature));
-}
-
-function updateDigitalSignatureLoanDetails() {
-  const { loan, serialItem, itemProduct } = signatureLoanDetails($('#digital-signature-loan').value);
-  const details = $('#digital-signature-loan-details');
-  if (!loan) {
-    details.textContent = 'Selecione um comodato para visualizar o equipamento e os dados do cliente.';
-    return;
-  }
-  details.innerHTML = `<b>${esc(itemProduct?.name || 'Equipamento')}</b>Cliente: ${esc(loan.customer_name)}<br>MAC: ${esc(serialItem?.mac_address || '—')} · Serial: ${esc(serialItem?.serial_number || '—')} · Patrimônio: ${esc(serialItem?.asset_tag || '—')}`;
-  $('#digital-signature-signer-name').value = loan.customer_name || '';
-  $('#digital-signature-signer-document').value = loan.customer_document || '';
-}
-
-function prepareDigitalSignatureCanvas() {
-  const canvas = $('#digital-signature-canvas');
-  if (!canvas) return;
-  const rect = canvas.getBoundingClientRect();
-  const ratio = window.devicePixelRatio || 1;
-  canvas.width = Math.max(1, Math.floor(rect.width * ratio));
-  canvas.height = Math.max(1, Math.floor(rect.height * ratio));
-  const context = canvas.getContext('2d');
-  context.setTransform(ratio, 0, 0, ratio, 0, 0);
-  context.lineCap = 'round';
-  context.lineJoin = 'round';
-  context.strokeStyle = '#15324e';
-  context.lineWidth = 2.4;
-  digitalSignatureHasStroke = false;
-}
-
-function bindDigitalSignatureCanvas() {
-  const canvas = $('#digital-signature-canvas');
-  if (!canvas || canvas.dataset.bound) return;
-  canvas.dataset.bound = 'true';
-  let drawing = false;
-  let lastPoint = null;
-  const point = event => {
-    const rect = canvas.getBoundingClientRect();
-    return { x: event.clientX - rect.left, y: event.clientY - rect.top };
-  };
-  canvas.addEventListener('pointerdown', event => {
-    drawing = true;
-    lastPoint = point(event);
-    canvas.setPointerCapture?.(event.pointerId);
-    event.preventDefault();
-  });
-  canvas.addEventListener('pointermove', event => {
-    if (!drawing || !lastPoint) return;
-    const nextPoint = point(event);
-    const context = canvas.getContext('2d');
-    context.beginPath();
-    context.moveTo(lastPoint.x, lastPoint.y);
-    context.lineTo(nextPoint.x, nextPoint.y);
-    context.stroke();
-    lastPoint = nextPoint;
-    digitalSignatureHasStroke = true;
-    event.preventDefault();
-  });
-  const finish = event => {
-    drawing = false;
-    lastPoint = null;
-    if (event) event.preventDefault();
-  };
-  canvas.addEventListener('pointerup', finish);
-  canvas.addEventListener('pointercancel', finish);
-}
-
-function clearDigitalSignatureCanvas() {
-  prepareDigitalSignatureCanvas();
-}
-
-function openDigitalSignature() {
-  if (state.clientLoansLoadError) return alert('O controle de comodatos ainda não foi ativado no banco de dados.');
-  if (state.digitalSignaturesLoadError) return alert('Execute o arquivo digital-signatures.sql no SQL Editor do Supabase antes de usar o teste de assinaturas.');
-  const signedLoanIds = new Set(state.digitalSignatures.map(item => item.client_loan_id));
-  const availableLoans = state.clientLoans.filter(loan => !loan.returned_at && !signedLoanIds.has(loan.id));
-  if (!availableLoans.length) return alert('Não há comodatos em aberto sem assinatura digital.');
-  $('#digital-signature-form').reset();
-  $('#digital-signature-error').hidden = true;
-  $('#digital-signature-loan').innerHTML = '<option value="">Selecione o comodato</option>' + availableLoans.map(loan => {
-    const { serialItem, itemProduct } = signatureLoanDetails(loan.id);
-    return `<option value="${loan.id}">${esc(itemProduct?.name || 'Equipamento')} · MAC: ${esc(serialItem?.mac_address || '—')} · ${esc(loan.customer_name)}</option>`;
-  }).join('');
-  $('#digital-signature-loan').value = availableLoans[0].id;
-  updateDigitalSignatureLoanDetails();
-  $('#digital-signature-dialog').showModal();
-  requestAnimationFrame(() => {
-    bindDigitalSignatureCanvas();
-    prepareDigitalSignatureCanvas();
-  });
-}
-
-function printDigitalSignature(id, printWindow = null) {
-  const signature = state.digitalSignatures.find(item => item.id === id);
-  if (!signature) return alert('Assinatura não encontrada. Atualize a página e tente novamente.');
-  const { loan, serialItem, itemProduct } = signatureLoanDetails(signature.client_loan_id);
-  const output = printWindow || window.open('', '_blank', 'width=900,height=1000');
-  if (!output) return alert('Permita a abertura de janelas para gerar o PDF.');
-  const signedAt = new Date(signature.signed_at).toLocaleString('pt-BR');
-  const customer = signature.signer_name || loan?.customer_name || 'Não informado';
-  const documentNumber = signature.signer_document || loan?.customer_document || 'Não informado';
-  output.document.open();
-  output.document.write(`<!doctype html><html lang="pt-BR"><head><meta charset="utf-8"><title>Termo de comodato assinado</title><style>body{font-family:Arial,sans-serif;color:#162d47;margin:44px;line-height:1.55}.header{border-bottom:3px solid #d87733;padding-bottom:14px;margin-bottom:28px}.header h1{font-size:24px;margin:0 0 5px}.header p{margin:0;color:#526d84}.grid{display:grid;grid-template-columns:1fr 1fr;gap:18px;margin:22px 0}.box{border:1px solid #dbe5ee;border-radius:8px;padding:14px}.box b{display:block;font-size:12px;text-transform:uppercase;color:#53728d;margin-bottom:3px}.text{margin:26px 0}.signature{margin-top:34px;max-width:360px;border-bottom:1px solid #1a3048;padding-bottom:8px}.signature img{max-width:100%;height:110px;object-fit:contain;display:block}.footer{font-size:11px;color:#637b8f;margin-top:32px;border-top:1px solid #dbe5ee;padding-top:12px}@media print{body{margin:24px}}</style></head><body><div class="header"><h1>Termo de comodato — assinatura digital</h1><p>Digitus Net · Almoxarifado</p></div><div class="grid"><div class="box"><b>Cliente</b>${esc(customer)}<br>${esc(documentNumber)}${loan?.customer_phone ? `<br>${esc(loan.customer_phone)}` : ''}</div><div class="box"><b>Equipamento cedido</b>${esc(itemProduct?.name || 'Equipamento')}<br>MAC: ${esc(serialItem?.mac_address || '—')}<br>Serial: ${esc(serialItem?.serial_number || '—')}<br>Patrimônio: ${esc(serialItem?.asset_tag || '—')}</div></div><div class="grid"><div class="box"><b>Contrato / OS</b>${esc(loan?.customer_reference || 'Não informado')}</div><div class="box"><b>Data da assinatura</b>${esc(signedAt)}</div></div><p class="text">Declaro que recebi o equipamento acima em regime de comodato e me responsabilizo por sua guarda e devolução conforme as condições acordadas com a Digitus Net.</p><div class="signature"><img src="${signature.signature_data}" alt="Assinatura do cliente"><strong>${esc(customer)}</strong><br><small>Assinatura registrada digitalmente em ${esc(signedAt)}</small></div><p class="footer">Registro eletrônico de assinatura para fins operacionais. Para situações que exijam certificação digital qualificada, utilize uma solução compatível com ICP-Brasil.</p><script>window.onload=()=>window.print();<\/script></body></html>`);
-  output.document.close();
-}
-
 function updateLoanTypeForm() {
   const temporary = $('#loan-type').value === 'temporario';
   $('#loan-due-group').hidden = !temporary;
@@ -1810,7 +1683,7 @@ async function loadUsers() {
 }
 
 async function load() {
-  const [products, movements, collaborators, vehicles, locations, suppliers, serialItems, serialMovements, toolLoans, clientLoans, digitalSignatures, receipts, receiptItems, inventorySessions, inventoryCounts, reminders, materialRequests] = await Promise.all([
+  const [products, movements, collaborators, vehicles, locations, suppliers, serialItems, serialMovements, toolLoans, clientLoans, receipts, receiptItems, inventorySessions, inventoryCounts, reminders, materialRequests] = await Promise.all([
     supabase.from('products').select('*').order('name'),
     supabase.from('movements').select('*').order('created_at', { ascending: false }),
     supabase.from('collaborators').select('*').order('name'),
@@ -1821,7 +1694,6 @@ async function load() {
     supabase.from('serial_movements').select('*').order('created_at', { ascending: false }),
     supabase.from('tool_loans').select('*').order('issued_at', { ascending: false }),
     supabase.from('client_loans').select('*').order('issued_at', { ascending: false }),
-    supabase.from('digital_signatures').select('*').order('signed_at', { ascending: false }),
     supabase.from('receipts').select('*').order('received_at', { ascending: false }),
     supabase.from('receipt_items').select('*').order('created_at', { ascending: false }),
     supabase.from('inventory_sessions').select('*').order('started_at', { ascending: false }),
@@ -1841,8 +1713,6 @@ async function load() {
   state.toolLoans = toolLoans.data;
   state.clientLoans = clientLoans.error ? [] : clientLoans.data;
   state.clientLoansLoadError = clientLoans.error ? clientLoans.error.message : '';
-  state.digitalSignatures = digitalSignatures.error ? [] : digitalSignatures.data;
-  state.digitalSignaturesLoadError = digitalSignatures.error ? digitalSignatures.error.message : '';
   state.receipts = receipts.data;
   state.receiptItems = receiptItems.data;
   state.inventorySessions = inventorySessions.data;
@@ -1968,7 +1838,7 @@ function view(id, options = {}) {
   document.querySelectorAll('.view').forEach(element => element.classList.toggle('active', element.id === id));
   document.querySelectorAll('.nav-link').forEach(button => button.classList.toggle('active', button.dataset.view === id));
   document.querySelector('main').classList.toggle('dashboard-mode', id === 'dashboard');
-  $('#page-title').textContent = ({ dashboard:'Visão geral', products:'Produtos', epis:'Controle de EPIs', movement:'Movimentações', receipts:'Recebimentos', serials:'Serial / MAC', laboratory:'Oficina', loans:'Empréstimos', 'client-loans':'Comodatos', 'digital-signatures':'Assinaturas digitais', inventory:'Conferência de estoque', registry:'Cadastros', users:'Usuários', statement:'Extrato financeiro' })[id];
+  $('#page-title').textContent = ({ dashboard:'Visão geral', products:'Produtos', epis:'Controle de EPIs', movement:'Movimentações', receipts:'Recebimentos', serials:'Serial / MAC', laboratory:'Oficina', loans:'Empréstimos', 'client-loans':'Comodatos', inventory:'Conferência de estoque', registry:'Cadastros', users:'Usuários', statement:'Extrato financeiro' })[id];
 }
 
 document.querySelector('main').classList.add('dashboard-mode');
@@ -2090,7 +1960,7 @@ async function start(session) {
   document.querySelectorAll('[data-manager-only]').forEach(element => { element.hidden = !canManage; });
   // As telas continuam acessíveis no computador compartilhado do almoxarifado.
   // As ações administrativas ainda obedecem às permissões dos botões e do banco.
-  ['users', 'receipts', 'serials', 'laboratory', 'loans', 'client-loans', 'digital-signatures', 'inventory', 'registry', 'epis'].forEach(id => { $("#" + id).hidden = false; });
+  ['users', 'receipts', 'serials', 'laboratory', 'loans', 'client-loans', 'inventory', 'registry', 'epis'].forEach(id => { $("#" + id).hidden = false; });
   $('#users').hidden = !isAdmin;
   $('#statement').hidden = !isAdmin;
   $('#add-user').hidden = !isAdmin;
@@ -2138,9 +2008,6 @@ $('#add-client-loan').onclick = () => {
   renderClientLoans();
   $('#client-loan-dialog').showModal();
 };
-$('#add-digital-signature').onclick = openDigitalSignature;
-$('#digital-signature-loan').onchange = updateDigitalSignatureLoanDetails;
-$('#clear-digital-signature').onclick = clearDigitalSignatureCanvas;
 $('#start-inventory').onclick = () => {
   if (activeInventory()) return alert('Já existe uma conferência em aberto. Finalize-a antes de iniciar outra.');
   $('#inventory-start-form').reset();
@@ -2694,35 +2561,6 @@ $('#return-client-loan-form').onsubmit = async event => {
   $('#return-client-loan-dialog').close();
   await load();
   view('client-loans');
-};
-
-$('#digital-signature-form').onsubmit = async event => {
-  event.preventDefault();
-  const errorElement = $('#digital-signature-error');
-  errorElement.hidden = true;
-  if (!digitalSignatureHasStroke) {
-    errorElement.textContent = 'Peça para o cliente assinar no quadro antes de confirmar.';
-    errorElement.hidden = false;
-    return;
-  }
-  const signatureWindow = window.open('', '_blank', 'width=900,height=1000');
-  const { data, error } = await supabase.from('digital_signatures').insert({
-    client_loan_id: $('#digital-signature-loan').value,
-    signer_name: $('#digital-signature-signer-name').value.trim(),
-    signer_document: $('#digital-signature-signer-document').value.trim() || null,
-    signature_data: $('#digital-signature-canvas').toDataURL('image/png'),
-    signed_by: currentUser.id
-  }).select().single();
-  if (error) {
-    signatureWindow?.close();
-    errorElement.textContent = error.message;
-    errorElement.hidden = false;
-    return;
-  }
-  $('#digital-signature-dialog').close();
-  await load();
-  view('digital-signatures');
-  printDigitalSignature(data.id, signatureWindow);
 };
 
 $('#inventory-start-form').onsubmit = async event => {
