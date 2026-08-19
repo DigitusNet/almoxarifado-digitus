@@ -1385,9 +1385,10 @@ function openSerialTransfer(id) {
   $('#serial-transfer-form').reset();
   $('#serial-transfer-id').value = item.id;
   $('#serial-transfer-item').innerHTML = `<b>${esc(itemProduct?.name || 'Item')}</b><span>Serial: ${esc(item.serial_number || '—')} · MAC: ${esc(item.mac_address || '—')} · Status atual: ${esc(serialStatusName(item.status))}</span>`;
+  const canInstallAtCustomer = ['disponivel', 'com_colaborador', 'com_veiculo'].includes(item.status);
   const actions = item.status === 'disponivel'
     ? [['colaborador', 'Entregar para colaborador'], ['veiculo', 'Carregar em veículo'], ['instalar', 'Instalar no cliente'], ['laboratorio', 'Enviar à oficina'], ['baixar', 'Baixar / sucata']]
-    : [ ...(item.status !== 'laboratorio' ? [['laboratorio', 'Enviar à oficina']] : []), ['retornar', 'Retornar ao almoxarifado'], ['baixar', 'Baixar / sucata'] ];
+    : [ ...(canInstallAtCustomer ? [['instalar', 'Instalar no cliente']] : []), ...(item.status !== 'laboratorio' ? [['laboratorio', 'Enviar à oficina']] : []), ['retornar', 'Retornar ao almoxarifado'], ['baixar', 'Baixar / sucata'] ];
   $('#serial-transfer-action').innerHTML = actions.map(([value, label]) => `<option value="${value}">${label}</option>`).join('');
   populateSerialTransferOptions();
   updateSerialTransferForm();
@@ -1405,7 +1406,7 @@ function updateSerialTransferForm() {
   const messages = {
     colaborador: 'A unidade sairá do almoxarifado e ficará vinculada ao colaborador selecionado.',
     veiculo: 'A unidade sairá do almoxarifado e ficará na carga do veículo selecionado.',
-    instalar: 'A unidade será marcada como instalada no cliente. Informe a OS quando disponível.',
+    instalar: 'A unidade será marcada como instalada no cliente. Ela pode sair diretamente do colaborador ou veículo, sem retornar ao almoxarifado. Informe a OS quando disponível.',
     laboratorio: 'A unidade deixará o saldo disponível e ficará na oficina.',
     retornar: 'A unidade voltará ao Almoxarifado Central e entrará novamente no saldo disponível.',
     baixar: 'A unidade será baixada como sucata/indisponível e não poderá mais ser movimentada.'
@@ -1469,15 +1470,10 @@ function openSerialEdit(id) {
   const products = activeProducts().filter(entry => entry.tracking_mode === 'serializado');
   $('#edit-serial-product').innerHTML = products.map(entry => `<option value="${entry.id}">${esc(entry.name)} (${esc(entry.code)})</option>`).join('');
   $('#edit-serial-product').value = item.product_id;
-  $('#edit-serial-location').innerHTML = '<option value="">Almoxarifado central</option>' + state.locations.filter(entry => entry.active !== false).map(entry => `<option value="${entry.id}">${esc(entry.name)}</option>`).join('');
   $('#edit-serial-id').value = item.id;
   $('#edit-serial-number').value = item.serial_number || '';
   $('#edit-serial-mac').value = item.mac_address || '';
   $('#edit-serial-asset-tag').value = item.asset_tag || '';
-  $('#edit-serial-status').value = item.status || 'disponivel';
-  $('#edit-serial-location').value = item.current_location_id || '';
-  $('#edit-serial-customer').value = item.customer_name || '';
-  $('#edit-serial-customer-reference').value = item.customer_reference || '';
   $('#edit-serial-notes').value = item.notes || '';
   $('#edit-serial-dialog').showModal();
 }
@@ -2473,19 +2469,14 @@ $('#edit-serial-form').onsubmit = async event => {
   event.preventDefault();
   if (!['admin', 'operador'].includes(currentUser?.role)) return alert('Apenas administradores e operadores podem editar unidades.');
   const id = $('#edit-serial-id').value;
-  const payload = {
-    product_id: $('#edit-serial-product').value,
-    serial_number: $('#edit-serial-number').value.trim() || null,
-    mac_address: $('#edit-serial-mac').value.trim() || null,
-    asset_tag: $('#edit-serial-asset-tag').value.trim() || null,
-    status: $('#edit-serial-status').value,
-    current_location_id: $('#edit-serial-location').value || null,
-    customer_name: $('#edit-serial-customer').value.trim() || null,
-    customer_reference: $('#edit-serial-customer-reference').value.trim() || null,
-    notes: $('#edit-serial-notes').value.trim() || null,
-    updated_at: new Date().toISOString()
-  };
-  const { error } = await supabase.from('serial_items').update(payload).eq('id', id);
+  const { error } = await supabase.rpc('edit_serial_item', {
+    p_serial_item_id: id,
+    p_product_id: $('#edit-serial-product').value,
+    p_serial_number: $('#edit-serial-number').value.trim() || null,
+    p_mac_address: $('#edit-serial-mac').value.trim() || null,
+    p_asset_tag: $('#edit-serial-asset-tag').value.trim() || null,
+    p_notes: $('#edit-serial-notes').value.trim() || null
+  });
   if (error) return alert(error.message);
   $('#edit-serial-dialog').close();
   await load();
