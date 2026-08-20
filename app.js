@@ -6,6 +6,16 @@ let currentUser = null;
 let passwordRecoveryMode = false;
 const passwordRecoveryStorageKey = 'digitus-password-recovery';
 const $ = selector => document.querySelector(selector);
+
+function addPackageUnitOption(root = document) {
+  root.querySelectorAll('select#new-unit, select#edit-unit, select[data-receipt-new-unit]').forEach(select => {
+    if ([...select.options].some(option => option.value === 'pacote')) return;
+    const option = document.createElement('option');
+    option.value = 'pacote';
+    option.textContent = 'Pacote';
+    select.append(option);
+  });
+}
 const esc = value => String(value ?? '').replace(/[&<>'"]/g, char => ({ '&':'&amp;','<':'&lt;','>':'&gt;',"'":'&#039;','"':'&quot;' }[char]));
 const accountAvatarKey = () => currentUser ? `digitus-account-avatar-${currentUser.id}` : '';
 
@@ -793,6 +803,7 @@ function render() {
   renderDashboardOperations();
   renderNotifications();
   renderProducts(); renderEpis(); renderMovement(); renderUsers(); renderRegistry(); renderReceipts(); renderSerials(); renderLaboratory(); renderLoans(); renderClientLoans(); renderInventory(); renderStatement();
+  addPackageUnitOption();
 }
 
 function renderDashboardOperations() {
