@@ -428,32 +428,16 @@ async function readSerialSpreadsheet(event) {
         customerName: cleanSpreadsheetPlaceholder(spreadsheetCell(row, serialSpreadsheetColumns.customer)),
         customerReference: cleanSpreadsheetPlaceholder(spreadsheetCell(row, serialSpreadsheetColumns.customerReference)),
         notes: cleanSpreadsheetPlaceholder(spreadsheetCell(row, serialSpreadsheetColumns.notes)),
-        addToStockRequested: spreadsheetYes(spreadsheetCell(row, serialSpreadsheetColumns.addToStock))
+        addToStock: false
       });
     });
     if (errors.length) throw new Error(`${errors.slice(0, 3).join(' ')}${errors.length > 3 ? ` E mais ${errors.length - 3} erro(s).` : ''}`);
     if (!prepared.length) throw new Error('Nenhuma unidade válida foi encontrada nesta planilha.');
 
-    const incomingByCode = new Map();
-    prepared.forEach(item => {
-      const key = normalizedScanCode(item.productCode);
-      if (!incomingByCode.has(key)) incomingByCode.set(key, []);
-      incomingByCode.get(key).push(item);
-    });
-    incomingByCode.forEach((items, code) => {
-      const existing = productsByCode.get(code);
-      const available = items.filter(item => item.status === 'disponivel' && item.addToStockRequested);
-      const required = Math.max(0, available.length - Number(existing.stock || 0));
-      let remaining = required;
-      items.forEach(item => {
-        item.addToStock = item.status === 'disponivel' && item.addToStockRequested && remaining-- > 0;
-      });
-    });
     pendingSerialImport = prepared;
-    const stockEntries = prepared.filter(item => item.addToStock).length;
     const summary = $('#serial-import-summary');
     summary.hidden = false;
-    summary.innerHTML = `<b>${prepared.length} unidade${prepared.length === 1 ? '' : 's'} pronta${prepared.length === 1 ? '' : 's'} para importar.</b><span>${stockEntries ? `${stockEntries} unidade(s) completarão o saldo atual; as demais já estão contempladas no estoque da planilha.` : 'O saldo atual dos produtos será preservado; as unidades não serão somadas novamente.'}</span>`;
+    summary.innerHTML = `<b>${prepared.length} unidade${prepared.length === 1 ? '' : 's'} pronta${prepared.length === 1 ? '' : 's'} para importar.</b><span>Os identificadores serão cadastrados sem alterar o saldo atual dos produtos.</span>`;
     const preview = $('#serial-import-preview');
     preview.hidden = false;
     const visible = prepared.slice(0, 8);
@@ -2187,15 +2171,6 @@ $('#movement-type').onchange = updateMovementMode;
 $('#movement-holder-type').onchange = updateMovementRecipientPlaceholder;
 updateMovementMode();
 
-function updateSerialStockOption() {
-  const available = $('#serial-status').value === 'disponivel', addToStock = $('#serial-add-stock');
-  addToStock.disabled = !available;
-  if (!available) addToStock.checked = false;
-  $('#serial-stock-help').textContent = available ? 'Marque para dar entrada desta unidade no estoque. Desmarque apenas se ela já estiver incluída no saldo do produto.' : 'Unidades indisponíveis não entram no saldo disponível do almoxarifado.';
-}
-
-$('#serial-status').onchange = updateSerialStockOption;
-updateSerialStockOption();
 $('#serial-transfer-action').onchange = updateSerialTransferForm;
 $('#loan-type').onchange = updateLoanTypeForm;
 $('#laboratory-action').onchange = updateLaboratoryForm;
@@ -2496,10 +2471,10 @@ $('#serial-form').onsubmit = async event => {
     p_customer_name: $('#serial-customer').value || null,
     p_customer_reference: $('#serial-customer-reference').value || null,
     p_notes: $('#serial-notes').value || null,
-    p_add_to_stock: $('#serial-add-stock').checked
+    p_add_to_stock: false
   });
   if (error) return alert(error.message);
-  event.target.reset(); $('#serial-add-stock').checked = true; updateSerialStockOption(); $('#serial-dialog').close(); await load(); view('serials');
+  event.target.reset(); $('#serial-dialog').close(); await load(); view('serials');
 };
 
 $('#edit-serial-form').onsubmit = async event => {
