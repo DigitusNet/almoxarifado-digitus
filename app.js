@@ -624,22 +624,31 @@ function scanCameraFrame(session) {
     });
 }
 
-async function openCodeScanner(target) {
+function openCodeScanner(target) {
   scannerTarget = target;
   stopCodeScanner();
-  const session = ++scannerSession;
   const dialog = $('#code-scanner-dialog');
   $('#scanner-manual-code').value = '';
-  scannerMessage('Solicitando acesso à câmera…');
+  $('#scanner-viewport').hidden = true;
+  $('#scanner-use-camera').disabled = false;
+  scannerMessage('Leitor USB pronto. Aponte para o código; a leitura será enviada automaticamente ao sistema.');
   dialog.showModal();
   $('#scanner-manual-code').focus();
+}
+
+async function startCameraCodeScanner() {
+  stopCodeScanner();
+  const session = ++scannerSession;
+  $('#scanner-viewport').hidden = false;
+  $('#scanner-use-camera').disabled = true;
+  scannerMessage('Solicitando acesso à câmera…');
 
   if (!navigator.mediaDevices?.getUserMedia) {
-    scannerMessage('A câmera não está disponível neste dispositivo. Digite o código ou use um leitor USB abaixo.');
+    scannerMessage('A câmera não está disponível neste dispositivo. Use o leitor USB ou digite o código abaixo.');
     return;
   }
   if (!('BarcodeDetector' in window)) {
-    scannerMessage('A leitura pela câmera é compatível com Chrome e Edge atualizados. Você ainda pode usar leitor USB ou digitar o código abaixo.');
+    scannerMessage('A leitura pela câmera é compatível com Chrome e Edge atualizados. Você ainda pode usar o leitor USB ou digitar o código abaixo.');
     return;
   }
 
@@ -1544,7 +1553,9 @@ function renderClientLoans() {
     const itemProduct = product(item.product_id);
     return `<option value="${item.id}">${esc(itemProduct?.name || 'Equipamento')} · MAC: ${esc(item.mac_address || '—')} · Serial: ${esc(item.serial_number || '—')}</option>`;
   }).join('');
-  if (loanableItems.some(item => item.id === selectedItem)) clientLoanItem.value = selectedItem;
+  const exactMatch = normalizedSearch && loanableItems.find(item => [item.mac_address, item.serial_number, item.asset_tag].some(value => normalizedScanCode(value) === normalizedSearch));
+  if (exactMatch) clientLoanItem.value = exactMatch.id;
+  else if (loanableItems.some(item => item.id === selectedItem)) clientLoanItem.value = selectedItem;
   document.querySelectorAll('[data-return-client-loan]').forEach(button => button.onclick = () => openClientLoanReturn(button.dataset.returnClientLoan));
 }
 
@@ -2016,6 +2027,7 @@ $('#serial-import-file').onchange = readSerialSpreadsheet;
 $('#confirm-serial-import').onclick = confirmSerialImport;
 $('#scan-product-code').onclick = () => openCodeScanner('products');
 $('#scan-movement-code').onclick = () => openCodeScanner('movement');
+$('#scanner-use-camera').onclick = startCameraCodeScanner;
 $('#add-receipt').onclick = openReceiptDialog;
 $('#import-xml').onclick = openXmlImportDialog;
 $('#add-receipt-line').onclick = () => addReceiptLine();
