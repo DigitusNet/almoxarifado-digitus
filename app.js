@@ -549,8 +549,30 @@ function findScannedItem(code) {
   if (!normalized) return null;
   const itemProduct = state.products.find(item => normalizedScanCode(item.code) === normalized);
   if (itemProduct) return { type: 'product', item: itemProduct };
-  const serialItem = state.serialItems.find(item => [item.serial_number, item.mac_address, item.asset_tag].some(value => normalizedScanCode(value) === normalized));
+  const serialItem = state.serialItems.find(item => serialIdentifiers(item).some(value => normalizedScanCode(value) === normalized));
   return serialItem ? { type: 'serial', item: serialItem } : null;
+}
+
+// MAC, serial e patrimônio identificam a mesma unidade rastreável.
+// Mantemos essa lista em um único lugar para o leitor e as buscas não ficarem diferentes.
+const serialIdentifiers = item => [item?.mac_address, item?.serial_number, item?.asset_tag].filter(Boolean);
+
+function matchesSerialIdentifier(item, query) {
+  const search = String(query || '').trim().toLocaleLowerCase('pt-BR');
+  const normalizedSearch = normalizedScanCode(search);
+  if (!search) return true;
+  return serialIdentifiers(item).some(value => {
+    const identifier = String(value).toLocaleLowerCase('pt-BR');
+    return identifier.includes(search) || normalizedScanCode(identifier).includes(normalizedSearch);
+  });
+}
+
+function matchesSerialSearch(item, query) {
+  const search = String(query || '').trim().toLocaleLowerCase('pt-BR');
+  if (!search) return true;
+  const itemProduct = product(item.product_id);
+  const productText = `${itemProduct?.name || ''} ${itemProduct?.code || ''} ${item.customer_name || ''}`.toLocaleLowerCase('pt-BR');
+  return productText.includes(search) || matchesSerialIdentifier(item, search);
 }
 
 function useScannedCode(rawCode) {
@@ -1315,11 +1337,9 @@ function renderSerials() {
   const serialProducts = activeProducts().filter(item => item.tracking_mode === 'serializado');
   select.innerHTML = serialProducts.map(item => `<option value="${item.id}">${esc(item.name)} (${esc(item.code)})</option>`).join('');
   select.value = serialProducts.some(item => item.id === selected) ? selected : serialProducts[0]?.id || '';
-  const search = $('#serial-search').value.trim().toLowerCase();
+  const search = $('#serial-search').value;
   const serials = state.serialItems.filter(item => {
-    const itemProduct = product(item.product_id);
-    const text = `${itemProduct?.name || ''} ${itemProduct?.code || ''} ${item.serial_number || ''} ${item.mac_address || ''} ${item.asset_tag || ''} ${item.customer_name || ''}`.toLowerCase();
-    return !search || text.includes(search);
+    return matchesSerialSearch(item, search);
   });
   table.innerHTML = serials.map(item => {
     const itemProduct = product(item.product_id), location = state.locations.find(entry => entry.id === item.current_location_id);
@@ -1337,11 +1357,9 @@ function renderSerials() {
 function renderLaboratory() {
   const table = $('#laboratory-table');
   if (!table) return;
-  const search = $('#lab-search').value.trim().toLowerCase();
+  const search = $('#lab-search').value;
   const items = state.serialItems.filter(item => {
-    const itemProduct = product(item.product_id);
-    const text = `${itemProduct?.name || ''} ${itemProduct?.code || ''} ${item.serial_number || ''} ${item.mac_address || ''} ${item.asset_tag || ''}`.toLowerCase();
-    return isLaboratorySerial(item) && (!search || text.includes(search));
+    return isLaboratorySerial(item) && matchesSerialSearch(item, search);
   });
   const allLaboratoryItems = state.serialItems.filter(isLaboratorySerial);
   $('#lab-total').textContent = allLaboratoryItems.length;
@@ -1521,23 +1539,22 @@ function renderClientLoans() {
   }
 
   const selectedItem = clientLoanItem.value;
-  const search = clientLoanSearch?.value.trim().toLowerCase() || '';
-  const normalizedSearch = search.replace(/[^a-z0-9]/g, '');
+  const search = clientLoanSearch?.value || '';
+  const normalizedSearch = normalizedScanCode(search);
   const loanableItems = state.serialItems.filter(item => {
     if (item.status !== 'disponivel' || !search) return false;
-    const identifiers = [item.mac_address, item.serial_number, item.asset_tag].map(value => String(value || '').toLowerCase());
-    return identifiers.some(value => value.includes(search) || value.replace(/[^a-z0-9]/g, '').includes(normalizedSearch));
+    return matchesSerialIdentifier(item, search);
   });
   const placeholder = !search
-    ? 'Digite ou leia o MAC / serial acima'
+    ? 'Digite ou leia MAC, serial ou patrimônio acima'
     : loanableItems.length
       ? 'Selecione a unidade encontrada'
       : 'Nenhuma unidade disponível encontrada';
   clientLoanItem.innerHTML = `<option value="">${placeholder}</option>` + loanableItems.map(item => {
     const itemProduct = product(item.product_id);
-    return `<option value="${item.id}">${esc(itemProduct?.name || 'Equipamento')} · MAC: ${esc(item.mac_address || '—')} · Serial: ${esc(item.serial_number || '—')}</option>`;
+    return `<option value="${item.id}">${esc(itemProduct?.name || 'Equipamento')} · MAC: ${esc(item.mac_address || '—')} · Serial: ${esc(item.serial_number || '—')} · Patrimônio: ${esc(item.asset_tag || '—')}</option>`;
   }).join('');
-  const exactMatch = normalizedSearch && loanableItems.find(item => [item.mac_address, item.serial_number, item.asset_tag].some(value => normalizedScanCode(value) === normalizedSearch));
+  const exactMatch = normalizedSearch && loanableItems.find(item => serialIdentifiers(item).some(value => normalizedScanCode(value) === normalizedSearch));
   if (exactMatch) clientLoanItem.value = exactMatch.id;
   else if (loanableItems.some(item => item.id === selectedItem)) clientLoanItem.value = selectedItem;
   document.querySelectorAll('[data-return-client-loan]').forEach(button => button.onclick = () => openClientLoanReturn(button.dataset.returnClientLoan));
