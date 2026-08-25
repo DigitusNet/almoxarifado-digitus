@@ -788,6 +788,22 @@ function getFilteredMovements() {
   });
 }
 
+function getFilteredSerialMovements() {
+  const query = $('#history-search').value.trim().toLowerCase();
+  const typeFilter = $('#history-type').value;
+  const holderFilter = $('#history-holder').value;
+  const from = $('#history-from').value, to = $('#history-to').value;
+  return state.serialMovements.filter(item => {
+    const serialItem = state.serialItems.find(entry => entry.id === item.serial_item_id);
+    const itemProduct = serialItem && product(serialItem.product_id);
+    const impact = Number(item.stock_impact ?? (item.previous_status === 'disponivel' && item.new_status !== 'disponivel' ? -1 : item.previous_status !== 'disponivel' && item.new_status === 'disponivel' ? 1 : 0));
+    const text = `${itemProduct?.name || ''} ${serialItem?.serial_number || ''} ${serialItem?.mac_address || ''} ${serialItem?.asset_tag || ''} ${item.recipient || ''} ${item.customer_name || ''} ${item.work_order || ''} ${item.note || ''}`.toLowerCase();
+    const day = item.created_at?.slice(0, 10) || '';
+    const matchesType = !typeFilter || typeFilter === 'entrada' && impact === 1 || typeFilter === 'saida' && impact === -1 || typeFilter === 'uso_os' && false;
+    return (!query || text.includes(query)) && matchesType && !holderFilter && (!from || day >= from) && (!to || day <= to);
+  });
+}
+
 function getFieldStockItems() {
   const balances = new Map();
   state.movements.filter(item => ['tecnico', 'veiculo'].includes(item.holderType)).forEach(item => {
@@ -970,7 +986,18 @@ function renderMovement() {
   select.innerHTML = products.map(item => `<option value="${item.id}">${esc(item.name)} (${stockLabel(item)})</option>`).join('');
   select.value = selected || products[0]?.id || '';
   const movements = getFilteredMovements();
-  $('#movement-history').innerHTML = movements.map(item => `<div class="history-item"><span class="history-icon ${item.type === 'saida' ? 'out' : ''}">${item.type === 'entrada' ? '↓' : '↑'}</span><div><b>${movementName(item)} de ${quantity(item.quantity)} ${unitName(product(item.productId)?.unit_of_measure)} — ${esc(product(item.productId)?.name || 'Produto')}</b><small>${holderTypeName(item.holderType)}: ${esc(item.person)} · ${item.date}${item.workOrder ? ' · OS: ' + esc(item.workOrder) : ''}${item.note ? ' · ' + esc(item.note) : ''}</small></div>${canDelete ? `<button class="danger-button" data-delete-movement="${item.id}">Apagar</button>` : ''}</div>`).join('') || '<p class="empty">Nenhuma movimentação encontrada.</p>';
+  const serialMovements = getFilteredSerialMovements();
+  const quantityHistory = movements.map(item => `<div class="history-item"><span class="history-icon ${item.type === 'saida' ? 'out' : ''}">${item.type === 'entrada' ? '↓' : '↑'}</span><div><b>${movementName(item)} de ${quantity(item.quantity)} ${unitName(product(item.productId)?.unit_of_measure)} — ${esc(product(item.productId)?.name || 'Produto')}</b><small>${holderTypeName(item.holderType)}: ${esc(item.person)} · ${item.date}${item.workOrder ? ' · OS: ' + esc(item.workOrder) : ''}${item.note ? ' · ' + esc(item.note) : ''}</small></div>${canDelete ? `<button class="danger-button" data-delete-movement="${item.id}">Apagar</button>` : ''}</div>`).join('');
+  const serialHistory = serialMovements.map(item => {
+    const serialItem = state.serialItems.find(entry => entry.id === item.serial_item_id), itemProduct = serialItem && product(serialItem.product_id);
+    const from = state.locations.find(location => location.id === item.from_location_id)?.name || serialStatusName(item.previous_status);
+    const to = state.locations.find(location => location.id === item.to_location_id)?.name || item.customer_name || item.recipient || serialStatusName(item.new_status);
+    const impact = Number(item.stock_impact ?? (item.previous_status === 'disponivel' && item.new_status !== 'disponivel' ? -1 : item.previous_status !== 'disponivel' && item.new_status === 'disponivel' ? 1 : 0));
+    const impactLabel = impact > 0 ? '+1 no estoque' : impact < 0 ? '-1 no estoque' : 'sem alteração no estoque';
+    const identifier = serialItem?.asset_tag || serialItem?.mac_address || serialItem?.serial_number || 'sem identificador';
+    return `<div class="history-item"><span class="history-icon ${impact < 0 ? 'out' : ''}">${impact > 0 ? '↓' : impact < 0 ? '↑' : '⇄'}</span><div><b>${esc(serialActionName(item.action))} — ${esc(itemProduct?.name || 'Equipamento')} (${esc(identifier)})</b><small>${esc(from)} → ${esc(to)} · ${date(item.created_at)} · <b>${esc(impactLabel)}</b>${item.work_order ? ' · OS: ' + esc(item.work_order) : ''}${item.note ? ' · ' + esc(item.note) : ''}</small></div></div>`;
+  }).join('');
+  $('#movement-history').innerHTML = `${quantityHistory}${serialHistory}` || '<p class="empty">Nenhuma movimentação encontrada.</p>';
   document.querySelectorAll('[data-delete-movement]').forEach(button => button.onclick = () => deleteMovement(button.dataset.deleteMovement));
 }
 
@@ -1451,7 +1478,9 @@ function openSerialHistory(id) {
   $('#serial-history-list').innerHTML = movements.map(entry => {
     const from = state.locations.find(location => location.id === entry.from_location_id)?.name || '—';
     const to = state.locations.find(location => location.id === entry.to_location_id)?.name || entry.customer_name || entry.recipient || '—';
-    return `<div class="serial-history-item"><div><b>${esc(serialActionName(entry.action))}</b><small>${esc(serialStatusName(entry.previous_status))} → ${esc(serialStatusName(entry.new_status))} · ${date(entry.created_at)}</small><small>${esc(from)} → ${esc(to)}${entry.work_order ? ` · OS: ${esc(entry.work_order)}` : ''}${entry.note ? ` · ${esc(entry.note)}` : ''}</small></div></div>`;
+    const impact = Number(entry.stock_impact ?? (entry.previous_status === 'disponivel' && entry.new_status !== 'disponivel' ? -1 : entry.previous_status !== 'disponivel' && entry.new_status === 'disponivel' ? 1 : 0));
+    const impactLabel = impact > 0 ? '+1 no estoque' : impact < 0 ? '-1 no estoque' : 'sem alteração no estoque';
+    return `<div class="serial-history-item"><div><b>${esc(serialActionName(entry.action))}</b><small>${esc(serialStatusName(entry.previous_status))} → ${esc(serialStatusName(entry.new_status))} · ${date(entry.created_at)} · ${esc(impactLabel)}</small><small>${esc(from)} → ${esc(to)}${entry.work_order ? ` · OS: ${esc(entry.work_order)}` : ''}${entry.note ? ` · ${esc(entry.note)}` : ''}</small></div></div>`;
   }).join('') || '<p class="empty">Ainda não há movimentações para esta unidade.</p>';
   $('#serial-history-dialog').showModal();
 }
@@ -1538,9 +1567,9 @@ function renderClientLoanFormSummary() {
   const reference = $('#client-loan-reference')?.value.trim();
 
   if (selectedItem && selected) {
-    selectedItem.innerHTML = `<div><b>${esc(itemProduct?.name || 'Equipamento')}</b><span>${esc(itemProduct?.category || 'Equipamento rastreável')}</span></div><small>MAC: ${esc(selected.mac_address || '—')} · Serial: ${esc(selected.serial_number || '—')} · Patrimônio: ${esc(selected.asset_tag || '—')}</small><span class="badge ok">Disponível</span>`;
+    selectedItem.innerHTML = `<div><b>${esc(itemProduct?.name || 'Equipamento')}</b><span>${esc(itemProduct?.category || 'Equipamento rastreável')}</span></div><small>MAC: ${esc(selected.mac_address || '—')} · Serial: ${esc(selected.serial_number || '—')} · Patrimônio: ${esc(selected.asset_tag || '—')}</small><span class="badge ${serialStatusClass(selected.status)}">${esc(serialStatusName(selected.status))}</span>`;
   } else if (selectedItem) {
-    selectedItem.textContent = 'Localize uma unidade disponível para conferir os dados.';
+    selectedItem.textContent = 'Localize uma unidade no almoxarifado, com técnico ou em veículo para conferir os dados.';
   }
 
   if (summary) {
@@ -1554,7 +1583,7 @@ function renderClientLoans() {
   if (!table || !clientLoanItem) return;
   const activeLoans = state.clientLoans.filter(loan => !loan.returned_at);
   const returnedLoans = state.clientLoans.filter(loan => loan.returned_at);
-  const availableItems = state.serialItems.filter(item => item.status === 'disponivel');
+  const availableItems = state.serialItems.filter(item => ['disponivel', 'com_colaborador', 'com_veiculo'].includes(item.status));
   const tableSearch = $('#client-loan-list-search')?.value.trim().toLocaleLowerCase('pt-BR') || '';
   const filteredLoans = activeLoans.filter(loan => {
     if (!tableSearch) return true;
@@ -1597,7 +1626,7 @@ function renderClientLoans() {
     ? 'Digite ou leia MAC, serial ou patrimônio acima'
     : loanableItems.length
       ? 'Selecione a unidade encontrada'
-      : 'Nenhuma unidade disponível encontrada';
+      : 'Nenhuma unidade apta para comodato encontrada';
   clientLoanItem.innerHTML = `<option value="">${placeholder}</option>` + loanableItems.map(item => {
     const itemProduct = product(item.product_id);
     return `<option value="${item.id}">${esc(itemProduct?.name || 'Equipamento')} · MAC: ${esc(item.mac_address || '—')} · Serial: ${esc(item.serial_number || '—')} · Patrimônio: ${esc(item.asset_tag || '—')}</option>`;
@@ -2638,7 +2667,7 @@ $('#client-loan-form').onsubmit = async event => {
   const serialItem = state.serialItems.find(item => item.id === itemId);
 
   if (!serialItem) return setClientLoanError('Localize e selecione um equipamento disponível para registrar o comodato.');
-  if (serialItem.status !== 'disponivel') return setClientLoanError('O equipamento selecionado não está disponível para comodato.');
+  if (!['disponivel', 'com_colaborador', 'com_veiculo'].includes(serialItem.status)) return setClientLoanError('O equipamento precisa estar no almoxarifado, com um técnico ou em um veículo.');
   if (!customerName) return setClientLoanError('Informe o nome do cliente antes de registrar o comodato.');
 
   setClientLoanError('');
