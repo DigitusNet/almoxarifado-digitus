@@ -1522,29 +1522,78 @@ function renderLoans() {
   document.querySelectorAll('[data-print-loan]').forEach(button => button.onclick = () => printLoanTerm(button.dataset.printLoan));
 }
 
+function setClientLoanError(message = '') {
+  const error = $('#client-loan-error');
+  if (!error) return;
+  error.textContent = message;
+  error.hidden = !message;
+}
+
+function renderClientLoanFormSummary() {
+  const selected = state.serialItems.find(item => item.id === $('#client-loan-item')?.value);
+  const selectedItem = $('#client-loan-selected-item');
+  const summary = $('#client-loan-summary');
+  const itemProduct = selected && product(selected.product_id);
+  const clientName = $('#client-loan-customer-name')?.value.trim();
+  const reference = $('#client-loan-reference')?.value.trim();
+
+  if (selectedItem && selected) {
+    selectedItem.innerHTML = `<div><b>${esc(itemProduct?.name || 'Equipamento')}</b><span>${esc(itemProduct?.category || 'Equipamento rastreável')}</span></div><small>MAC: ${esc(selected.mac_address || '—')} · Serial: ${esc(selected.serial_number || '—')} · Patrimônio: ${esc(selected.asset_tag || '—')}</small><span class="badge ok">Disponível</span>`;
+  } else if (selectedItem) {
+    selectedItem.textContent = 'Localize uma unidade disponível para conferir os dados.';
+  }
+
+  if (summary) {
+    summary.innerHTML = selected && clientName
+      ? `<h3>Resumo do comodato</h3><dl><div><dt>Equipamento</dt><dd>${esc(itemProduct?.name || 'Equipamento')}</dd></div><div><dt>Cliente</dt><dd>${esc(clientName)}</dd></div><div><dt>Identificação</dt><dd>${esc(selected.mac_address || selected.serial_number || selected.asset_tag || '—')}</dd></div><div><dt>Contrato / OS</dt><dd>${esc(reference || 'Não informado')}</dd></div></dl>`
+      : '<h3>Resumo do comodato</h3><p>Selecione o equipamento e informe o cliente para revisar o registro.</p>';
+  }
+}
 function renderClientLoans() {
   const table = $('#client-loans-table'), clientLoanItem = $('#client-loan-item'), clientLoanSearch = $('#client-loan-search');
   if (!table || !clientLoanItem) return;
   const activeLoans = state.clientLoans.filter(loan => !loan.returned_at);
-  $('#open-client-loan-count').textContent = `${activeLoans.length} em aberto`;
+  const returnedLoans = state.clientLoans.filter(loan => loan.returned_at);
+  const availableItems = state.serialItems.filter(item => item.status === 'disponivel');
+  const tableSearch = $('#client-loan-list-search')?.value.trim().toLocaleLowerCase('pt-BR') || '';
+  const filteredLoans = activeLoans.filter(loan => {
+    if (!tableSearch) return true;
+    const item = state.serialItems.find(entry => entry.id === loan.serial_item_id);
+    const itemProduct = item && product(item.product_id);
+    return [itemProduct?.name, itemProduct?.category, item?.mac_address, item?.serial_number, item?.asset_tag, loan.customer_name, loan.customer_document, loan.customer_phone, loan.customer_reference]
+      .filter(Boolean)
+      .some(value => String(value).toLocaleLowerCase('pt-BR').includes(tableSearch));
+  });
+
+  const openCount = $('#open-client-loan-count');
+  const availableCount = $('#client-loan-available-count');
+  const activeCount = $('#client-loan-active-count');
+  const returnedCount = $('#client-loan-returned-count');
+  if (openCount) openCount.textContent = activeLoans.length;
+  if (availableCount) availableCount.textContent = availableItems.length;
+  if (activeCount) activeCount.textContent = activeLoans.length;
+  if (returnedCount) returnedCount.textContent = returnedLoans.length;
 
   if (state.clientLoansLoadError) {
     table.innerHTML = '<tr><td colspan="7" class="empty">O controle de comodatos ainda precisa ser ativado no banco de dados.</td></tr>';
-  } else {
-    table.innerHTML = activeLoans.map(loan => {
+  } else if (filteredLoans.length) {
+    table.innerHTML = filteredLoans.map(loan => {
       const item = state.serialItems.find(entry => entry.id === loan.serial_item_id), itemProduct = item && product(item.product_id);
+      const identifiers = [item?.mac_address && `MAC: ${item.mac_address}`, item?.serial_number && `Serial: ${item.serial_number}`, item?.asset_tag && `Patrimônio: ${item.asset_tag}`].filter(Boolean).join(' · ') || 'Sem identificação';
       const customerDetails = [loan.customer_document, loan.customer_phone].filter(Boolean).join(' · ');
-      return `<tr><td><b>${esc(itemProduct?.name || 'Equipamento')}</b><small>Serial: ${esc(item?.serial_number || '—')} · Patrimônio: ${esc(item?.asset_tag || '—')}</small></td><td>${esc(item?.mac_address || '—')}</td><td><b>${esc(loan.customer_name)}</b>${customerDetails ? `<small>${esc(customerDetails)}</small>` : ''}</td><td>${esc(loan.customer_reference || '—')}</td><td>${date(loan.issued_at)}</td><td><span class="badge saida">Emprestado</span></td><td><div class="table-actions"><button class="primary small-primary" data-return-client-loan="${loan.id}">Devolver</button></div></td></tr>`;
-    }).join('') || '<tr><td colspan="7" class="empty">Nenhum equipamento está emprestado a cliente.</td></tr>';
+      return `<tr><td><b>${esc(itemProduct?.name || 'Equipamento')}</b><small>${esc(itemProduct?.category || 'Equipamento rastreável')}</small></td><td><b>${esc(item?.mac_address || item?.serial_number || item?.asset_tag || '—')}</b><small>${esc(identifiers)}</small></td><td><b>${esc(loan.customer_name)}</b>${customerDetails ? `<small>${esc(customerDetails)}</small>` : ''}</td><td>${esc(loan.customer_reference || '—')}</td><td>${date(loan.issued_at)}</td><td><span class="badge saida">Emprestado</span></td><td><div class="table-actions"><button class="primary small-primary" data-return-client-loan="${loan.id}">Devolver</button></div></td></tr>`;
+    }).join('');
+  } else if (tableSearch) {
+    table.innerHTML = '<tr><td colspan="7" class="empty">Nenhum comodato em aberto corresponde à busca.</td></tr>';
+  } else {
+    const canRegister = !$('#add-client-loan')?.hidden;
+    table.innerHTML = `<tr><td colspan="7" class="empty client-loans-empty"><div><span class="client-loans-empty-icon" aria-hidden="true">⌁</span><strong>Nenhum comodato em aberto</strong><p>Quando um equipamento for entregue a um cliente, ele aparecerá nesta lista.</p>${canRegister ? '<button class="primary small-primary" type="button" data-open-client-loan>+ Registrar comodato</button>' : ''}</div></td></tr>`;
   }
 
   const selectedItem = clientLoanItem.value;
   const search = clientLoanSearch?.value || '';
   const normalizedSearch = normalizedScanCode(search);
-  const loanableItems = state.serialItems.filter(item => {
-    if (item.status !== 'disponivel' || !search) return false;
-    return matchesSerialIdentifier(item, search);
-  });
+  const loanableItems = availableItems.filter(item => search && matchesSerialIdentifier(item, search));
   const placeholder = !search
     ? 'Digite ou leia MAC, serial ou patrimônio acima'
     : loanableItems.length
@@ -1557,7 +1606,9 @@ function renderClientLoans() {
   const exactMatch = normalizedSearch && loanableItems.find(item => serialIdentifiers(item).some(value => normalizedScanCode(value) === normalizedSearch));
   if (exactMatch) clientLoanItem.value = exactMatch.id;
   else if (loanableItems.some(item => item.id === selectedItem)) clientLoanItem.value = selectedItem;
+  renderClientLoanFormSummary();
   document.querySelectorAll('[data-return-client-loan]').forEach(button => button.onclick = () => openClientLoanReturn(button.dataset.returnClientLoan));
+  document.querySelectorAll('[data-open-client-loan]').forEach(button => button.onclick = () => $('#add-client-loan')?.click());
 }
 
 function updateLoanTypeForm() {
@@ -2046,8 +2097,13 @@ $('#add-client-loan').onclick = () => {
   if (state.clientLoansLoadError) return alert('O controle de comodatos ainda não foi ativado no banco de dados. Execute o arquivo client-equipment-loans.sql no SQL Editor do Supabase.');
   if (!state.serialItems.some(item => item.status === 'disponivel')) return alert('Cadastre uma ONU, roteador ou outra unidade rastreável disponível antes de registrar um comodato.');
   $('#client-loan-form').reset();
+  setClientLoanError('');
+  const issuedAt = $('#client-loan-issued-at');
+  if (issuedAt) issuedAt.value = new Date().toISOString().slice(0, 10);
   renderClientLoans();
+  renderClientLoanFormSummary();
   $('#client-loan-dialog').showModal();
+  $('#client-loan-search')?.focus();
 };
 $('#start-inventory').onclick = () => {
   if (activeInventory()) return alert('Já existe uma conferência em aberto. Finalize-a antes de iniciar outra.');
@@ -2162,6 +2218,14 @@ $('#epi-status-filter').onchange = renderEpis;
 $('#serial-search').oninput = renderSerials;
 $('#lab-search').oninput = renderLaboratory;
 $('#client-loan-search').oninput = renderClientLoans;
+const clientLoanListSearch = $('#client-loan-list-search');
+if (clientLoanListSearch) clientLoanListSearch.oninput = renderClientLoans;
+const clientLoanItem = $('#client-loan-item');
+if (clientLoanItem) clientLoanItem.onchange = renderClientLoanFormSummary;
+const clientLoanCustomerName = $('#client-loan-customer-name');
+if (clientLoanCustomerName) clientLoanCustomerName.oninput = renderClientLoanFormSummary;
+const clientLoanReference = $('#client-loan-reference');
+if (clientLoanReference) clientLoanReference.oninput = renderClientLoanFormSummary;
 document.querySelectorAll('[data-history-filter]').forEach(element => { element.oninput = renderMovement; element.onchange = renderMovement; });
 $('#clear-history-filters').onclick = () => { document.querySelectorAll('[data-history-filter]').forEach(element => { element.value = ''; }); renderMovement(); };
 document.querySelectorAll('[data-statement-filter]').forEach(element => { element.oninput = renderStatement; element.onchange = renderStatement; });
@@ -2277,11 +2341,11 @@ $('#edit-product-form').onsubmit = async event => {
 };
 
 $('#movement-form').onsubmit = async event => {
-  event.preventDefault(); const selectedProduct = product($('#movement-product').value), quantity = Number($('#movement-quantity').value), operation = $('#movement-type').value, fieldUsage = operation === 'uso_os', type = fieldUsage ? 'saida' : operation, workOrder = $('#movement-work-order').value.trim();
+  event.preventDefault(); const selectedProduct = product($('#movement-product').value), itemQuantity = Number($('#movement-quantity').value), operation = $('#movement-type').value, fieldUsage = operation === 'uso_os', type = fieldUsage ? 'saida' : operation, workOrder = $('#movement-work-order').value.trim();
+  if (!selectedProduct) return alert('Selecione um produto.');
   if (fieldUsage && !workOrder) return alert('Informe o número da OS para registrar o uso do material.');
-  if (!fieldUsage && type === 'saida' && quantity > selectedProduct.stock) return alert(`Estoque insuficiente. Disponível: ${stockLabel(selectedProduct)}.`);
-  const movementData = { p_product_id:selectedProduct.id, p_type:type, p_quantity:quantity, p_recipient:$('#movement-person').value, p_note:$('#movement-note').value || null, p_holder_type:$('#movement-holder-type').value, p_work_order:workOrder || null };
-  if (fieldUsage) movementData.p_field_usage = true;
+  if (!fieldUsage && type === 'saida' && itemQuantity > selectedProduct.stock) return alert('Estoque insuficiente.');
+  const movementData = { p_product_id:selectedProduct.id, p_type:type, p_quantity:itemQuantity, p_recipient:$('#movement-person').value.trim(), p_note:$('#movement-note').value || null, p_holder_type:$('#movement-holder-type').value, p_work_order:workOrder || null, p_field_usage:fieldUsage };
   const { error } = await supabase.rpc('record_movement', movementData);
   if (error) return alert(error.message);
   event.target.reset(); $('#movement-quantity').value = 1; updateMovementMode(); await load(); view('dashboard');
@@ -2570,19 +2634,36 @@ $('#return-loan-form').onsubmit = async event => {
 
 $('#client-loan-form').onsubmit = async event => {
   event.preventDefault();
-  const { error } = await supabase.rpc('create_client_loan', {
-    p_serial_item_id: $('#client-loan-item').value,
-    p_customer_name: $('#client-loan-customer-name').value.trim(),
-    p_customer_document: $('#client-loan-document').value.trim() || null,
-    p_customer_phone: $('#client-loan-phone').value.trim() || null,
-    p_customer_address: $('#client-loan-address').value.trim() || null,
-    p_customer_reference: $('#client-loan-reference').value.trim() || null,
-    p_note: $('#client-loan-note').value.trim() || null
-  });
-  if (error) return alert(error.message);
-  $('#client-loan-dialog').close();
-  await load();
-  view('client-loans');
+  const itemId = $('#client-loan-item').value;
+  const customerName = $('#client-loan-customer-name').value.trim();
+  const serialItem = state.serialItems.find(item => item.id === itemId);
+
+  if (!serialItem) return setClientLoanError('Localize e selecione um equipamento disponível para registrar o comodato.');
+  if (serialItem.status !== 'disponivel') return setClientLoanError('O equipamento selecionado não está disponível para comodato.');
+  if (!customerName) return setClientLoanError('Informe o nome do cliente antes de registrar o comodato.');
+
+  setClientLoanError('');
+  const submitButton = $('#client-loan-form button[type="submit"]');
+  submitButton.disabled = true;
+  try {
+    const { error } = await supabase.rpc('create_client_loan', {
+      p_serial_item_id: itemId,
+      p_customer_name: customerName,
+      p_customer_document: $('#client-loan-document').value.trim() || null,
+      p_customer_phone: $('#client-loan-phone').value.trim() || null,
+      p_customer_address: $('#client-loan-address').value.trim() || null,
+      p_customer_reference: $('#client-loan-reference').value.trim() || null,
+      p_note: $('#client-loan-note').value.trim() || null
+    });
+    if (error) throw error;
+    $('#client-loan-dialog').close();
+    await load();
+    view('client-loans');
+  } catch (error) {
+    setClientLoanError(error?.message || 'Não foi possível registrar o comodato. Tente novamente.');
+  } finally {
+    submitButton.disabled = false;
+  }
 };
 
 $('#return-client-loan-form').onsubmit = async event => {
