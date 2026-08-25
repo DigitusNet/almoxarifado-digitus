@@ -238,7 +238,11 @@ main{padding:20px 38px 52px 68px}.topbar{min-height:39px;margin-bottom:14px;padd
 .client-loans-empty strong{color:#29445d;font-size:15px}
 .client-loans-empty p{max-width:390px;margin:0;color:#7890a3;font-size:13px}
 .client-loans-empty .primary{margin-top:5px}
-.client-loan-dialog-card{width:min(760px,calc(100vw - 34px));max-height:min(840px,calc(100vh - 32px));padding:0;overflow:auto}
+/* O tamanho precisa ser aplicado ao <dialog>, não só ao formulário. Sem isso o
+   diálogo ficava em 440px e cortava os campos em duas colunas. */
+dialog#client-loan-dialog{width:min(760px,calc(100vw - 28px));max-width:calc(100vw - 28px);max-height:calc(100dvh - 28px);padding:0;overflow:hidden}
+.client-loan-dialog-card{width:100%;max-width:none;min-width:0;max-height:calc(100dvh - 28px);padding:0;overflow-x:hidden;overflow-y:auto}
+.client-loan-dialog-card input,.client-loan-dialog-card select,.client-loan-dialog-card textarea{min-width:0}
 .client-loan-dialog-card .panel-heading{position:sticky;z-index:2;top:0;display:flex;justify-content:space-between;gap:20px;padding:21px 24px 16px;border-bottom:1px solid #e2edf3;background:#fff}
 .client-loan-dialog-card .panel-heading h2{margin:0;font-size:22px}
 .client-loan-dialog-card .panel-heading .muted{max-width:540px;margin:4px 0 0;line-height:1.45}
@@ -256,4 +260,4 @@ main{padding:20px 38px 52px 68px}.topbar{min-height:39px;margin-bottom:14px;padd
 .client-loan-dialog-actions .secondary-button{min-width:100px}
 .client-loan-dialog-actions .primary{min-width:165px}
 .client-loan-dialog-actions .primary:disabled{cursor:wait;opacity:.65}
-@media(max-width:850px){.client-loans-page-header{align-items:flex-start;flex-direction:column}.client-loans-page-header .primary{width:100%}.client-loans-overview{grid-template-columns:1fr}.client-loans-table-heading{align-items:stretch;flex-direction:column}.client-loans-list-search{min-width:0}.client-loan-dialog-card{width:min(620px,calc(100vw - 20px));max-height:calc(100vh - 20px)}.client-loan-dialog-card .panel-heading,.client-loan-form-section{padding-left:17px;padding-right:17px}.client-loan-form-section .split,.client-loan-summary dl{grid-template-columns:1fr}.client-loan-summary{margin-left:17px;margin-right:17px}.client-loan-dialog-actions{padding:16px 17px;justify-content:stretch}.client-loan-dialog-actions button{flex:1;min-width:0}}
+@media(max-width:850px){.client-loans-page-header{align-items:flex-start;flex-direction:column}.client-loans-page-header .primary{width:100%}.client-loans-overview{grid-template-columns:1fr}.client-loans-table-heading{align-items:stretch;flex-direction:column}.client-loans-list-search{min-width:0}dialog#client-loan-dialog{width:calc(100vw - 20px);max-width:calc(100vw - 20px);max-height:calc(100dvh - 20px)}.client-loan-dialog-card{max-height:calc(100dvh - 20px)}.client-loan-dialog-card .panel-heading,.client-loan-form-section{padding-left:17px;padding-right:17px}.client-loan-form-section .split,.client-loan-summary dl{grid-template-columns:1fr}.client-loan-summary{margin-left:17px;margin-right:17px}.client-loan-dialog-actions{padding:16px 17px;justify-content:stretch}.client-loan-dialog-actions button{flex:1;min-width:0}}

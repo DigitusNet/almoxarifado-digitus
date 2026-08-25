@@ -1586,8 +1586,7 @@ function renderClientLoans() {
   } else if (tableSearch) {
     table.innerHTML = '<tr><td colspan="7" class="empty">Nenhum comodato em aberto corresponde à busca.</td></tr>';
   } else {
-    const canRegister = !$('#add-client-loan')?.hidden;
-    table.innerHTML = `<tr><td colspan="7" class="empty client-loans-empty"><div><span class="client-loans-empty-icon" aria-hidden="true">⌁</span><strong>Nenhum comodato em aberto</strong><p>Quando um equipamento for entregue a um cliente, ele aparecerá nesta lista.</p>${canRegister ? '<button class="primary small-primary" type="button" data-open-client-loan>+ Registrar comodato</button>' : ''}</div></td></tr>`;
+    table.innerHTML = '<tr><td colspan="7" class="empty client-loans-empty"><div><span class="client-loans-empty-icon" aria-hidden="true">⌁</span><strong>Nenhum comodato em aberto</strong><p>Quando um equipamento for entregue a um cliente, ele aparecerá nesta lista.</p></div></td></tr>';
   }
 
   const selectedItem = clientLoanItem.value;
