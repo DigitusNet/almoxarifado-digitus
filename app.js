@@ -1,5 +1,5 @@
 import { createClient } from '@supabase/supabase-js';
-import readXlsxFile from 'read-excel-file/browser';
+import { readSheet as readXlsxSheet } from 'read-excel-file/browser';
 
 const supabase = createClient(import.meta.env.VITE_SUPABASE_URL, import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY);
 let state = { products: [], movements: [], users: [], usersLoadNote: '', collaborators: [], vehicles: [], locations: [], suppliers: [], serialItems: [], serialMovements: [], toolLoans: [], clientLoans: [], clientLoansLoadError: '', receipts: [], receiptItems: [], inventorySessions: [], inventoryCounts: [], reminders: [], materialRequests: [], productFilter: 'all', clientLoanImport: null };
@@ -1732,7 +1732,7 @@ const excelOriginalValue = value => {
 
 async function prepareClientLoanExcelImport(file) {
   if (!file?.name?.toLowerCase().endsWith('.xlsx')) throw new Error('Selecione o arquivo Excel no formato .xlsx.');
-  const rows = await readXlsxFile(file, { sheet: 'Planilha' });
+  const rows = await readXlsxSheet(file, 'Planilha');
   if (!Array.isArray(rows) || rows.length < 4) throw new Error('A aba “Planilha” não contém registros para importar.');
   const header = rows[2].slice(0, 12).map(value => String(value || '').trim().toLocaleLowerCase('pt-BR'));
   if (!header[0].includes('pib') || !header[1].includes('descrição') || !header[4].includes('série') || !header[11].includes('localização')) {
