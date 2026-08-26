@@ -314,3 +314,6 @@ dialog#client-loan-dialog{width:min(760px,calc(100vw - 28px));max-width:calc(100
 .dashboard-loan-alert:hover{background:#ffe7e9}
 @media(max-width:1200px){.loan-history-filters{grid-template-columns:repeat(3,minmax(0,1fr))}.loan-history-filters .search{grid-column:span 2}}
 @media(max-width:760px){.loan-summary-metrics{grid-template-columns:1fr 1fr}.loan-history-filters{grid-template-columns:1fr}.loan-history-filters .search{grid-column:auto}}
+
+/* Notificações ocultadas a pedido; os elementos permanecem no DOM para não interromper o JavaScript. */
+.notifications-wrap{display:none!important}
