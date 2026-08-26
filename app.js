@@ -1690,7 +1690,7 @@ function renderClientLoans() {
     table.innerHTML = filteredLoans.map(loan => {
       const item = state.serialItems.find(entry => entry.id === loan.serial_item_id), itemProduct = item && product(item.product_id);
       const status = statusOf(loan);
-      const statusLabel = status === 'ativo' ? 'Instalado no cliente' : status === 'encerrado' ? 'Encerrado' : 'Pendente de análise';
+      const statusLabel = status === 'ativo' ? 'Instalado no cliente' : status === 'encerrado' ? 'Devolvido / em estoque' : 'Pendente de análise';
       const statusClass = status === 'ativo' ? 'saida' : status === 'encerrado' ? 'entrada' : 'low';
       const customer = loan.customer_name || 'Não associado';
       const originalLocation = loan.location_original && loan.location_original !== loan.customer_name ? loan.location_original : '';
