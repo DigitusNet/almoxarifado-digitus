@@ -217,6 +217,7 @@ main{padding:20px 38px 52px 68px}.topbar{min-height:39px;margin-bottom:14px;padd
 .view.client-loans-view.active{display:grid}
 .view.client-loans-view[hidden]{display:none!important}
 .client-loans-page-header{display:flex;align-items:center;justify-content:space-between;gap:20px;padding:0 2px}
+.client-loans-header-actions{display:flex;align-items:center;gap:9px}
 .client-loans-description{max-width:620px;margin:0;color:#6c8295;font-size:14px;line-height:1.5}
 .client-loans-overview{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:14px}
 .client-loan-metric{position:relative;min-height:104px;padding:17px 19px;border:1px solid #dce8ef;border-top:3px solid var(--erp-blue);border-radius:7px;background:#fff;box-shadow:0 8px 22px #193b5510}
@@ -231,6 +232,9 @@ main{padding:20px 38px 52px 68px}.topbar{min-height:39px;margin-bottom:14px;padd
 .client-loans-table-heading .muted{margin:4px 0 0;color:#72879a;font-size:12px}
 .client-loans-list-search{min-width:min(390px,42%);margin:0}
 .client-loans-list-search input{width:100%;padding:10px 12px;background:#fbfdff}
+.client-loans-filters{display:grid;grid-template-columns:minmax(300px,1fr) minmax(160px,.45fr) minmax(170px,.5fr);gap:9px;min-width:min(790px,64%)}
+.client-loans-filters .client-loans-list-search{min-width:0}
+.client-loans-filters select{min-width:0;padding:10px;background:#fbfdff}
 .client-loans-panel td small{display:block;margin-top:3px;color:#70879a;font-size:11px;line-height:1.35}
 .client-loans-empty{padding:0!important;text-align:center}
 .client-loans-empty>div{display:grid;justify-items:center;gap:7px;padding:30px 16px}
@@ -260,7 +264,8 @@ dialog#client-loan-dialog{width:min(760px,calc(100vw - 28px));max-width:calc(100
 .client-loan-dialog-actions .secondary-button{min-width:100px}
 .client-loan-dialog-actions .primary{min-width:165px}
 .client-loan-dialog-actions .primary:disabled{cursor:wait;opacity:.65}
-@media(max-width:850px){.client-loans-page-header{align-items:flex-start;flex-direction:column}.client-loans-page-header .primary{width:100%}.client-loans-overview{grid-template-columns:1fr}.client-loans-table-heading{align-items:stretch;flex-direction:column}.client-loans-list-search{min-width:0}dialog#client-loan-dialog{width:calc(100vw - 20px);max-width:calc(100vw - 20px);max-height:calc(100dvh - 20px)}.client-loan-dialog-card{max-height:calc(100dvh - 20px)}.client-loan-dialog-card .panel-heading,.client-loan-form-section{padding-left:17px;padding-right:17px}.client-loan-form-section .split,.client-loan-summary dl{grid-template-columns:1fr}.client-loan-summary{margin-left:17px;margin-right:17px}.client-loan-dialog-actions{padding:16px 17px;justify-content:stretch}.client-loan-dialog-actions button{flex:1;min-width:0}}
+@media(max-width:1100px){.client-loans-table-heading{align-items:stretch;flex-direction:column}.client-loans-filters{min-width:0;width:100%}}
+@media(max-width:850px){.client-loans-page-header{align-items:stretch;flex-direction:column}.client-loans-header-actions{display:grid;grid-template-columns:1fr 1fr}.client-loans-overview{grid-template-columns:1fr}.client-loans-filters{grid-template-columns:1fr}.client-loans-list-search{min-width:0}dialog#client-loan-dialog{width:calc(100vw - 20px);max-width:calc(100vw - 20px);max-height:calc(100dvh - 20px)}.client-loan-dialog-card{max-height:calc(100dvh - 20px)}.client-loan-dialog-card .panel-heading,.client-loan-form-section{padding-left:17px;padding-right:17px}.client-loan-form-section .split,.client-loan-summary dl{grid-template-columns:1fr}.client-loan-summary{margin-left:17px;margin-right:17px}.client-loan-dialog-actions{padding:16px 17px;justify-content:stretch}.client-loan-dialog-actions button{flex:1;min-width:0}}
 
 .loan-summary-metrics{grid-template-columns:repeat(4,minmax(0,1fr))}
 .loan-summary-metrics .loan-metric{cursor:pointer;text-align:left}

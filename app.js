@@ -1,7 +1,8 @@
 import { createClient } from '@supabase/supabase-js';
+import readXlsxFile from 'read-excel-file/browser';
 
 const supabase = createClient(import.meta.env.VITE_SUPABASE_URL, import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY);
-let state = { products: [], movements: [], users: [], usersLoadNote: '', collaborators: [], vehicles: [], locations: [], suppliers: [], serialItems: [], serialMovements: [], toolLoans: [], clientLoans: [], clientLoansLoadError: '', receipts: [], receiptItems: [], inventorySessions: [], inventoryCounts: [], reminders: [], materialRequests: [], productFilter: 'all' };
+let state = { products: [], movements: [], users: [], usersLoadNote: '', collaborators: [], vehicles: [], locations: [], suppliers: [], serialItems: [], serialMovements: [], toolLoans: [], clientLoans: [], clientLoansLoadError: '', receipts: [], receiptItems: [], inventorySessions: [], inventoryCounts: [], reminders: [], materialRequests: [], productFilter: 'all', clientLoanImport: null };
 let currentUser = null;
 let passwordRecoveryMode = false;
 const passwordRecoveryStorageKey = 'digitus-password-recovery';
@@ -1649,15 +1650,27 @@ function renderClientLoanFormSummary() {
 function renderClientLoans() {
   const table = $('#client-loans-table'), clientLoanItem = $('#client-loan-item'), clientLoanSearch = $('#client-loan-search');
   if (!table || !clientLoanItem) return;
-  const activeLoans = state.clientLoans.filter(loan => !loan.returned_at);
-  const returnedLoans = state.clientLoans.filter(loan => loan.returned_at);
+  const statusOf = loan => loan.record_status || (loan.returned_at ? 'encerrado' : 'ativo');
+  const activeLoans = state.clientLoans.filter(loan => statusOf(loan) === 'ativo' && !loan.returned_at);
+  const returnedLoans = state.clientLoans.filter(loan => statusOf(loan) === 'encerrado' || loan.returned_at);
   const availableItems = state.serialItems.filter(item => ['disponivel', 'com_colaborador', 'com_veiculo'].includes(item.status));
   const tableSearch = $('#client-loan-list-search')?.value.trim().toLocaleLowerCase('pt-BR') || '';
-  const filteredLoans = activeLoans.filter(loan => {
-    if (!tableSearch) return true;
+  const statusFilter = $('#client-loan-status-filter')?.value || '';
+  const locationFilter = $('#client-loan-location-filter')?.value || '';
+  const locations = [...new Set(state.clientLoans.map(loan => loan.city || loan.location_original).filter(Boolean))].sort((a, b) => a.localeCompare(b, 'pt-BR'));
+  const locationSelect = $('#client-loan-location-filter');
+  if (locationSelect) {
+    const selected = locationSelect.value;
+    locationSelect.innerHTML = '<option value="">Todas as localizações</option>' + locations.map(value => `<option value="${esc(value)}">${esc(value)}</option>`).join('');
+    locationSelect.value = selected;
+  }
+  const filteredLoans = state.clientLoans.filter(loan => {
     const item = state.serialItems.find(entry => entry.id === loan.serial_item_id);
     const itemProduct = item && product(item.product_id);
-    return [itemProduct?.name, itemProduct?.category, item?.mac_address, item?.serial_number, item?.asset_tag, loan.customer_name, loan.customer_document, loan.customer_phone, loan.customer_reference]
+    if (statusFilter && statusOf(loan) !== statusFilter) return false;
+    if (locationFilter && (loan.city || loan.location_original) !== locationFilter) return false;
+    if (!tableSearch) return true;
+    return [itemProduct?.name, itemProduct?.model, item?.mac_address, item?.serial_number, item?.asset_tag, loan.customer_name, loan.customer_reference, loan.asset_tag_original, loan.equipment_name_original, loan.model_original, loan.mac_original, loan.serial_original, loan.location_original, loan.city]
       .filter(Boolean)
       .some(value => String(value).toLocaleLowerCase('pt-BR').includes(tableSearch));
   });
@@ -1672,18 +1685,22 @@ function renderClientLoans() {
   if (returnedCount) returnedCount.textContent = returnedLoans.length;
 
   if (state.clientLoansLoadError) {
-    table.innerHTML = '<tr><td colspan="7" class="empty">O controle de comodatos ainda precisa ser ativado no banco de dados.</td></tr>';
+    table.innerHTML = '<tr><td colspan="9" class="empty">O controle de comodatos ainda precisa ser ativado no banco de dados.</td></tr>';
   } else if (filteredLoans.length) {
     table.innerHTML = filteredLoans.map(loan => {
       const item = state.serialItems.find(entry => entry.id === loan.serial_item_id), itemProduct = item && product(item.product_id);
-      const identifiers = [item?.mac_address && `MAC: ${item.mac_address}`, item?.serial_number && `Serial: ${item.serial_number}`, item?.asset_tag && `Patrimônio: ${item.asset_tag}`].filter(Boolean).join(' · ') || 'Sem identificação';
-      const customerDetails = [loan.customer_document, loan.customer_phone].filter(Boolean).join(' · ');
-      return `<tr><td><b>${esc(itemProduct?.name || 'Equipamento')}</b><small>${esc(itemProduct?.category || 'Equipamento rastreável')}</small></td><td><b>${esc(item?.mac_address || item?.serial_number || item?.asset_tag || '—')}</b><small>${esc(identifiers)}</small></td><td><b>${esc(loan.customer_name)}</b>${customerDetails ? `<small>${esc(customerDetails)}</small>` : ''}</td><td>${esc(loan.customer_reference || '—')}</td><td>${date(loan.issued_at)}</td><td><span class="badge saida">Emprestado</span></td><td><div class="table-actions"><button class="primary small-primary" data-return-client-loan="${loan.id}">Devolver</button></div></td></tr>`;
+      const status = statusOf(loan);
+      const statusLabel = status === 'ativo' ? 'Instalado no cliente' : status === 'encerrado' ? 'Encerrado' : 'Pendente de análise';
+      const statusClass = status === 'ativo' ? 'saida' : status === 'encerrado' ? 'entrada' : 'low';
+      const customer = loan.customer_name || 'Não associado';
+      const originalLocation = loan.location_original && loan.location_original !== loan.customer_name ? loan.location_original : '';
+      const canReturn = status === 'ativo' && loan.serial_item_id && !loan.returned_at;
+      return `<tr><td><b>${esc(item?.asset_tag || loan.asset_tag_original || '—')}</b>${loan.source_type === 'excel' ? '<small>Origem: Excel</small>' : ''}</td><td><b>${esc(itemProduct?.name || loan.equipment_name_original || 'Equipamento não informado')}</b><small>${esc(itemProduct?.model || loan.model_original || loan.brand_original || '—')}</small></td><td>${esc(item?.mac_address || loan.mac_original || '—')}</td><td>${esc(item?.serial_number || loan.serial_original || '—')}</td><td><b>${esc(customer)}</b>${originalLocation ? `<small>Original: ${esc(originalLocation)}</small>` : ''}</td><td>${esc(loan.city || '—')}</td><td>${date(loan.installed_at || loan.issued_at)}</td><td><span class="badge ${statusClass}">${statusLabel}</span>${loan.match_status && loan.match_status !== 'associado' ? `<small>${esc(loan.match_status === 'ambiguo' ? 'Associação ambígua' : 'Sem associação automática')}</small>` : ''}</td><td><div class="table-actions">${canReturn ? `<button class="primary small-primary" data-return-client-loan="${loan.id}">Devolver</button>` : '—'}</div></td></tr>`;
     }).join('');
-  } else if (tableSearch) {
-    table.innerHTML = '<tr><td colspan="7" class="empty">Nenhum comodato em aberto corresponde à busca.</td></tr>';
+  } else if (tableSearch || statusFilter || locationFilter) {
+    table.innerHTML = '<tr><td colspan="9" class="empty">Nenhum comodato corresponde aos filtros.</td></tr>';
   } else {
-    table.innerHTML = '<tr><td colspan="7" class="empty client-loans-empty"><div><span class="client-loans-empty-icon" aria-hidden="true">⌁</span><strong>Nenhum comodato em aberto</strong><p>Quando um equipamento for entregue a um cliente, ele aparecerá nesta lista.</p></div></td></tr>';
+    table.innerHTML = '<tr><td colspan="9" class="empty client-loans-empty"><div><span class="client-loans-empty-icon" aria-hidden="true">⌁</span><strong>Nenhum comodato registrado</strong><p>Instalações com MAC ou serial e importações confirmadas aparecerão aqui.</p></div></td></tr>';
   }
 
   const selectedItem = clientLoanItem.value;
@@ -1705,6 +1722,85 @@ function renderClientLoans() {
   renderClientLoanFormSummary();
   document.querySelectorAll('[data-return-client-loan]').forEach(button => button.onclick = () => openClientLoanReturn(button.dataset.returnClientLoan));
   document.querySelectorAll('[data-open-client-loan]').forEach(button => button.onclick = () => $('#add-client-loan')?.click());
+}
+
+const excelOriginalValue = value => {
+  if (value == null) return null;
+  if (value instanceof Date) return value.toISOString();
+  return String(value);
+};
+
+async function prepareClientLoanExcelImport(file) {
+  if (!file?.name?.toLowerCase().endsWith('.xlsx')) throw new Error('Selecione o arquivo Excel no formato .xlsx.');
+  const rows = await readXlsxFile(file, { sheet: 'Planilha' });
+  if (!Array.isArray(rows) || rows.length < 4) throw new Error('A aba “Planilha” não contém registros para importar.');
+  const header = rows[2].slice(0, 12).map(value => String(value || '').trim().toLocaleLowerCase('pt-BR'));
+  if (!header[0].includes('pib') || !header[1].includes('descrição') || !header[4].includes('série') || !header[11].includes('localização')) {
+    throw new Error('A estrutura da aba “Planilha” não corresponde ao arquivo Controle de bens analisado.');
+  }
+  const payload = rows.slice(3).map((row, index) => ({
+    source_row: index + 4,
+    asset_tag: typeof row[0] === 'number' ? String(row[0]).padStart(4, '0') : excelOriginalValue(row[0]),
+    equipment_name: excelOriginalValue(row[1]),
+    brand: excelOriginalValue(row[2]),
+    invoice_number: excelOriginalValue(row[3]),
+    serial: excelOriginalValue(row[4]),
+    purchase_date: excelOriginalValue(row[5]),
+    implementation_date: excelOriginalValue(row[6]),
+    value: excelOriginalValue(row[7]),
+    supplier: excelOriginalValue(row[8]),
+    asset_condition: excelOriginalValue(row[9]),
+    situation: excelOriginalValue(row[10]),
+    location: excelOriginalValue(row[11]),
+    model: null,
+    mac: null,
+    city: null
+  })).filter(row => Object.entries(row).some(([key, value]) => key !== 'source_row' && value != null && value !== ''));
+  const assetCounts = new Map();
+  const serialCounts = new Map();
+  payload.forEach(row => {
+    if (row.asset_tag) assetCounts.set(normalizedScanCode(row.asset_tag), (assetCounts.get(normalizedScanCode(row.asset_tag)) || 0) + 1);
+    if (row.serial) serialCounts.set(normalizedScanCode(row.serial), (serialCounts.get(normalizedScanCode(row.serial)) || 0) + 1);
+  });
+  const duplicateAssets = [...assetCounts.values()].filter(count => count > 1).length;
+  const duplicateSerials = [...serialCounts.values()].filter(count => count > 1).length;
+  payload.forEach(row => {
+    const repeatedAsset = row.asset_tag && (assetCounts.get(normalizedScanCode(row.asset_tag)) || 0) > 1;
+    const repeatedSerial = row.serial && (serialCounts.get(normalizedScanCode(row.serial)) || 0) > 1;
+    row.duplicate_identifier = Boolean(repeatedAsset || repeatedSerial);
+  });
+  state.clientLoanImport = { fileName: file.name, sheet: 'Planilha', rows: payload };
+  $('#client-loan-import-summary').innerHTML = `<b>${payload.length.toLocaleString('pt-BR')} linhas prontas para importação aditiva.</b><br>As colunas PIB, descrição, marca, série e localização serão preservadas como vieram do Excel. O arquivo não contém MAC nem cidade; esses campos ficarão vazios, sem suposição.`;
+  const warnings = $('#client-loan-import-warnings');
+  warnings.hidden = false;
+  warnings.textContent = `${duplicateAssets} grupos de patrimônio e ${duplicateSerials} grupos de serial repetidos serão mantidos, identificados e enviados para análise. “Localização” não será convertida automaticamente em cliente.`;
+  $('#client-loan-import-dialog').showModal();
+}
+
+async function importClientLoanExcelRows() {
+  const pending = state.clientLoanImport;
+  if (!pending) throw new Error('Selecione novamente a planilha.');
+  const submit = $('#client-loan-import-form button[type="submit"]');
+  submit.disabled = true;
+  const totals = { importados: 0, ignorados: 0, associados: 0, ambiguos: 0 };
+  try {
+    for (let index = 0; index < pending.rows.length; index += 200) {
+      const { data, error } = await supabase.rpc('import_client_loans_from_excel', {
+        p_source_file: pending.fileName,
+        p_source_sheet: pending.sheet,
+        p_rows: pending.rows.slice(index, index + 200)
+      });
+      if (error) throw error;
+      Object.keys(totals).forEach(key => { totals[key] += Number(data?.[key] || 0); });
+    }
+    $('#client-loan-import-dialog').close();
+    state.clientLoanImport = null;
+    await load();
+    view('client-loans');
+    alert(`Importação concluída com segurança. Importados: ${totals.importados}. Já existentes ignorados: ${totals.ignorados}. Associados: ${totals.associados}. Ambíguos: ${totals.ambiguos}.`);
+  } finally {
+    submit.disabled = false;
+  }
 }
 
 function updateLoanItemDetails() {
@@ -2215,6 +2311,13 @@ $('#add-client-loan').onclick = () => {
   $('#client-loan-dialog').showModal();
   $('#client-loan-search')?.focus();
 };
+$('#import-client-loans').onclick = () => $('#client-loans-file').click();
+$('#client-loans-file').onchange = async event => {
+  const file = event.target.files?.[0];
+  event.target.value = '';
+  if (!file) return;
+  try { await prepareClientLoanExcelImport(file); } catch (error) { alert(error.message); }
+};
 $('#start-inventory').onclick = () => {
   if (activeInventory()) return alert('Já existe uma conferência em aberto. Finalize-a antes de iniciar outra.');
   $('#inventory-start-form').reset();
@@ -2239,7 +2342,7 @@ async function logout() {
   if (error) return alert(error.message);
   setAccountMenu(false);
   currentUser = null;
-  state = { products: [], movements: [], users: [], usersLoadNote: '', collaborators: [], vehicles: [], locations: [], suppliers: [], serialItems: [], serialMovements: [], toolLoans: [], clientLoans: [], clientLoansLoadError: '', receipts: [], receiptItems: [], inventorySessions: [], inventoryCounts: [], reminders: [], materialRequests: [], productFilter: 'all' };
+  state = { products: [], movements: [], users: [], usersLoadNote: '', collaborators: [], vehicles: [], locations: [], suppliers: [], serialItems: [], serialMovements: [], toolLoans: [], clientLoans: [], clientLoansLoadError: '', receipts: [], receiptItems: [], inventorySessions: [], inventoryCounts: [], reminders: [], materialRequests: [], productFilter: 'all', clientLoanImport: null };
   $('#login-form').reset();
   $('#auth-gate').hidden = false;
 }
@@ -2334,6 +2437,10 @@ $('#loan-item').onchange = updateLoanItemDetails;
 $('#client-loan-search').oninput = renderClientLoans;
 const clientLoanListSearch = $('#client-loan-list-search');
 if (clientLoanListSearch) clientLoanListSearch.oninput = renderClientLoans;
+const clientLoanStatusFilter = $('#client-loan-status-filter');
+if (clientLoanStatusFilter) clientLoanStatusFilter.onchange = renderClientLoans;
+const clientLoanLocationFilter = $('#client-loan-location-filter');
+if (clientLoanLocationFilter) clientLoanLocationFilter.onchange = renderClientLoans;
 const clientLoanItem = $('#client-loan-item');
 if (clientLoanItem) clientLoanItem.onchange = renderClientLoanFormSummary;
 const clientLoanCustomerName = $('#client-loan-customer-name');
@@ -2778,6 +2885,11 @@ $('#client-loan-form').onsubmit = async event => {
   } finally {
     submitButton.disabled = false;
   }
+};
+
+$('#client-loan-import-form').onsubmit = async event => {
+  event.preventDefault();
+  try { await importClientLoanExcelRows(); } catch (error) { alert(error.message); }
 };
 
 $('#return-client-loan-form').onsubmit = async event => {
