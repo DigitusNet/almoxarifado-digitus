@@ -1695,7 +1695,7 @@ function renderClientLoans() {
       const customer = loan.customer_name || 'Não associado';
       const originalLocation = loan.location_original && loan.location_original !== loan.customer_name ? loan.location_original : '';
       const canReturn = status === 'ativo' && loan.serial_item_id && !loan.returned_at;
-      return `<tr><td><b>${esc(item?.asset_tag || loan.asset_tag_original || '—')}</b>${loan.source_type === 'excel' ? '<small>Origem: Excel</small>' : ''}</td><td><b>${esc(itemProduct?.name || loan.equipment_name_original || 'Equipamento não informado')}</b><small>${esc(itemProduct?.model || loan.model_original || loan.brand_original || '—')}</small></td><td>${esc(item?.mac_address || loan.mac_original || '—')}</td><td>${esc(item?.serial_number || loan.serial_original || '—')}</td><td><b>${esc(customer)}</b>${originalLocation ? `<small>Original: ${esc(originalLocation)}</small>` : ''}</td><td>${esc(loan.city || '—')}</td><td>${date(loan.installed_at || loan.issued_at)}</td><td><span class="badge ${statusClass}">${statusLabel}</span>${loan.match_status && loan.match_status !== 'associado' ? `<small>${esc(loan.match_status === 'ambiguo' ? 'Associação ambígua' : 'Sem associação automática')}</small>` : ''}</td><td><div class="table-actions">${canReturn ? `<button class="primary small-primary" data-return-client-loan="${loan.id}">Devolver</button>` : '—'}</div></td></tr>`;
+      return `<tr><td><b>${esc(item?.asset_tag || loan.asset_tag_original || '—')}</b>${loan.source_type === 'excel' ? '<small>Origem: Excel</small>' : ''}</td><td><b>${esc(itemProduct?.name || loan.equipment_name_original || 'Equipamento não informado')}</b><small>${esc(itemProduct?.model || loan.model_original || loan.brand_original || '—')}</small></td><td>${esc(item?.mac_address || loan.mac_original || '—')}</td><td>${esc(item?.serial_number || loan.serial_original || '—')}</td><td><b>${esc(customer)}</b>${originalLocation ? `<small>Original: ${esc(originalLocation)}</small>` : ''}</td><td>${esc(loan.city || '—')}</td><td>${date(loan.installed_at || loan.issued_at)}</td><td><span class="badge ${statusClass}">${statusLabel}</span>${loan.match_status && loan.match_status !== 'associado' ? `<small>${esc(loan.match_status === 'ambiguo' ? 'Associação ambígua' : 'Sem associação automática')}</small>` : ''}</td><td><div class="table-actions">${canReturn ? `<button class="primary small-primary" data-return-client-loan="${loan.id}">Devolver</button>` : ''}<button class="danger-button" data-admin-only hidden data-delete-client-loan="${loan.id}">Excluir</button></div></td></tr>`;
     }).join('');
   } else if (tableSearch || statusFilter || locationFilter) {
     table.innerHTML = '<tr><td colspan="9" class="empty">Nenhum comodato corresponde aos filtros.</td></tr>';
@@ -1721,7 +1721,22 @@ function renderClientLoans() {
   else if (loanableItems.some(item => item.id === selectedItem)) clientLoanItem.value = selectedItem;
   renderClientLoanFormSummary();
   document.querySelectorAll('[data-return-client-loan]').forEach(button => button.onclick = () => openClientLoanReturn(button.dataset.returnClientLoan));
+  document.querySelectorAll('[data-delete-client-loan]').forEach(button => button.onclick = () => deleteClientLoan(button.dataset.deleteClientLoan));
   document.querySelectorAll('[data-open-client-loan]').forEach(button => button.onclick = () => $('#add-client-loan')?.click());
+  document.querySelectorAll('[data-delete-client-loan]').forEach(button => { button.hidden = currentUser?.role !== 'admin'; });
+}
+
+async function deleteClientLoan(id) {
+  if (currentUser?.role !== 'admin') return alert('Apenas administradores podem excluir comodatos.');
+  const loan = state.clientLoans.find(item => item.id === id);
+  if (!loan) return;
+  const serialItem = state.serialItems.find(item => item.id === loan.serial_item_id);
+  const identifier = serialItem?.asset_tag || loan.asset_tag_original || serialItem?.mac_address || loan.mac_original || serialItem?.serial_number || loan.serial_original || 'sem identificação';
+  if (!confirm(`Excluir definitivamente o comodato ${identifier}?\n\nO registro e o histórico deste comodato serão apagados. O equipamento, o estoque e o histórico de movimentações não serão alterados.`)) return;
+  const { error } = await supabase.rpc('delete_client_loan', { p_loan_id: id });
+  if (error) return alert(error.message);
+  await load();
+  view('client-loans');
 }
 
 const excelOriginalValue = value => {
