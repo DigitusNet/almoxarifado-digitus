@@ -29,6 +29,15 @@ body:before{background:url('/digitus-almoxarifado.png') center 58%/min(52vw,720p
 .digitus-almoxarifado-logo-dashboard{width:190px;height:42px;border:1px solid #dce6eb;border-radius:4px}
 .digitus-almoxarifado-logo-login{width:min(100%,310px);height:68px;margin:0 auto;border-radius:6px}
 .topbar .digitus-almoxarifado-logo{flex:0 0 auto}
+.digitus-almoxarifado-lockup{display:flex;align-items:center;gap:7px;overflow:hidden;white-space:nowrap}
+.digitus-core{display:block;overflow:hidden;flex:0 0 auto;width:116px;height:36px}
+.digitus-core img{display:block;width:151px;height:36px;max-width:none;object-fit:contain;object-position:left center}
+.digitus-sector{color:var(--erp-orange);font:500 16px/1 'DM Sans',Arial,sans-serif;letter-spacing:-.35px}
+.digitus-almoxarifado-lockup-header{min-width:224px;height:44px}
+.digitus-almoxarifado-lockup-dashboard{padding:5px 10px;border-radius:5px;background:var(--erp-blue);box-shadow:0 2px 6px #173f5b24}
+.digitus-almoxarifado-lockup-dashboard .digitus-core{width:104px;height:32px}
+.digitus-almoxarifado-lockup-dashboard .digitus-core img{width:134px;height:32px}
+.digitus-almoxarifado-lockup-dashboard .digitus-sector{font-size:15px}
 .brand-lockup .wordmark{width:142px;max-height:30px;object-fit:contain;object-position:left}
 .brand-lockup small{margin:0 0 0 2px;color:#f7a66b;font-size:8px;letter-spacing:.16em}
 .sidebar nav{display:flex;align-items:center;gap:7px;flex:1;min-width:0;overflow-x:auto;scrollbar-width:thin}
@@ -98,11 +107,20 @@ dialog{border-radius:7px;box-shadow:0 24px 70px #0e273d55}.dialog-card{padding:2
 }
 
 @media(max-width:850px){
+  .digitus-almoxarifado-lockup-header{min-width:177px;height:36px;gap:5px}
+  .digitus-almoxarifado-lockup-header .digitus-core{width:90px;height:28px}
+  .digitus-almoxarifado-lockup-header .digitus-core img{width:118px;height:28px}
+  .digitus-almoxarifado-lockup-header .digitus-sector{font-size:13px}
   .digitus-almoxarifado-logo-header{width:104px;height:24px}
   .digitus-almoxarifado-logo-dashboard{width:138px;height:31px}
   .digitus-almoxarifado-logo-login{width:min(100%,280px);height:61px}
 }
 @media(max-width:520px){
+  .digitus-almoxarifado-lockup-header{min-width:145px;height:30px}
+  .digitus-almoxarifado-lockup-header .digitus-core{width:74px;height:23px}
+  .digitus-almoxarifado-lockup-header .digitus-core img{width:97px;height:23px}
+  .digitus-almoxarifado-lockup-header .digitus-sector{font-size:11px}
+  .digitus-almoxarifado-lockup-dashboard{display:none}
   .digitus-almoxarifado-logo-header{width:86px;height:20px}
   .digitus-almoxarifado-logo-dashboard{display:none}
   .digitus-almoxarifado-logo-login{height:56px}
