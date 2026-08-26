@@ -11,7 +11,7 @@
 }
 
 body{background:var(--erp-canvas);color:var(--erp-text)}
-body:before{background:url('/digitus-watermark.png') center 58%/min(34vw,470px) auto no-repeat;opacity:.026}
+body:before{background:url('/digitus-almoxarifado.png') center 58%/min(52vw,720px) auto no-repeat;opacity:.026}
 .app-shell{display:block;min-height:100vh}
 
 /* Barra superior: mantém todos os atalhos do sistema sempre visíveis. */
@@ -23,6 +23,12 @@ body:before{background:url('/digitus-watermark.png') center 58%/min(34vw,470px) 
 }
 .sidebar:after{display:none}
 .brand,.brand-lockup{flex:0 0 auto;padding:0;display:grid;gap:2px;align-items:start}
+.digitus-almoxarifado-logo{position:relative;display:block;overflow:hidden;background:#fff;isolation:isolate}
+.digitus-almoxarifado-logo img{position:absolute;display:block;width:112%;height:auto;max-width:none;left:-5.5%;top:-89%;object-fit:contain}
+.digitus-almoxarifado-logo-header{width:148px;height:33px;border-radius:4px;box-shadow:0 1px 4px #173f5b30}
+.digitus-almoxarifado-logo-dashboard{width:190px;height:42px;border:1px solid #dce6eb;border-radius:4px}
+.digitus-almoxarifado-logo-login{width:min(100%,310px);height:68px;margin:0 auto;border-radius:6px}
+.topbar .digitus-almoxarifado-logo{flex:0 0 auto}
 .brand-lockup .wordmark{width:142px;max-height:30px;object-fit:contain;object-position:left}
 .brand-lockup small{margin:0 0 0 2px;color:#f7a66b;font-size:8px;letter-spacing:.16em}
 .sidebar nav{display:flex;align-items:center;gap:7px;flex:1;min-width:0;overflow-x:auto;scrollbar-width:thin}
@@ -89,6 +95,17 @@ dialog{border-radius:7px;box-shadow:0 24px 70px #0e273d55}.dialog-card{padding:2
 @media(max-width:620px){
   .sidebar{align-items:flex-start}.brand-lockup .wordmark{width:96px}.sidebar nav{padding-bottom:2px}.nav-link{font-size:0;padding:8px 9px}.nav-link span{font-size:0;margin:0}.nav-link:first-letter{font-size:15px}.logout-button{font-size:0;padding:8px}.logout-button:first-letter{font-size:15px}
   main{padding:18px 13px 34px}.topbar{align-items:flex-start}.topbar h1{font-size:23px}.cards{grid-template-columns:1fr 1fr;gap:10px}.metric,.metric.warning{min-height:99px;padding:14px}.metric strong,.metric.warning strong{font-size:28px}.grid-2{grid-template-columns:1fr}.panel{padding:14px}th,td{padding:12px 13px}.toolbar-actions{gap:7px}
+}
+
+@media(max-width:850px){
+  .digitus-almoxarifado-logo-header{width:104px;height:24px}
+  .digitus-almoxarifado-logo-dashboard{width:138px;height:31px}
+  .digitus-almoxarifado-logo-login{width:min(100%,280px);height:61px}
+}
+@media(max-width:520px){
+  .digitus-almoxarifado-logo-header{width:86px;height:20px}
+  .digitus-almoxarifado-logo-dashboard{display:none}
+  .digitus-almoxarifado-logo-login{height:56px}
 }
 
 /* Versão próxima ao modelo de referência: menu superior e trilho de atalhos. */

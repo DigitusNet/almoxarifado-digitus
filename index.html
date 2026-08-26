@@ -3,13 +3,13 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>Digitus Net | Almoxarifado</title>
+    <title>Digitus Almoxarifado</title>
     <meta name="description" content="Controle operacional de estoque da Digitus Net." />
-    <meta property="og:title" content="Digitus Net | Almoxarifado" />
+    <meta property="og:title" content="Digitus Almoxarifado" />
     <meta property="og:description" content="Controle operacional de estoque da Digitus Net." />
-    <meta property="og:image" content="/og.png" />
+    <meta property="og:image" content="/digitus-almoxarifado.png" />
     <meta property="og:type" content="website" />
-    <link rel="icon" type="image/png" href="/digitus-logo.png" />
+    <link rel="icon" type="image/png" href="/digitus-almoxarifado.png" />
     <link rel="stylesheet" href="styles.css" />
     <link rel="stylesheet" href="auth-fix.css" />
     <link rel="stylesheet" href="brand-theme.css" />
@@ -18,7 +18,7 @@
   <body>
     <div class="app-shell">
       <aside class="sidebar">
-        <div class="brand brand-lockup"><img class="wordmark" src="/digitus-wordmark.png" alt="Digitus Net" /><small>Almoxarifado</small></div>
+        <div class="brand brand-lockup"><span class="digitus-almoxarifado-logo digitus-almoxarifado-logo-header"><img src="/digitus-almoxarifado.png" alt="Digitus Almoxarifado" /></span></div>
         <nav aria-label="Navegação principal">
           <button class="nav-link active" data-view="dashboard">▦ <span>Painel</span></button>
           <button class="nav-link" data-view="products">▤ <span>Produtos</span></button>
@@ -82,6 +82,7 @@
       <main>
         <header class="topbar">
           <div><h1 id="page-title">Visão geral</h1></div>
+          <span class="digitus-almoxarifado-logo digitus-almoxarifado-logo-dashboard" aria-hidden="true"><img src="/digitus-almoxarifado.png" alt="" /></span>
         </header>
 
         <section id="dashboard" class="view active">
@@ -242,7 +243,7 @@
     <dialog id="user-dialog"><form method="dialog" id="user-form" class="dialog-card"><div class="panel-heading"><h2>Adicionar usuário</h2><button class="icon-button" type="button" data-close-dialog aria-label="Fechar">×</button></div><p class="muted">A pessoa receberá acesso com o e-mail e a senha definidos abaixo.</p><label>Nome completo <input id="user-name" required placeholder="Ex.: Maria Silva" /></label><label>E-mail <input id="user-email" type="email" required placeholder="nome@empresa.com" /></label><label>Senha inicial <input id="user-password" type="password" minlength="8" required placeholder="Mínimo de 8 caracteres" /></label><label>Função <select id="user-role"><option value="tecnico">Técnico</option><option value="operador">Operador</option><option value="admin">Administrador</option></select></label><p id="user-error" class="form-error" hidden></p><button class="primary full" type="submit" value="default">Criar usuário</button></form></dialog>
     <dialog id="reminder-dialog"><form method="dialog" id="reminder-form" class="dialog-card"><div class="panel-heading"><h2>Novo lembrete</h2><button class="icon-button" type="button" data-close-dialog aria-label="Fechar">×</button></div><label>Destinatário <input id="reminder-recipient" required placeholder="Ex.: Almoxarifado" /></label><label>Descrição <textarea id="reminder-description" rows="3" required placeholder="Descreva o lembrete"></textarea></label><label>Data <input id="reminder-due-date" type="date" required /></label><button class="primary full" type="submit">Salvar lembrete</button></form></dialog>
     <dialog id="material-request-dialog"><form method="dialog" id="material-request-form" class="dialog-card"><div class="panel-heading"><h2>Solicitar material</h2><button class="icon-button" type="button" data-close-dialog aria-label="Fechar">×</button></div><label>Solicitante <input id="request-requester" required list="collaborator-options" placeholder="Ex.: Equipe de campo" /></label><label>Descrição <textarea id="request-description" rows="3" required placeholder="Informe o material e a quantidade"></textarea></label><button class="primary full" type="submit">Registrar solicitação</button></form></dialog>
-    <div id="auth-gate" class="auth-gate" hidden><form id="login-form" class="login-card"><div class="brand login-brand"><span class="brand-mark"><img src="/digitus-logo.png" alt="Logo Digitus Net" /></span><span>Digitus Net<small>Almoxarifado</small></span></div><h1>Acesse sua conta</h1><p>Use o e-mail e a senha cadastrados na plataforma.</p><label>E-mail <input id="login-email" type="email" required autocomplete="email" /></label><label>Senha <span class="password-input"><input id="login-password" type="password" required autocomplete="current-password" /><button id="toggle-login-password" type="button" aria-label="Mostrar senha" aria-pressed="false">Ver</button></span></label><button id="forgot-password" class="forgot-password" type="button">Esqueci minha senha</button><p id="login-error" class="form-error" hidden></p><button class="primary full" type="submit">Entrar</button></form></div>
+    <div id="auth-gate" class="auth-gate" hidden><form id="login-form" class="login-card"><div class="login-brand"><span class="digitus-almoxarifado-logo digitus-almoxarifado-logo-login"><img src="/digitus-almoxarifado.png" alt="Digitus Almoxarifado" /></span></div><h1>Acesse sua conta</h1><p>Use o e-mail e a senha cadastrados na plataforma.</p><label>E-mail <input id="login-email" type="email" required autocomplete="email" /></label><label>Senha <span class="password-input"><input id="login-password" type="password" required autocomplete="current-password" /><button id="toggle-login-password" type="button" aria-label="Mostrar senha" aria-pressed="false">Ver</button></span></label><button id="forgot-password" class="forgot-password" type="button">Esqueci minha senha</button><p id="login-error" class="form-error" hidden></p><button class="primary full" type="submit">Entrar</button></form></div>
     <dialog id="reset-password-dialog"><form id="reset-password-form" class="dialog-card reset-password-card"><div class="panel-heading"><h2>Definir nova senha</h2></div><p class="muted">Crie uma nova senha para voltar a acessar a plataforma.</p><label>Nova senha <span class="password-input"><input id="reset-password" type="password" minlength="8" required autocomplete="new-password" /><button id="toggle-reset-password" type="button" aria-label="Mostrar nova senha" aria-pressed="false">Ver</button></span></label><label>Confirmar nova senha <input id="reset-password-confirmation" type="password" minlength="8" required autocomplete="new-password" /></label><p id="reset-password-error" class="form-error" hidden></p><button class="primary full" type="submit">Salvar nova senha</button></form></dialog>
     <script type="module" src="app.js"></script>
     <dialog id="receipt-dialog"><form method="dialog" id="receipt-form" class="dialog-card product-dialog"><div class="panel-heading"><h2>Registrar recebimento</h2><button class="icon-button" type="button" data-close-dialog aria-label="Fechar">×</button></div><p class="muted">Adicione os materiais recebidos. O saldo será atualizado quando salvar.</p><div class="split"><label>Fornecedor <input id="receipt-supplier" required list="receipt-supplier-options" placeholder="Digite ou escolha um fornecedor" /><datalist id="receipt-supplier-options"></datalist></label><label>Número da nota fiscal <input id="receipt-invoice" placeholder="Opcional" /></label></div><label>Observação geral <textarea id="receipt-note" rows="2" placeholder="Opcional"></textarea></label><div class="receipt-lines-heading"><h3>Materiais recebidos</h3><button class="secondary-button" id="add-receipt-line" type="button">+ Adicionar material</button></div><div id="receipt-lines" class="receipt-lines"></div><p class="muted">Itens por Serial/MAC não aparecem nesta lista. Cadastre-os na tela Serial / MAC.</p><button class="primary full" type="submit">Confirmar recebimento</button></form></dialog>
