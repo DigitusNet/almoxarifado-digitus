@@ -261,3 +261,16 @@ dialog#client-loan-dialog{width:min(760px,calc(100vw - 28px));max-width:calc(100
 .client-loan-dialog-actions .primary{min-width:165px}
 .client-loan-dialog-actions .primary:disabled{cursor:wait;opacity:.65}
 @media(max-width:850px){.client-loans-page-header{align-items:flex-start;flex-direction:column}.client-loans-page-header .primary{width:100%}.client-loans-overview{grid-template-columns:1fr}.client-loans-table-heading{align-items:stretch;flex-direction:column}.client-loans-list-search{min-width:0}dialog#client-loan-dialog{width:calc(100vw - 20px);max-width:calc(100vw - 20px);max-height:calc(100dvh - 20px)}.client-loan-dialog-card{max-height:calc(100dvh - 20px)}.client-loan-dialog-card .panel-heading,.client-loan-form-section{padding-left:17px;padding-right:17px}.client-loan-form-section .split,.client-loan-summary dl{grid-template-columns:1fr}.client-loan-summary{margin-left:17px;margin-right:17px}.client-loan-dialog-actions{padding:16px 17px;justify-content:stretch}.client-loan-dialog-actions button{flex:1;min-width:0}}
+
+.loan-summary-metrics{grid-template-columns:repeat(4,minmax(0,1fr))}
+.loan-summary-metrics .loan-metric{cursor:pointer;text-align:left}
+.loan-summary-metrics .loan-metric:hover{border-color:#9fc4d8;transform:translateY(-1px)}
+.loan-history-panel{padding:0;overflow:hidden}
+.loan-history-panel .section-panel-heading{padding:17px 18px}
+.loan-history-filters{display:grid;grid-template-columns:minmax(230px,1.6fr) repeat(3,minmax(145px,1fr)) 145px 145px auto;gap:9px;align-items:center;padding:12px 18px;border-top:1px solid #e2edf3;border-bottom:1px solid #e2edf3;background:#f7fafc}
+.loan-history-filters .search{margin:0}
+.loan-history-filters input,.loan-history-filters select{width:100%;min-width:0}
+.dashboard-loan-alert{display:block;width:100%;margin:0 0 16px;padding:12px 16px;border:1px solid #efb4b7;border-radius:5px;background:#fff0f1;color:#a72c35;font-weight:800;text-align:left;cursor:pointer}
+.dashboard-loan-alert:hover{background:#ffe7e9}
+@media(max-width:1200px){.loan-history-filters{grid-template-columns:repeat(3,minmax(0,1fr))}.loan-history-filters .search{grid-column:span 2}}
+@media(max-width:760px){.loan-summary-metrics{grid-template-columns:1fr 1fr}.loan-history-filters{grid-template-columns:1fr}.loan-history-filters .search{grid-column:auto}}

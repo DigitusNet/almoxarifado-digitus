@@ -774,7 +774,29 @@ const serialStatusClass = status => ({ disponivel:'ok', com_colaborador:'saida',
 const serialActionName = action => ({ transferencia:'Transferência', instalacao:'Instalação em cliente', laboratorio:'Envio à oficina', retorno:'Retorno ao almoxarifado', baixa:'Baixa / sucata', emprestimo_cliente:'Comodato a cliente', devolucao_cliente:'Devolução de comodato' })[action] || action;
 const isLaboratorySerial = item => ['laboratorio', 'manutencao', 'defeito', 'aguardando_triagem'].includes(item.status);
 const loanTypeName = type => type === 'cautela' ? 'Empréstimo sem prazo' : 'Empréstimo temporário';
-const loanOverdue = loan => !loan.returned_at && loan.loan_type === 'temporario' && loan.due_at && new Date(loan.due_at) < new Date();
+const loanOverdue = loan => !loan.returned_at && loan.due_at && new Date() >= new Date(loan.due_at);
+const localDateKey = value => {
+  const target = value ? new Date(value) : new Date();
+  return new Intl.DateTimeFormat('en-CA', { timeZone: 'America/Sao_Paulo', year: 'numeric', month: '2-digit', day: '2-digit' }).format(target);
+};
+const loanStatus = loan => {
+  if (loan.returned_at) {
+    if (!loan.due_at) return { key: 'devolvido', label: 'Devolvido', badge: 'ok' };
+    const returned = new Date(loan.returned_at).getTime(), due = new Date(loan.due_at).getTime();
+    if (returned > due) return { key: 'devolvido_atraso', label: 'Devolvido com atraso', badge: 'out' };
+    if (due - returned > 15 * 60 * 1000) return { key: 'devolvido_antecipado', label: 'Devolvido antecipadamente', badge: 'ok' };
+    return { key: 'devolvido_prazo', label: 'Devolvido no prazo', badge: 'ok' };
+  }
+  if (loanOverdue(loan)) return { key: 'atrasado', label: 'Atrasado', badge: 'out' };
+  if (loan.due_at && localDateKey(loan.due_at) === localDateKey()) return { key: 'hoje', label: 'Vencendo hoje', badge: 'low' };
+  return { key: 'aberto', label: 'Em andamento', badge: 'saida' };
+};
+const isLoanEquipment = item => {
+  const itemProduct = item && product(item.product_id);
+  if (!itemProduct || isEpiProduct(itemProduct)) return false;
+  const networkEquipment = /\b(onu|ont|roteador|router|modem|switch|olt|access point)\b/i.test(`${itemProduct.name} ${itemProduct.model || ''}`);
+  return !networkEquipment;
+};
 
 function getFilteredMovements() {
   const query = $('#history-search').value.trim().toLowerCase();
@@ -818,8 +840,8 @@ function getFieldStockItems() {
 function render() {
   const availableProducts = activeProducts().filter(item => !isEpiProduct(item));
   const exits = state.movements.filter(item => item.type === 'saida' && !item.fieldUsage).length;
-  const openLoans = state.toolLoans.filter(item => !item.returned_at).length + state.clientLoans.filter(item => !item.returned_at).length;
-  const returns = state.toolLoans.filter(item => item.returned_at).length + state.clientLoans.filter(item => item.returned_at).length;
+  const openLoans = state.toolLoans.filter(item => !item.returned_at).length;
+  const returns = state.toolLoans.filter(item => item.returned_at).length;
   const outOfStock = availableProducts.filter(item => Number(item.stock) === 0).length;
   const reorder = availableProducts.filter(item => Number(item.stock) > 0 && low(item)).length;
   $('#dashboard-items-count').textContent = availableProducts.length;
@@ -845,6 +867,8 @@ function renderDashboardOperations() {
   const canCompleteRequests = ['admin', 'operador'].includes(currentUser?.role);
   const canDeleteRequests = currentUser?.role === 'admin';
   $('#dashboard-overdue-loan-list-count').textContent = overdue.length;
+  $('#dashboard-loan-alert').hidden = overdue.length === 0;
+  $('#dashboard-loan-alert-text').textContent = `${overdue.length} empréstimo${overdue.length === 1 ? ' está' : 's estão'} atrasado${overdue.length === 1 ? '' : 's'}`;
   $('#dashboard-reminder-count').textContent = openReminders.length;
   $('#dashboard-expiry-count').textContent = expired.length;
   $('#dashboard-request-count').textContent = openRequests.length;
@@ -852,7 +876,12 @@ function renderDashboardOperations() {
   $('#dashboard-reminders-table').innerHTML = openReminders.map(item => `<tr><td>${esc(item.recipient)}</td><td>${esc(item.description)}</td><td>${date(item.due_date)}</td><td><button class="dashboard-icon-action danger" data-close-reminder="${item.id}" type="button" aria-label="Concluir lembrete">×</button></td></tr>`).join('') || '<tr><td colspan="4" class="empty">Nenhum lembrete registrado.</td></tr>';
   $('#dashboard-expiring-table').innerHTML = expired.map(item => `<tr><td>${esc(item.product_name || product(item.product_id)?.name || 'Material')}</td><td>${esc(item.batch_number || 'Não informado')}</td><td>${dateOnly(item.expiry_date)}</td><td><button class="dashboard-icon-action" data-dashboard-expiry="${item.receipt_id}" type="button" aria-label="Ver recebimento">◉</button></td></tr>`).join('') || '<tr><td colspan="4" class="empty">Nenhum material vencido.</td></tr>';
   $('#dashboard-requests-table').innerHTML = openRequests.map((item, index) => `<tr><td>${index + 1}</td><td>${esc(item.requester)}</td><td>${date(item.created_at)}</td><td><span class="dashboard-request-actions"><button class="dashboard-icon-action" data-dashboard-request="${item.id}" type="button" aria-label="Mostrar descrição da solicitação" aria-expanded="false">◉</button>${canCompleteRequests ? `<button class="dashboard-icon-action success" data-complete-request="${item.id}" type="button" aria-label="Concluir solicitação" title="Concluir solicitação">✓</button>` : ''}${canDeleteRequests ? `<button class="dashboard-icon-action danger" data-delete-request="${item.id}" type="button" aria-label="Apagar solicitação" title="Apagar solicitação">×</button>` : ''}</span></td></tr><tr id="dashboard-request-detail-${item.id}" class="dashboard-request-detail" hidden><td colspan="4"><b>Solicitação:</b> ${esc(item.description)}</td></tr>`).join('') || '<tr><td colspan="4" class="empty">Nenhuma solicitação de material.</td></tr>';
-  document.querySelectorAll('[data-dashboard-loan]').forEach(button => button.onclick = () => view('loans'));
+  document.querySelectorAll('[data-dashboard-loan]').forEach(button => button.onclick = () => {
+    view('loans');
+    $('#loan-status-filter').value = 'atrasado';
+    renderLoans();
+  });
+  $('#dashboard-loan-alert').onclick = () => { view('loans'); $('#loan-status-filter').value = 'atrasado'; renderLoans(); };
   $('#dashboard-expiry-action').onclick = () => view('receipts');
   document.querySelectorAll('[data-dashboard-expiry]').forEach(button => button.onclick = () => {
     view('receipts');
@@ -1536,22 +1565,58 @@ function renderLoans() {
   const table = $('#loans-table'), loanItem = $('#loan-item');
   if (!table || !loanItem) return;
   const activeLoans = state.toolLoans.filter(loan => !loan.returned_at);
+  const returnedLoans = state.toolLoans.filter(loan => loan.returned_at);
+  const todayLoans = activeLoans.filter(loan => loanStatus(loan).key === 'hoje');
+  const overdueLoans = activeLoans.filter(loanOverdue);
   $('#open-loan-count').textContent = activeLoans.length;
-  $('#overdue-loan-count').textContent = activeLoans.filter(loanOverdue).length;
-  table.innerHTML = activeLoans.map(loan => {
-    const item = state.serialItems.find(entry => entry.id === loan.serial_item_id), itemProduct = item && product(item.product_id);
-    const overdue = loanOverdue(loan), due = loan.loan_type === 'temporario' ? (loan.due_at ? date(loan.due_at) : 'Sem prazo') : 'Sem prazo';
-    return `<tr><td><b>${esc(itemProduct?.name || 'Item')}</b><small>Serial: ${esc(item?.serial_number || '—')} · Patrimônio: ${esc(item?.asset_tag || '—')}</small></td><td>${esc(loan.collaborator_name || state.collaborators.find(collaborator => collaborator.id === loan.collaborator_id)?.name || '—')}</td><td>${esc(loanTypeName(loan.loan_type))}</td><td>${date(loan.issued_at)}</td><td>${due}</td><td><span class="badge ${overdue ? 'out' : 'low'}">${overdue ? 'Atrasada' : 'Em aberto'}</span></td><td><div class="table-actions"><button class="secondary-button" data-print-loan="${loan.id}">Termo</button><button class="primary small-primary" data-return-loan="${loan.id}">Devolver</button></div></td></tr>`;
-  }).join('') || '<tr><td colspan="7" class="empty">Nenhum empréstimo em aberto.</td></tr>';
+  $('#today-loan-count').textContent = todayLoans.length;
+  $('#overdue-loan-count').textContent = overdueLoans.length;
+  $('#returned-loan-count').textContent = returnedLoans.length;
 
-  const loanableItems = state.serialItems.filter(item => item.status === 'disponivel');
+  const technicianFilter = $('#loan-technician-filter'), equipmentFilter = $('#loan-equipment-filter');
+  const selectedTechnician = technicianFilter.value, selectedEquipment = equipmentFilter.value;
+  const technicianNames = [...new Set(state.toolLoans.map(loan => loan.collaborator_name).filter(Boolean))].sort((a, b) => a.localeCompare(b, 'pt-BR'));
+  const equipmentIds = [...new Set(state.toolLoans.map(loan => state.serialItems.find(item => item.id === loan.serial_item_id)?.product_id).filter(Boolean))];
+  technicianFilter.innerHTML = '<option value="">Todos os técnicos</option>' + technicianNames.map(name => `<option value="${esc(name)}">${esc(name)}</option>`).join('');
+  technicianFilter.value = technicianNames.includes(selectedTechnician) ? selectedTechnician : '';
+  equipmentFilter.innerHTML = '<option value="">Todos os equipamentos</option>' + equipmentIds.map(id => `<option value="${id}">${esc(product(id)?.name || 'Equipamento')}</option>`).join('');
+  equipmentFilter.value = equipmentIds.includes(selectedEquipment) ? selectedEquipment : '';
+
+  const query = $('#loan-search').value.trim().toLowerCase(), statusFilter = $('#loan-status-filter').value;
+  const from = $('#loan-period-from').value, to = $('#loan-period-to').value;
+  const filteredLoans = state.toolLoans.filter(loan => {
+    const item = state.serialItems.find(entry => entry.id === loan.serial_item_id), itemProduct = item && product(item.product_id), currentStatus = loanStatus(loan);
+    const text = `${itemProduct?.name || ''} ${item?.asset_tag || ''} ${item?.serial_number || ''} ${loan.collaborator_name || ''}`.toLowerCase();
+    const statusMatch = !statusFilter || statusFilter === 'emprestado' && !loan.returned_at || statusFilter === 'devolvido' && Boolean(loan.returned_at) || statusFilter === 'aberto' && !loan.returned_at && !['hoje', 'atrasado'].includes(currentStatus.key) || currentStatus.key === statusFilter;
+    const day = loan.issued_at?.slice(0, 10) || '';
+    return (!query || text.includes(query)) && statusMatch
+      && (!technicianFilter.value || loan.collaborator_name === technicianFilter.value)
+      && (!equipmentFilter.value || item?.product_id === equipmentFilter.value)
+      && (!from || day >= from) && (!to || day <= to);
+  });
+
+  table.innerHTML = filteredLoans.map(loan => {
+    const item = state.serialItems.find(entry => entry.id === loan.serial_item_id), itemProduct = item && product(item.product_id);
+    const currentStatus = loanStatus(loan), issuer = loan.issued_by_name || state.users.find(user => user.id === loan.issued_by)?.name || 'Não informado';
+    const returner = loan.returned_by_name || state.users.find(user => user.id === loan.returned_by)?.name || '—';
+    return `<tr><td><b>${esc(itemProduct?.name || 'Item')}</b><small>Patrimônio: ${esc(item?.asset_tag || '—')} · Serial: ${esc(item?.serial_number || '—')}</small></td><td>${esc(loan.collaborator_name || '—')}</td><td>${date(loan.issued_at)}</td><td>${loan.due_at ? date(loan.due_at) : 'Prazo não informado'}</td><td>${loan.returned_at ? date(loan.returned_at) : '—'}</td><td><span class="badge ${currentStatus.badge}">${esc(currentStatus.label)}</span></td><td><small>${loan.note ? `Retirada: ${esc(loan.note)}<br>` : ''}${loan.return_note ? `Devolução: ${esc(loan.return_note)}<br>` : ''}Registrado por: ${esc(issuer)}${loan.returned_at ? `<br>Devolvido por: ${esc(returner)}` : ''}</small></td><td><div class="table-actions"><button class="text-button" data-loan-item-history="${item?.id || ''}">Histórico</button><button class="secondary-button" data-print-loan="${loan.id}">Termo</button>${!loan.returned_at ? `<button class="primary small-primary" data-return-loan="${loan.id}">Registrar devolução</button>` : ''}</div></td></tr>`;
+  }).join('') || '<tr><td colspan="8" class="empty">Nenhum empréstimo encontrado para os filtros selecionados.</td></tr>';
+
+  const loanableItems = state.serialItems.filter(item => item.status === 'disponivel' && isLoanEquipment(item));
   loanItem.innerHTML = loanableItems.map(item => {
     const itemProduct = product(item.product_id);
-    return `<option value="${item.id}">${esc(itemProduct?.name || 'Item')} · ${esc(item.asset_tag || item.serial_number || item.mac_address || 'Sem identificador')}</option>`;
+    return `<option value="${item.id}">${esc(itemProduct?.name || 'Item')} · Patrimônio: ${esc(item.asset_tag || 'não informado')}</option>`;
   }).join('');
   $('#loan-collaborator').innerHTML = '<option value="">Selecione</option>' + state.collaborators.filter(item => item.active).map(item => `<option value="${item.id}">${esc(item.name)}</option>`).join('');
   document.querySelectorAll('[data-return-loan]').forEach(button => button.onclick = () => openLoanReturn(button.dataset.returnLoan));
   document.querySelectorAll('[data-print-loan]').forEach(button => button.onclick = () => printLoanTerm(button.dataset.printLoan));
+  document.querySelectorAll('[data-loan-item-history]').forEach(button => button.onclick = () => {
+    const item = state.serialItems.find(entry => entry.id === button.dataset.loanItemHistory);
+    $('#loan-search').value = item?.asset_tag || item?.serial_number || '';
+    $('#loan-status-filter').value = '';
+    renderLoans();
+  });
+  updateLoanItemDetails();
 }
 
 function setClientLoanError(message = '') {
@@ -1642,11 +1707,18 @@ function renderClientLoans() {
   document.querySelectorAll('[data-open-client-loan]').forEach(button => button.onclick = () => $('#add-client-loan')?.click());
 }
 
-function updateLoanTypeForm() {
-  const temporary = $('#loan-type').value === 'temporario';
-  $('#loan-due-group').hidden = !temporary;
-  $('#loan-due').required = temporary;
-  if (!temporary) $('#loan-due').value = '';
+function updateLoanItemDetails() {
+  const item = state.serialItems.find(entry => entry.id === $('#loan-item')?.value), itemProduct = item && product(item.product_id);
+  const details = $('#loan-item-details');
+  if (!details) return;
+  details.innerHTML = item
+    ? `<b>${esc(itemProduct?.name || 'Equipamento')}</b><span>Patrimônio: ${esc(item.asset_tag || 'Não informado')} · Serial: ${esc(item.serial_number || '—')}</span>`
+    : '<span>Nenhum equipamento patrimonial disponível.</span>';
+}
+
+function localDateTimeInputValue(value = new Date()) {
+  const target = new Date(value.getTime() - value.getTimezoneOffset() * 60000);
+  return target.toISOString().slice(0, 16);
 }
 
 function openLoanReturn(id) {
@@ -2121,7 +2193,14 @@ $('#add-serial').onclick = () => {
   $('#serial-dialog').showModal();
 };
 $('#add-loan').onclick = () => {
-  if (!state.serialItems.some(item => item.status === 'disponivel')) return alert('Cadastre uma unidade rastreável e disponível antes de registrar um empréstimo.');
+  if (!state.serialItems.some(item => item.status === 'disponivel' && isLoanEquipment(item))) return alert('Cadastre uma ferramenta ou equipamento patrimonial disponível antes de registrar um empréstimo.');
+  $('#loan-form').reset();
+  renderLoans();
+  const now = new Date(), defaultDue = new Date(now.getTime() + 14 * 60 * 60 * 1000);
+  $('#loan-issued-at').value = localDateTimeInputValue(now);
+  $('#loan-issued-at').readOnly = currentUser?.role !== 'admin';
+  $('#loan-due').value = localDateTimeInputValue(defaultDue);
+  updateLoanItemDetails();
   $('#loan-dialog').showModal();
 };
 $('#add-client-loan').onclick = () => {
@@ -2248,6 +2327,10 @@ $('#product-status-filter').onchange = () => { state.productFilter = 'all'; rend
 $('#epi-status-filter').onchange = renderEpis;
 $('#serial-search').oninput = renderSerials;
 $('#lab-search').oninput = renderLaboratory;
+document.querySelectorAll('#loan-search, #loan-status-filter, #loan-technician-filter, #loan-equipment-filter, #loan-period-from, #loan-period-to').forEach(input => input.addEventListener(input.tagName === 'INPUT' ? 'input' : 'change', renderLoans));
+document.querySelectorAll('[data-loan-card-filter]').forEach(button => button.onclick = () => { $('#loan-status-filter').value = button.dataset.loanCardFilter; renderLoans(); });
+$('#clear-loan-filters').onclick = () => { $('#loan-search').value = ''; $('#loan-status-filter').value = ''; $('#loan-technician-filter').value = ''; $('#loan-equipment-filter').value = ''; $('#loan-period-from').value = ''; $('#loan-period-to').value = ''; renderLoans(); };
+$('#loan-item').onchange = updateLoanItemDetails;
 $('#client-loan-search').oninput = renderClientLoans;
 const clientLoanListSearch = $('#client-loan-list-search');
 if (clientLoanListSearch) clientLoanListSearch.oninput = renderClientLoans;
@@ -2284,10 +2367,8 @@ $('#movement-holder-type').onchange = updateMovementRecipientPlaceholder;
 updateMovementMode();
 
 $('#serial-transfer-action').onchange = updateSerialTransferForm;
-$('#loan-type').onchange = updateLoanTypeForm;
 $('#laboratory-action').onchange = updateLaboratoryForm;
 $('#edit-tracking').onchange = () => updateEditStockControl();
-updateLoanTypeForm();
 updateLaboratoryForm();
 
 function collectProductData(prefix) {
@@ -2640,12 +2721,14 @@ $('#laboratory-form').onsubmit = async event => {
 
 $('#loan-form').onsubmit = async event => {
   event.preventDefault();
-  const due = $('#loan-due').value;
+  const issuedAt = $('#loan-issued-at').value, due = $('#loan-due').value;
+  if (!issuedAt || !due) return alert('Informe a retirada e o prazo de devolução com data e hora.');
+  if (new Date(due) <= new Date(issuedAt)) return alert('O prazo de devolução deve ser posterior à retirada.');
   const { error } = await supabase.rpc('create_tool_loan', {
     p_serial_item_id: $('#loan-item').value,
     p_collaborator_id: $('#loan-collaborator').value,
-    p_loan_type: $('#loan-type').value,
-    p_due_at: due ? new Date(due).toISOString() : null,
+    p_issued_at: new Date(issuedAt).toISOString(),
+    p_due_at: new Date(due).toISOString(),
     p_note: $('#loan-note').value || null
   });
   if (error) return alert(error.message);
@@ -2656,7 +2739,7 @@ $('#return-loan-form').onsubmit = async event => {
   event.preventDefault();
   const { error } = await supabase.rpc('return_tool_loan', {
     p_loan_id: $('#return-loan-id').value,
-    p_return_condition: $('#return-loan-condition').value,
+    p_return_condition: 'bom',
     p_return_note: $('#return-loan-note').value || null
   });
   if (error) return alert(error.message);
