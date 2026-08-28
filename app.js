@@ -1874,7 +1874,9 @@ function updateLoanItemDetails() {
 }
 
 function localDateTimeInputValue(value = new Date()) {
-  const target = new Date(value.getTime() - value.getTimezoneOffset() * 60000);
+  const parsed = value instanceof Date ? value : new Date(value);
+  if (!Number.isFinite(parsed.getTime())) return '';
+  const target = new Date(parsed.getTime() - parsed.getTimezoneOffset() * 60000);
   return target.toISOString().slice(0, 16);
 }
 
