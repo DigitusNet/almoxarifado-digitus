@@ -2,7 +2,7 @@ import { createClient } from '@supabase/supabase-js';
 import { readSheet as readXlsxSheet } from 'read-excel-file/browser';
 
 const supabase = createClient(import.meta.env.VITE_SUPABASE_URL, import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY);
-let state = { products: [], movements: [], users: [], usersLoadNote: '', collaborators: [], vehicles: [], locations: [], suppliers: [], serialItems: [], serialMovements: [], toolLoans: [], clientLoans: [], clientLoansLoadError: '', receipts: [], receiptItems: [], inventorySessions: [], inventoryCounts: [], reminders: [], materialRequests: [], technicianPendencies: [], technicianPendingEvents: [], technicianPendenciesLoadError: '', productFilter: 'all', clientLoanImport: null };
+let state = { products: [], movements: [], users: [], usersLoadNote: '', collaborators: [], vehicles: [], locations: [], suppliers: [], serialItems: [], serialMovements: [], toolLoans: [], clientLoans: [], clientLoansLoadError: '', receipts: [], receiptItems: [], inventorySessions: [], inventoryCounts: [], reminders: [], materialRequests: [], technicianPendencies: [], technicianPendingEvents: [], technicianPendingItems: [], technicianPendenciesLoadError: '', productFilter: 'all', clientLoanImport: null };
 let currentUser = null;
 let passwordRecoveryMode = false;
 const passwordRecoveryStorageKey = 'digitus-password-recovery';
@@ -595,10 +595,25 @@ function useScannedCode(rawCode) {
   if (result.type === 'serial') {
     stopCodeScanner();
     $('#code-scanner-dialog').close();
+    if (scannerTarget === 'movement') {
+      view('movement');
+      $('#movement-type').value = 'saida';
+      $('#movement-holder-type').value = 'tecnico';
+      $('#movement-product').value = result.item.product_id;
+      $('#movement-quantity').value = 1;
+      updateMovementMode();
+      const firstUnit = document.querySelector('.movement-unit-row');
+      if (firstUnit) {
+        firstUnit.querySelector('[data-unit-mac]').value = result.item.mac_address || '';
+        firstUnit.querySelector('[data-unit-serial]').value = result.item.serial_number || '';
+        firstUnit.querySelector('[data-unit-asset]').value = result.item.asset_tag || '';
+      }
+      $('#movement-person').focus();
+      return;
+    }
     $('#serial-search').value = code;
     view('serials');
     renderSerials();
-    if (scannerTarget === 'movement') openSerialTransfer(result.item.id);
     return;
   }
 
@@ -613,6 +628,7 @@ function useScannedCode(rawCode) {
   if (scannerTarget === 'movement') {
     view('movement');
     $('#movement-product').value = result.item.id;
+    updateMovementMode();
     $('#movement-quantity').focus();
     return;
   }
@@ -777,7 +793,7 @@ function expiryNotifications() {
   return [...epiNotifications, ...materialNotifications]
     .sort((a, b) => new Date(`${a.expiry}T00:00:00`) - new Date(`${b.expiry}T00:00:00`));
 }
-const serialStatusName = status => ({ disponivel:'Disponível', com_colaborador:'Com colaborador', com_veiculo:'Com veículo', instalado_cliente:'Instalado no cliente', emprestado:'Emprestado', aguardando_triagem:'Aguardando triagem', laboratorio:'Oficina', manutencao:'Em manutenção', defeito:'Defeito', baixado:'Baixado' })[status] || status;
+const serialStatusName = status => ({ disponivel:'Em estoque', com_colaborador:'Com técnico', com_veiculo:'Com veículo', instalado_cliente:'Instalado no cliente', emprestado:'Emprestado', aguardando_triagem:'Aguardando triagem', laboratorio:'Oficina', manutencao:'Em manutenção', defeito:'Defeito', baixado:'Baixado' })[status] || status;
 const serialStatusClass = status => ({ disponivel:'ok', com_colaborador:'saida', com_veiculo:'saida', instalado_cliente:'saida', emprestado:'saida', aguardando_triagem:'low', laboratorio:'low', manutencao:'low', defeito:'out', baixado:'out' })[status] || 'low';
 const serialActionName = action => ({ transferencia:'Transferência', instalacao:'Instalação em cliente', laboratorio:'Envio à oficina', retorno:'Retorno ao almoxarifado', baixa:'Baixa / sucata', emprestimo_cliente:'Comodato a cliente', devolucao_cliente:'Devolução de comodato' })[action] || action;
 const isLaboratorySerial = item => ['laboratorio', 'manutencao', 'defeito', 'aguardando_triagem'].includes(item.status);
@@ -831,6 +847,24 @@ function getFilteredSerialMovements() {
     const day = item.created_at?.slice(0, 10) || '';
     const matchesType = !typeFilter || typeFilter === 'entrada' && impact === 1 || typeFilter === 'saida' && impact === -1 || typeFilter === 'uso_os' && false;
     return (!query || text.includes(query)) && matchesType && !holderFilter && (!from || day >= from) && (!to || day <= to);
+  });
+}
+
+function getFilteredTechnicianEvents() {
+  const query = $('#history-search').value.trim().toLowerCase();
+  const typeFilter = $('#history-type').value, holderFilter = $('#history-holder').value;
+  const from = $('#history-from').value, to = $('#history-to').value;
+  const typeMap = { retirada:'saida', utilizacao:'instalacao', devolucao:'devolucao', transferencia:'transferencia', prorrogacao:'prorrogacao' };
+  const holderMap = { retirada:'tecnico', utilizacao:'cliente', devolucao:'outro', transferencia:'tecnico', prorrogacao:'tecnico' };
+  return state.technicianPendingEvents.filter(event => {
+    const pending = state.technicianPendencies.find(item => item.id === event.pending_id);
+    if (!pending) return false;
+    const linkedUnits = state.technicianPendingItems.filter(link => link.pending_id === pending.id).map(link => state.serialItems.find(item => item.id === link.serial_item_id)).filter(Boolean);
+    const identifiers = linkedUnits.flatMap(item => [item.mac_address,item.serial_number,item.asset_tag]).filter(Boolean).join(' ');
+    const text = `${product(pending.product_id)?.name || ''} ${pending.technician_name || ''} ${event.from_technician || ''} ${event.to_technician || ''} ${event.customer_name || ''} ${event.work_order || pending.work_order || ''} ${event.note || ''} ${identifiers}`.toLowerCase();
+    const timestamp = event.occurred_at || event.created_at;
+    const day = timestamp?.slice(0,10) || '';
+    return (!query || text.includes(query)) && (!typeFilter || typeMap[event.event_type] === typeFilter) && (!holderFilter || holderMap[event.event_type] === holderFilter) && (!from || day >= from) && (!to || day <= to);
   });
 }
 
@@ -1016,30 +1050,41 @@ function renderMovement() {
   const products = activeProducts();
   select.innerHTML = products.map(item => `<option value="${item.id}">${esc(item.name)} (${stockLabel(item)})</option>`).join('');
   select.value = selected || products[0]?.id || '';
-  const movements = getFilteredMovements();
-  const serialMovements = getFilteredSerialMovements();
-  const quantityHistory = movements.map(item => {
+  renderMovementSerialUnits();
+  const movements = getFilteredMovements().filter(item => !item.pendingId);
+  const serialMovements = getFilteredSerialMovements().filter(item => !item.pending_id);
+  const pendingEvents = getFilteredTechnicianEvents();
+  const timeline = movements.map(item => {
     const balance = item.stockBefore != null && item.stockAfter != null ? ` · Estoque: ${quantity(item.stockBefore)} → ${quantity(item.stockAfter)}` : '';
-    const pending = state.technicianPendencies.find(entry => entry.movement_id === item.id);
-    const deadline = pending ? pendingDeadlineState(pending) : null;
-    return `<div class="history-item"><span class="history-icon ${item.type === 'saida' ? 'out' : ''}">${item.type === 'entrada' ? '↓' : '↑'}</span><div><b>${movementName(item)} de ${quantity(item.quantity)} ${unitName(product(item.productId)?.unit_of_measure)} — ${esc(product(item.productId)?.name || 'Produto')}</b><small>${holderTypeName(item.holderType)}: ${esc(item.person)} · ${pending ? date(pending.withdrawn_at) : item.date}${balance}${item.workOrder ? ' · OS: ' + esc(item.workOrder) : ''}${pending ? ` · Prazo: ${date(pending.due_at)} · ${deadline.label}` : ''}${item.note ? ' · ' + esc(item.note) : ''}</small></div>${canDelete && !pending ? `<button class="danger-button" data-delete-movement="${item.id}">Apagar</button>` : ''}</div>`;
-  }).join('');
-  const serialHistory = serialMovements.map(item => {
+    return { at:item.createdAt, id:item.id, html:`<div class="history-item"><span class="history-icon ${item.type === 'saida' ? 'out' : ''}">${item.type === 'entrada' ? '↓' : '↑'}</span><div><b>${movementName(item)} de ${quantity(item.quantity)} ${unitName(product(item.productId)?.unit_of_measure)} — ${esc(product(item.productId)?.name || 'Produto')}</b><small>${holderTypeName(item.holderType)}: ${esc(item.person)} · ${item.date}${balance}${item.workOrder ? ' · OS: ' + esc(item.workOrder) : ''}${item.note ? ' · ' + esc(item.note) : ''}</small></div>${canDelete ? `<button class="danger-button" data-delete-movement="${item.id}">Apagar</button>` : ''}</div>` };
+  });
+  timeline.push(...serialMovements.map(item => {
     const serialItem = state.serialItems.find(entry => entry.id === item.serial_item_id), itemProduct = serialItem && product(serialItem.product_id);
     const from = state.locations.find(location => location.id === item.from_location_id)?.name || serialStatusName(item.previous_status);
     const to = state.locations.find(location => location.id === item.to_location_id)?.name || item.customer_name || item.recipient || serialStatusName(item.new_status);
     const impact = Number(item.stock_impact ?? (item.previous_status === 'disponivel' && item.new_status !== 'disponivel' ? -1 : item.previous_status !== 'disponivel' && item.new_status === 'disponivel' ? 1 : 0));
     const impactLabel = impact > 0 ? '+1 no estoque' : impact < 0 ? '-1 no estoque' : 'sem alteração no estoque';
     const identifier = serialItem?.asset_tag || serialItem?.mac_address || serialItem?.serial_number || 'sem identificador';
-    return `<div class="history-item"><span class="history-icon ${impact < 0 ? 'out' : ''}">${impact > 0 ? '↓' : impact < 0 ? '↑' : '⇄'}</span><div><b>${esc(serialActionName(item.action))} — ${esc(itemProduct?.name || 'Equipamento')} (${esc(identifier)})</b><small>${esc(from)} → ${esc(to)} · ${date(item.created_at)} · <b>${esc(impactLabel)}</b>${item.work_order ? ' · OS: ' + esc(item.work_order) : ''}${item.note ? ' · ' + esc(item.note) : ''}</small></div></div>`;
-  }).join('');
-  const pendingHistory = state.technicianPendingEvents.filter(event => event.event_type !== 'retirada').map(event => { const pending = state.technicianPendencies.find(item => item.id === event.pending_id); const stockText = event.event_type === 'devolucao' ? `Estoque: +${quantity(pending?.quantity)}` : 'Estoque: sem alteração'; return `<div class="history-item"><span class="history-icon">⇄</span><div><b>${esc({transferencia:'Transferência de equipamento',prorrogacao:'Prorrogação de prazo',devolucao:'Devolução',utilizacao:'Utilização / instalação'}[event.event_type] || event.event_type)} — ${esc(product(pending?.product_id)?.name || 'Material')}</b><small>${event.from_technician ? esc(event.from_technician) : ''}${event.to_technician ? ` → ${esc(event.to_technician)}` : ''} · ${date(event.created_at)}${event.previous_due_at ? ` · Prazo anterior: ${date(event.previous_due_at)}` : ''}${event.new_due_at ? ` · Novo prazo: ${date(event.new_due_at)}` : ''} · ${stockText}${event.note ? ` · ${esc(event.note)}` : ''}</small></div></div>`; }).join('');
-  $('#movement-history').innerHTML = `${quantityHistory}${serialHistory}${pendingHistory}` || '<p class="empty">Nenhuma movimentação encontrada.</p>';
+    return { at:item.created_at, id:item.id, html:`<div class="history-item"><span class="history-icon ${impact < 0 ? 'out' : ''}">${impact > 0 ? '↓' : impact < 0 ? '↑' : '⇄'}</span><div><b>${esc(serialActionName(item.action))} — ${esc(itemProduct?.name || 'Equipamento')} (${esc(identifier)})</b><small>${esc(from)} → ${esc(to)} · ${date(item.created_at)} · <b>${esc(impactLabel)}</b>${item.work_order ? ' · OS: ' + esc(item.work_order) : ''}${item.note ? ' · ' + esc(item.note) : ''}</small></div></div>` };
+  }));
+  timeline.push(...pendingEvents.map(event => {
+    const pending = state.technicianPendencies.find(item => item.id === event.pending_id);
+    const eventName = {retirada:'Retirada do almoxarifado',transferencia:'Repasse para outro técnico',prorrogacao:'Prorrogação de prazo',devolucao:'Devolução ao almoxarifado',utilizacao:'Instalação / utilização'}[event.event_type] || event.event_type;
+    const stockText = event.event_type === 'retirada' ? `Estoque: -${quantity(pending?.quantity)}` : event.event_type === 'devolucao' ? `Estoque: +${quantity(pending?.quantity)}` : 'Estoque: sem alteração';
+    const linkedUnits = state.technicianPendingItems.filter(link => link.pending_id === event.pending_id).map(link => state.serialItems.find(item => item.id === link.serial_item_id)).filter(Boolean);
+    const identifiers = linkedUnits.map(item => item.asset_tag || item.mac_address || item.serial_number).filter(Boolean).join(', ');
+    const details = [event.from_technician, event.to_technician && `→ ${event.to_technician}`, event.customer_name && `Cliente: ${event.customer_name}`, (event.work_order || pending?.work_order) && `OS: ${event.work_order || pending.work_order}`, event.previous_due_at && `Prazo anterior: ${date(event.previous_due_at)}`, event.new_due_at && `Prazo: ${date(event.new_due_at)}`, identifiers && `Unidades: ${identifiers}`, stockText, event.note].filter(Boolean).map(esc).join(' · ');
+    const occurredAt = event.occurred_at || event.created_at;
+    return { at:occurredAt, id:event.id, html:`<div class="history-item"><span class="history-icon ${event.event_type === 'retirada' ? 'out' : ''}">${event.event_type === 'retirada' ? '↑' : event.event_type === 'devolucao' ? '↓' : '⇄'}</span><div><b>${esc(eventName)} — ${esc(product(pending?.product_id)?.name || 'Material')}</b><small>${date(occurredAt)} · ${details}</small></div></div>` };
+  }));
+  timeline.sort((a,b) => new Date(b.at)-new Date(a.at) || String(b.id).localeCompare(String(a.id)));
+  $('#movement-history').innerHTML = timeline.map(item => item.html).join('') || '<p class="empty">Nenhuma movimentação encontrada.</p>';
   document.querySelectorAll('[data-delete-movement]').forEach(button => button.onclick = () => deleteMovement(button.dataset.deleteMovement));
 }
 
 function updateTechnicianPendingAction() {
   const action = $('#technician-pending-action').value;
+  $('#technician-pending-install-group').hidden = action !== 'utilizado';
   $('#technician-pending-technician-group').hidden = action !== 'transferir';
   $('#technician-pending-due-group').hidden = !['transferir','prorrogar'].includes(action);
 }
@@ -1053,9 +1098,14 @@ function openTechnicianPending(id) {
   $('#technician-pending-technician').value = '';
   $('#technician-pending-due').value = localDateTimeInputValue(item.due_at);
   $('#technician-pending-note').value = '';
-  $('#technician-pending-details').innerHTML = `<b>${esc(product(item.product_id)?.name || 'Material')}</b><span>Quantidade: ${quantity(item.quantity)} · Técnico: ${esc(item.technician_name)}</span><span>Retirada: ${date(item.withdrawn_at)} · Prazo: ${date(item.due_at)}</span><span class="pending-status ${deadline.key}">${deadline.label}</span><span>OS: ${esc(item.work_order || '—')} · MAC: ${esc(item.mac_address || '—')} · Serial: ${esc(item.serial_number || '—')} · Patrimônio: ${esc(item.asset_tag || '—')}</span>${item.note ? `<span>Observação: ${esc(item.note)}</span>` : ''}`;
-  const events = state.technicianPendingEvents.filter(entry => entry.pending_id === item.id).sort((a,b) => new Date(b.created_at)-new Date(a.created_at));
-  $('#technician-pending-events').innerHTML = events.map(event => `<div class="serial-history-item"><b>${esc({retirada:'Retirada',transferencia:'Transferência',prorrogacao:'Prorrogação',devolucao:'Devolução',utilizacao:'Utilização / instalação'}[event.event_type] || event.event_type)}</b><small>${date(event.created_at)}${event.from_technician ? ` · De: ${esc(event.from_technician)}` : ''}${event.to_technician ? ` · Para: ${esc(event.to_technician)}` : ''}${event.previous_due_at ? ` · Prazo anterior: ${date(event.previous_due_at)}` : ''}${event.new_due_at ? ` · Novo prazo: ${date(event.new_due_at)}` : ''}${event.note ? ` · ${esc(event.note)}` : ''}</small></div>`).join('') || '<p class="empty">Nenhum evento registrado.</p>';
+  $('#technician-pending-customer').value = '';
+  $('#technician-pending-work-order').value = item.work_order || '';
+  $('#technician-pending-installed-at').value = localDateTimeInputValue(new Date());
+  const linkedUnits = state.technicianPendingItems.filter(link => link.pending_id === item.id).map(link => state.serialItems.find(unit => unit.id === link.serial_item_id)).filter(Boolean);
+  const identifiers = linkedUnits.map((unit, index) => `<span><b>Unidade ${index + 1}:</b> MAC ${esc(unit.mac_address || '—')} · Serial ${esc(unit.serial_number || '—')} · Patrimônio ${esc(unit.asset_tag || '—')}</span>`).join('');
+  $('#technician-pending-details').innerHTML = `<b>${esc(product(item.product_id)?.name || 'Material')}</b><span>Quantidade: ${quantity(item.quantity)} · Técnico atual: ${esc(item.technician_name)}</span><span>Retirada: ${date(item.withdrawn_at)} · Prazo: ${date(item.due_at)}</span><span class="pending-status ${deadline.key}">${deadline.label}</span><span>OS: ${esc(item.work_order || '—')}</span>${identifiers}${item.note ? `<span>Observação: ${esc(item.note)}</span>` : ''}`;
+  const events = state.technicianPendingEvents.filter(entry => entry.pending_id === item.id).sort((a,b) => new Date(b.occurred_at || b.created_at)-new Date(a.occurred_at || a.created_at));
+  $('#technician-pending-events').innerHTML = events.map(event => `<div class="serial-history-item"><b>${esc({retirada:'Retirada',transferencia:'Repasse',prorrogacao:'Prorrogação',devolucao:'Devolução',utilizacao:'Instalação / utilização'}[event.event_type] || event.event_type)}</b><small>${date(event.occurred_at || event.created_at)}${event.from_technician ? ` · De: ${esc(event.from_technician)}` : ''}${event.to_technician ? ` · Para: ${esc(event.to_technician)}` : ''}${event.customer_name ? ` · Cliente: ${esc(event.customer_name)}` : ''}${event.work_order ? ` · OS: ${esc(event.work_order)}` : ''}${event.previous_due_at ? ` · Prazo anterior: ${date(event.previous_due_at)}` : ''}${event.new_due_at ? ` · Novo prazo: ${date(event.new_due_at)}` : ''}${event.note ? ` · ${esc(event.note)}` : ''}</small></div>`).join('') || '<p class="empty">Nenhum evento registrado.</p>';
   updateTechnicianPendingAction();
   $('#technician-pending-dialog').showModal();
 }
@@ -1064,15 +1114,21 @@ async function submitTechnicianPending(event) {
   event.preventDefault();
   const action = $('#technician-pending-action').value;
   const needsDue = ['transferir','prorrogar'].includes(action);
+  const pendingId = $('#technician-pending-id').value;
+  const hasIdentifiedUnits = state.technicianPendingItems.some(link => link.pending_id === pendingId);
   if (action === 'transferir' && !$('#technician-pending-technician').value.trim()) return alert('Informe o novo técnico.');
   if (needsDue && !$('#technician-pending-due').value) return alert('Informe o novo prazo.');
+  if (action === 'utilizado' && hasIdentifiedUnits && !$('#technician-pending-customer').value.trim()) return alert('Informe o nome do cliente para instalar este equipamento.');
   const label = {utilizado:'marcar como utilizado/instalado',devolvido:'devolver ao almoxarifado',transferir:'repassar para outro técnico',prorrogar:'prorrogar o prazo'}[action];
   if (!confirm(`Confirma que deseja ${label}?`)) return;
-  const { error } = await supabase.rpc('resolve_technician_pending', {
-    p_pending_id: $('#technician-pending-id').value,
+  const { error } = await supabase.rpc('resolve_integrated_technician_pending', {
+    p_pending_id: pendingId,
     p_action: action,
     p_technician: $('#technician-pending-technician').value.trim() || null,
     p_due_at: needsDue ? new Date($('#technician-pending-due').value).toISOString() : null,
+    p_customer_name: action === 'utilizado' ? $('#technician-pending-customer').value.trim() || null : null,
+    p_work_order: action === 'utilizado' ? $('#technician-pending-work-order').value.trim() || null : null,
+    p_occurred_at: action === 'utilizado' && $('#technician-pending-installed-at').value ? new Date($('#technician-pending-installed-at').value).toISOString() : new Date().toISOString(),
     p_note: $('#technician-pending-note').value.trim() || null
   });
   if (error) return alert(error.message);
@@ -1450,7 +1506,7 @@ function renderSerials() {
   table.innerHTML = serials.map(item => {
     const itemProduct = product(item.product_id), location = state.locations.find(entry => entry.id === item.current_location_id);
     const canManageSerial = ['admin', 'operador'].includes(currentUser?.role);
-    return `<tr><td><b>${esc(itemProduct?.name || 'Item removido')}</b><small>${esc(itemProduct?.code || '—')}</small></td><td>${esc(item.serial_number || '—')}</td><td>${esc(item.mac_address || '—')}</td><td>${esc(item.asset_tag || '—')}</td><td>${esc(location?.name || item.customer_name || '—')}</td><td><span class="badge ${serialStatusClass(item.status)}">${esc(serialStatusName(item.status))}</span></td><td><div class="table-actions">${item.status !== 'baixado' ? `<button class="secondary-button" data-move-serial="${item.id}">Mover</button>` : ''}${canManageSerial ? `<button class="secondary-button" data-edit-serial="${item.id}">Editar</button>` : ''}<button class="text-button" data-history-serial="${item.id}">Histórico</button><button class="danger-button" data-admin-only hidden data-delete-serial="${item.id}">Excluir</button></div></td></tr>`;
+    return `<tr><td><b>${esc(itemProduct?.name || 'Item removido')}</b><small>${esc(itemProduct?.code || '—')}</small></td><td>${esc(item.serial_number || '—')}</td><td>${esc(item.mac_address || '—')}</td><td>${esc(item.asset_tag || '—')}</td><td>${esc(item.current_technician || location?.name || item.customer_name || '—')}</td><td><span class="badge ${serialStatusClass(item.status)}">${esc(serialStatusName(item.status))}</span></td><td><div class="table-actions">${item.status !== 'baixado' ? `<button class="secondary-button" data-move-serial="${item.id}">Mover</button>` : ''}${canManageSerial ? `<button class="secondary-button" data-edit-serial="${item.id}">Editar</button>` : ''}<button class="text-button" data-history-serial="${item.id}">Histórico</button><button class="danger-button" data-admin-only hidden data-delete-serial="${item.id}">Excluir</button></div></td></tr>`;
   }).join('') || '<tr><td colspan="7" class="empty">Nenhuma unidade rastreável encontrada.</td></tr>';
   const locations = state.locations.filter(item => item.active);
   $('#serial-location').innerHTML = '<option value="">Almoxarifado central</option>' + locations.map(item => `<option value="${item.id}">${esc(item.name)}</option>`).join('');
@@ -2028,7 +2084,7 @@ async function loadUsers() {
 }
 
 async function load() {
-  const [products, movements, collaborators, vehicles, locations, suppliers, serialItems, serialMovements, toolLoans, clientLoans, receipts, receiptItems, inventorySessions, inventoryCounts, reminders, materialRequests, technicianPendencies, technicianPendingEvents] = await Promise.all([
+  const [products, movements, collaborators, vehicles, locations, suppliers, serialItems, serialMovements, toolLoans, clientLoans, receipts, receiptItems, inventorySessions, inventoryCounts, reminders, materialRequests, technicianPendencies, technicianPendingEvents, technicianPendingItems] = await Promise.all([
     supabase.from('products').select('*').order('name'),
     supabase.from('movements').select('*').order('created_at', { ascending: false }),
     supabase.from('collaborators').select('*').order('name'),
@@ -2046,11 +2102,12 @@ async function load() {
     supabase.from('dashboard_reminders').select('*').order('due_date'),
     supabase.from('material_requests').select('*').order('created_at', { ascending: false }),
     supabase.from('technician_pendencies').select('*').order('withdrawn_at', { ascending: false }),
-    supabase.from('technician_pending_events').select('*').order('created_at', { ascending: false })
+    supabase.from('technician_pending_events').select('*').order('created_at', { ascending: false }),
+    supabase.from('technician_pending_items').select('*')
   ]);
   if (products.error || movements.error || collaborators.error || vehicles.error || locations.error || suppliers.error || serialItems.error || serialMovements.error || toolLoans.error || receipts.error || receiptItems.error || inventorySessions.error || inventoryCounts.error) throw products.error || movements.error || collaborators.error || vehicles.error || locations.error || suppliers.error || serialItems.error || serialMovements.error || toolLoans.error || receipts.error || receiptItems.error || inventorySessions.error || inventoryCounts.error;
   state.products = products.data.map(item => ({ ...item, minimum: item.minimum_stock }));
-  state.movements = movements.data.map(item => ({ id:item.id, type:item.movement_type, productId:item.product_id, quantity:item.quantity, person:item.recipient, holderType:item.holder_type || 'cliente', workOrder:item.work_order, fieldUsage:item.field_usage || false, stockImpact:item.stock_impact, stockBefore:item.stock_before, stockAfter:item.stock_after, note:item.note, createdAt:item.created_at, date:date(item.created_at) }));
+  state.movements = movements.data.map(item => ({ id:item.id, type:item.movement_type, productId:item.product_id, quantity:item.quantity, person:item.recipient, holderType:item.holder_type || 'cliente', workOrder:item.work_order, fieldUsage:item.field_usage || false, stockImpact:item.stock_impact, stockBefore:item.stock_before, stockAfter:item.stock_after, pendingId:item.pending_id, note:item.note, createdAt:item.created_at, date:date(item.created_at) }));
   state.collaborators = collaborators.data;
   state.vehicles = vehicles.data;
   state.locations = locations.data;
@@ -2068,7 +2125,8 @@ async function load() {
   state.materialRequests = materialRequests.error ? [] : materialRequests.data;
   state.technicianPendencies = technicianPendencies.error ? [] : technicianPendencies.data;
   state.technicianPendingEvents = technicianPendingEvents.error ? [] : technicianPendingEvents.data;
-  state.technicianPendenciesLoadError = technicianPendencies.error ? technicianPendencies.error.message : '';
+  state.technicianPendingItems = technicianPendingItems.error ? [] : technicianPendingItems.data;
+  state.technicianPendenciesLoadError = technicianPendencies.error || technicianPendingItems.error ? (technicianPendencies.error || technicianPendingItems.error).message : '';
   try {
     await loadUsers();
   } catch (error) {
@@ -2412,7 +2470,7 @@ async function logout() {
   if (error) return alert(error.message);
   setAccountMenu(false);
   currentUser = null;
-  state = { products: [], movements: [], users: [], usersLoadNote: '', collaborators: [], vehicles: [], locations: [], suppliers: [], serialItems: [], serialMovements: [], toolLoans: [], clientLoans: [], clientLoansLoadError: '', receipts: [], receiptItems: [], inventorySessions: [], inventoryCounts: [], reminders: [], materialRequests: [], technicianPendencies: [], technicianPendingEvents: [], technicianPendenciesLoadError: '', productFilter: 'all', clientLoanImport: null };
+  state = { products: [], movements: [], users: [], usersLoadNote: '', collaborators: [], vehicles: [], locations: [], suppliers: [], serialItems: [], serialMovements: [], toolLoans: [], clientLoans: [], clientLoansLoadError: '', receipts: [], receiptItems: [], inventorySessions: [], inventoryCounts: [], reminders: [], materialRequests: [], technicianPendencies: [], technicianPendingEvents: [], technicianPendingItems: [], technicianPendenciesLoadError: '', productFilter: 'all', clientLoanImport: null };
   $('#login-form').reset();
   $('#auth-gate').hidden = false;
 }
@@ -2560,10 +2618,31 @@ function updateMovementRecipientPlaceholder() {
   const list = holderType === 'tecnico' ? 'collaborator-options' : holderType === 'veiculo' ? 'vehicle-options' : '';
   if (list) recipient.setAttribute('list', list); else recipient.removeAttribute('list');
 }
+function movementUnitValues() {
+  return [...document.querySelectorAll('.movement-unit-row')].map(row => ({
+    mac: row.querySelector('[data-unit-mac]')?.value.trim() || '',
+    serial_number: row.querySelector('[data-unit-serial]')?.value.trim() || '',
+    asset_tag: row.querySelector('[data-unit-asset]')?.value.trim() || ''
+  }));
+}
+function renderMovementSerialUnits() {
+  const container = $('#movement-serial-units');
+  const selectedProduct = product($('#movement-product').value);
+  const serialized = $('#movement-type').value === 'saida' && $('#movement-holder-type').value === 'tecnico' && selectedProduct?.tracking_mode === 'serializado';
+  container.hidden = !serialized;
+  if (!serialized) { container.innerHTML = ''; return; }
+  const rawQuantity = Number($('#movement-quantity').value);
+  const count = Number.isInteger(rawQuantity) && rawQuantity > 0 ? Math.min(rawQuantity, 100) : 0;
+  const previous = movementUnitValues();
+  container.innerHTML = count ? Array.from({ length: count }, (_, index) => {
+    const saved = previous[index] || {};
+    return `<section class="movement-unit-row"><h4>Unidade ${index + 1}</h4><div class="movement-unit-fields"><label>MAC <input data-unit-mac value="${esc(saved.mac || '')}" placeholder="MAC exato" /></label><label>Serial <input data-unit-serial value="${esc(saved.serial_number || '')}" placeholder="Serial exato" /></label><label>Patrimônio <input data-unit-asset value="${esc(saved.asset_tag || '')}" placeholder="Patrimônio exato" /></label></div><small>Informe pelo menos um identificador desta unidade.</small></section>`;
+  }).join('') : '<p class="form-error">Para produtos individualizados, informe uma quantidade inteira.</p>';
+}
 function updateMovementMode() {
   const isFieldUsage = $('#movement-type').value === 'uso_os';
   const hasDeadline = $('#movement-type').value === 'saida' && $('#movement-holder-type').value === 'tecnico';
-  const holder = $('#movement-holder-type'), workOrder = $('#movement-work-order');
+  const holder = $('#movement-holder-type'), workOrder = $('#movement-work-order'), quantityInput = $('#movement-quantity');
   if (isFieldUsage) holder.value = 'tecnico';
   holder.disabled = isFieldUsage;
   workOrder.required = isFieldUsage;
@@ -2573,15 +2652,21 @@ function updateMovementMode() {
   $('#movement-deadline-section').hidden = !hasDeadline;
   $('#movement-withdrawn-at').required = hasDeadline;
   $('#movement-due-at').required = hasDeadline;
+  const serializedExit = hasDeadline && product($('#movement-product').value)?.tracking_mode === 'serializado';
+  quantityInput.step = serializedExit ? '1' : '0.001';
+  quantityInput.min = serializedExit ? '1' : '0.001';
   if (hasDeadline && !$('#movement-withdrawn-at').value) {
     const now = new Date();
     $('#movement-withdrawn-at').value = localDateTimeInputValue(now);
     $('#movement-due-at').value = localDateTimeInputValue(new Date(now.getTime() + 24 * 60 * 60 * 1000));
   }
+  renderMovementSerialUnits();
   updateMovementRecipientPlaceholder();
 }
 $('#movement-type').onchange = updateMovementMode;
 $('#movement-holder-type').onchange = updateMovementMode;
+$('#movement-product').onchange = updateMovementMode;
+$('#movement-quantity').oninput = renderMovementSerialUnits;
 document.querySelectorAll('[data-deadline-hours]').forEach(button => button.onclick = () => {
   const withdrawn = new Date($('#movement-withdrawn-at').value || Date.now());
   $('#movement-due-at').value = localDateTimeInputValue(new Date(withdrawn.getTime() + Number(button.dataset.deadlineHours) * 60 * 60 * 1000));
@@ -2683,10 +2768,15 @@ $('#movement-form').onsubmit = async event => {
   const timedTechnicianExit = operation === 'saida' && $('#movement-holder-type').value === 'tecnico';
   let result;
   if (timedTechnicianExit) {
-    if (state.technicianPendenciesLoadError) return alert('Execute primeiro o arquivo technician-pendencies.sql no Supabase.');
+    if (state.technicianPendenciesLoadError) return alert('Execute primeiro o arquivo integrated-technician-serial-flow.sql no Supabase.');
     const withdrawnAt = new Date($('#movement-withdrawn-at').value), dueAt = new Date($('#movement-due-at').value);
     if (!Number.isFinite(withdrawnAt.getTime()) || !Number.isFinite(dueAt.getTime()) || dueAt <= withdrawnAt) return alert('Informe um prazo limite posterior à retirada.');
-    result = await supabase.rpc('record_timed_technician_movement', { p_product_id:selectedProduct.id, p_quantity:itemQuantity, p_technician:$('#movement-person').value.trim(), p_withdrawn_at:withdrawnAt.toISOString(), p_due_at:dueAt.toISOString(), p_work_order:workOrder || null, p_note:$('#movement-note').value || null, p_mac_address:$('#movement-mac').value.trim() || null, p_serial_number:$('#movement-serial').value.trim() || null, p_asset_tag:$('#movement-asset-tag').value.trim() || null });
+    const units = selectedProduct.tracking_mode === 'serializado' ? movementUnitValues() : [];
+    if (selectedProduct.tracking_mode === 'serializado') {
+      if (!Number.isInteger(itemQuantity) || units.length !== itemQuantity) return alert('Informe uma quantidade inteira e os identificadores de cada unidade.');
+      if (units.some(unit => !unit.mac && !unit.serial_number && !unit.asset_tag)) return alert('Informe MAC, serial ou patrimônio para cada unidade.');
+    }
+    result = await supabase.rpc('record_integrated_technician_movement', { p_product_id:selectedProduct.id, p_quantity:itemQuantity, p_technician:$('#movement-person').value.trim(), p_withdrawn_at:withdrawnAt.toISOString(), p_due_at:dueAt.toISOString(), p_work_order:workOrder || null, p_note:$('#movement-note').value || null, p_units:units });
   } else {
     const movementData = { p_product_id:selectedProduct.id, p_type:type, p_quantity:itemQuantity, p_recipient:$('#movement-person').value.trim(), p_note:$('#movement-note').value || null, p_holder_type:$('#movement-holder-type').value, p_work_order:workOrder || null, p_field_usage:fieldUsage };
     result = await supabase.rpc('record_movement', movementData);
