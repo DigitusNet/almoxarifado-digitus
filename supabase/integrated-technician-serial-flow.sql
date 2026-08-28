@@ -113,7 +113,7 @@ declare
   unit_record public.serial_items;
   central_location_id uuid;
   technician_location_id uuid;
-  collaborator_id uuid;
+  v_collaborator_id uuid;
 begin
   if auth.uid() is null or coalesce(public.current_user_role()::text,'') not in ('admin','operador') then
     raise exception 'Apenas administradores e operadores podem registrar saídas';
@@ -176,11 +176,11 @@ begin
   end if;
 
   select id into central_location_id from public.stock_locations where location_type='central' and active=true order by created_at limit 1;
-  select id into collaborator_id from public.collaborators where active=true and lower(trim(name))=lower(trim(p_technician)) order by created_at limit 1;
-  if collaborator_id is not null then
-    select id into technician_location_id from public.stock_locations where location_type='colaborador' and collaborator_id=collaborator_id limit 1;
+  select c.id into v_collaborator_id from public.collaborators c where c.active=true and lower(trim(c.name))=lower(trim(p_technician)) order by c.created_at limit 1;
+  if v_collaborator_id is not null then
+    select sl.id into technician_location_id from public.stock_locations sl where sl.location_type='colaborador' and sl.collaborator_id=v_collaborator_id limit 1;
     if technician_location_id is null then
-      insert into public.stock_locations(name,location_type,collaborator_id) values('Colaborador: '||trim(p_technician),'colaborador',collaborator_id) returning id into technician_location_id;
+      insert into public.stock_locations(name,location_type,collaborator_id) values('Colaborador: '||trim(p_technician),'colaborador',v_collaborator_id) returning id into technician_location_id;
     end if;
   end if;
 
@@ -226,7 +226,7 @@ declare
   event_time timestamptz := coalesce(p_occurred_at,now());
   central_location_id uuid;
   target_location_id uuid;
-  collaborator_id uuid;
+  v_collaborator_id uuid;
   current_stock numeric;
   linked_count integer;
 begin
@@ -267,10 +267,10 @@ begin
   elsif p_action='transferir' then
     if nullif(trim(coalesce(p_technician,'')),'') is null or p_due_at is null then raise exception 'Informe o novo técnico e o novo prazo'; end if;
     if p_due_at<=event_time then raise exception 'O novo prazo deve estar no futuro'; end if;
-    select id into collaborator_id from public.collaborators where active=true and lower(trim(name))=lower(trim(p_technician)) order by created_at limit 1;
-    if collaborator_id is not null then
-      select id into target_location_id from public.stock_locations where location_type='colaborador' and collaborator_id=collaborator_id limit 1;
-      if target_location_id is null then insert into public.stock_locations(name,location_type,collaborator_id) values('Colaborador: '||trim(p_technician),'colaborador',collaborator_id) returning id into target_location_id; end if;
+    select c.id into v_collaborator_id from public.collaborators c where c.active=true and lower(trim(c.name))=lower(trim(p_technician)) order by c.created_at limit 1;
+    if v_collaborator_id is not null then
+      select sl.id into target_location_id from public.stock_locations sl where sl.location_type='colaborador' and sl.collaborator_id=v_collaborator_id limit 1;
+      if target_location_id is null then insert into public.stock_locations(name,location_type,collaborator_id) values('Colaborador: '||trim(p_technician),'colaborador',v_collaborator_id) returning id into target_location_id; end if;
     end if;
     for unit_record in select item.* from public.serial_items item join public.technician_pending_items link on link.serial_item_id=item.id where link.pending_id=p_pending_id for update loop
       if unit_record.status<>'com_colaborador' then raise exception 'A unidade não está mais com o técnico e o repasse foi cancelado'; end if;
