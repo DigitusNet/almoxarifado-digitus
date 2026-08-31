@@ -229,20 +229,39 @@ declare
   v_collaborator_id uuid;
   current_stock numeric;
   linked_count integer;
+  stock_return_quantity numeric := 0;
+  has_pending_installation boolean;
+  has_pending_return boolean;
 begin
   if auth.uid() is null or coalesce(public.current_user_role()::text,'') not in ('admin','operador') then raise exception 'Apenas administradores e operadores podem resolver pendências'; end if;
   select * into pending from public.technician_pendencies where id=p_pending_id for update;
   if not found then raise exception 'Pendência não encontrada'; end if;
-  if pending.resolution <> 'aberta' then raise exception 'Esta pendência já foi finalizada'; end if;
+  if pending.resolution <> 'aberta' then
+    if (p_action='utilizado' and pending.resolution='utilizado')
+       or (p_action='devolvido' and pending.resolution='devolvido') then
+      return pending;
+    end if;
+    raise exception 'Esta pendência já foi finalizada como %',pending.resolution;
+  end if;
   old_technician:=pending.technician_name; old_due:=pending.due_at;
   select count(*) into linked_count from public.technician_pending_items where pending_id=p_pending_id;
 
   if p_action='utilizado' then
     if linked_count>0 and nullif(trim(coalesce(p_customer_name,'')),'') is null then raise exception 'Informe o nome do cliente'; end if;
     for unit_record in select item.* from public.serial_items item join public.technician_pending_items link on link.serial_item_id=item.id where link.pending_id=p_pending_id for update loop
-      if unit_record.status<>'com_colaborador' then raise exception 'A unidade % não está mais com o técnico e a instalação foi cancelada',coalesce(unit_record.mac_address,unit_record.asset_tag,unit_record.serial_number); end if;
-      insert into public.serial_movements(serial_item_id,action,previous_status,new_status,from_location_id,recipient,customer_name,customer_reference,work_order,note,stock_impact,pending_id,created_by,created_at)
-      values(unit_record.id,'instalacao',unit_record.status,'instalado_cliente',unit_record.current_location_id,trim(p_customer_name),trim(p_customer_name),nullif(trim(coalesce(p_work_order,'')),''),nullif(trim(coalesce(p_work_order,'')),''),nullif(trim(coalesce(p_note,'')),''),0,p_pending_id,auth.uid(),event_time);
+      select exists(select 1 from public.serial_movements movement where movement.pending_id=p_pending_id and movement.serial_item_id=unit_record.id and movement.action='instalacao') into has_pending_installation;
+      select exists(select 1 from public.serial_movements movement where movement.pending_id=p_pending_id and movement.serial_item_id=unit_record.id and movement.action in ('retorno','devolucao')) into has_pending_return;
+      if has_pending_return then raise exception 'A unidade % já foi devolvida ao almoxarifado e não pode ser instalada por esta pendência',coalesce(unit_record.mac_address,unit_record.asset_tag,unit_record.serial_number); end if;
+      if unit_record.status='instalado_cliente' and not has_pending_installation then
+        raise exception 'A unidade % já está instalada no cliente % por outro registro',coalesce(unit_record.mac_address,unit_record.asset_tag,unit_record.serial_number),coalesce(unit_record.customer_name,'não informado');
+      end if;
+      if unit_record.status not in ('com_colaborador','disponivel','instalado_cliente') then
+        raise exception 'A unidade % está em uma situação incompatível: %',coalesce(unit_record.mac_address,unit_record.asset_tag,unit_record.serial_number),unit_record.status;
+      end if;
+      if not has_pending_installation then
+        insert into public.serial_movements(serial_item_id,action,previous_status,new_status,from_location_id,recipient,customer_name,customer_reference,work_order,note,stock_impact,pending_id,created_by,created_at)
+        values(unit_record.id,'instalacao',unit_record.status,'instalado_cliente',unit_record.current_location_id,trim(p_customer_name),trim(p_customer_name),nullif(trim(coalesce(p_work_order,'')),''),nullif(trim(coalesce(p_work_order,'')),''),nullif(trim(coalesce(p_note,'')),''),0,p_pending_id,auth.uid(),event_time);
+      end if;
       update public.serial_items set status='instalado_cliente',current_location_id=null,customer_name=trim(p_customer_name),customer_reference=nullif(trim(coalesce(p_work_order,'')),''),current_technician=null,installation_technician=old_technician,installed_at=event_time,work_order=nullif(trim(coalesce(p_work_order,'')),''),due_at=null,updated_at=now() where id=unit_record.id;
     end loop;
     update public.technician_pendencies set resolution='utilizado',finalized_at=event_time,installed_at=event_time,installation_customer=nullif(trim(coalesce(p_customer_name,'')),''),installation_work_order=nullif(trim(coalesce(p_work_order,'')),''),note=coalesce(nullif(trim(coalesce(p_note,'')),''),note),updated_at=now() where id=p_pending_id returning * into saved_pending;
@@ -252,21 +271,31 @@ begin
     select id into central_location_id from public.stock_locations where location_type='central' and active=true order by created_at limit 1;
     if central_location_id is null then raise exception 'Almoxarifado central não encontrado'; end if;
     for unit_record in select item.* from public.serial_items item join public.technician_pending_items link on link.serial_item_id=item.id where link.pending_id=p_pending_id for update loop
-      if unit_record.status<>'com_colaborador' then raise exception 'A unidade % não está mais com o técnico e a devolução foi cancelada',coalesce(unit_record.mac_address,unit_record.asset_tag,unit_record.serial_number); end if;
-      insert into public.serial_movements(serial_item_id,action,previous_status,new_status,from_location_id,to_location_id,recipient,note,stock_impact,pending_id,created_by,created_at)
-      values(unit_record.id,'retorno',unit_record.status,'disponivel',unit_record.current_location_id,central_location_id,'Almoxarifado Central',nullif(trim(coalesce(p_note,'')),''),1,p_pending_id,auth.uid(),event_time);
+      select exists(select 1 from public.serial_movements movement where movement.pending_id=p_pending_id and movement.serial_item_id=unit_record.id and movement.action='instalacao') into has_pending_installation;
+      select exists(select 1 from public.serial_movements movement where movement.pending_id=p_pending_id and movement.serial_item_id=unit_record.id and movement.action in ('retorno','devolucao')) into has_pending_return;
+      if has_pending_installation or unit_record.status='instalado_cliente' then raise exception 'A unidade % já foi instalada e não pode ser devolvida por esta pendência',coalesce(unit_record.mac_address,unit_record.asset_tag,unit_record.serial_number); end if;
+      if unit_record.status not in ('com_colaborador','disponivel') then raise exception 'A unidade % está em uma situação incompatível: %',coalesce(unit_record.mac_address,unit_record.asset_tag,unit_record.serial_number),unit_record.status; end if;
+      if not has_pending_return then
+        insert into public.serial_movements(serial_item_id,action,previous_status,new_status,from_location_id,to_location_id,recipient,note,stock_impact,pending_id,created_by,created_at)
+        values(unit_record.id,'retorno',unit_record.status,'disponivel',unit_record.current_location_id,central_location_id,'Almoxarifado Central',nullif(trim(coalesce(p_note,'')),''),1,p_pending_id,auth.uid(),event_time);
+        stock_return_quantity:=stock_return_quantity+1;
+      end if;
       update public.serial_items set status='disponivel',current_location_id=central_location_id,current_technician=null,withdrawn_at=null,due_at=null,work_order=null,customer_name=null,customer_reference=null,updated_at=now() where id=unit_record.id;
     end loop;
-    select stock into current_stock from public.products where id=pending.product_id for update;
-    update public.products set stock=current_stock+pending.quantity,updated_at=now() where id=pending.product_id;
-    insert into public.movements(product_id,movement_type,quantity,recipient,note,holder_type,field_usage,stock_impact,stock_before,stock_after,pending_id,created_by,created_at)
-    values(pending.product_id,'entrada',pending.quantity,old_technician,coalesce(nullif(trim(coalesce(p_note,'')),''),'Devolução de pendência de técnico'),'tecnico',false,pending.quantity,current_stock,current_stock+pending.quantity,p_pending_id,auth.uid(),event_time);
+    if linked_count=0 then stock_return_quantity:=pending.quantity; end if;
+    if stock_return_quantity>0 then
+      select stock into current_stock from public.products where id=pending.product_id for update;
+      update public.products set stock=current_stock+stock_return_quantity,updated_at=now() where id=pending.product_id;
+      insert into public.movements(product_id,movement_type,quantity,recipient,note,holder_type,field_usage,stock_impact,stock_before,stock_after,pending_id,created_by,created_at)
+      values(pending.product_id,'entrada',stock_return_quantity,old_technician,coalesce(nullif(trim(coalesce(p_note,'')),''),'Devolução de pendência de técnico'),'tecnico',false,stock_return_quantity,current_stock,current_stock+stock_return_quantity,p_pending_id,auth.uid(),event_time);
+    end if;
     update public.technician_pendencies set resolution='devolvido',finalized_at=event_time,note=coalesce(nullif(trim(coalesce(p_note,'')),''),note),updated_at=now() where id=p_pending_id returning * into saved_pending;
     insert into public.technician_pending_events(pending_id,event_type,from_technician,note,created_by,occurred_at) values(p_pending_id,'devolucao',old_technician,nullif(trim(coalesce(p_note,'')),''),auth.uid(),event_time);
 
   elsif p_action='transferir' then
     if nullif(trim(coalesce(p_technician,'')),'') is null or p_due_at is null then raise exception 'Informe o novo técnico e o novo prazo'; end if;
     if p_due_at<=event_time then raise exception 'O novo prazo deve estar no futuro'; end if;
+    if lower(trim(pending.technician_name))=lower(trim(p_technician)) and pending.due_at=p_due_at then return pending; end if;
     select c.id into v_collaborator_id from public.collaborators c where c.active=true and lower(trim(c.name))=lower(trim(p_technician)) order by c.created_at limit 1;
     if v_collaborator_id is not null then
       select sl.id into target_location_id from public.stock_locations sl where sl.location_type='colaborador' and sl.collaborator_id=v_collaborator_id limit 1;

@@ -1112,6 +1112,8 @@ function openTechnicianPending(id) {
 
 async function submitTechnicianPending(event) {
   event.preventDefault();
+  const submitButton = event.submitter || event.currentTarget.querySelector('button[type="submit"]');
+  if (submitButton?.disabled) return;
   const action = $('#technician-pending-action').value;
   const needsDue = ['transferir','prorrogar'].includes(action);
   const pendingId = $('#technician-pending-id').value;
@@ -1121,19 +1123,24 @@ async function submitTechnicianPending(event) {
   if (action === 'utilizado' && hasIdentifiedUnits && !$('#technician-pending-customer').value.trim()) return alert('Informe o nome do cliente para instalar este equipamento.');
   const label = {utilizado:'marcar como utilizado/instalado',devolvido:'devolver ao almoxarifado',transferir:'repassar para outro técnico',prorrogar:'prorrogar o prazo'}[action];
   if (!confirm(`Confirma que deseja ${label}?`)) return;
-  const { error } = await supabase.rpc('resolve_integrated_technician_pending', {
-    p_pending_id: pendingId,
-    p_action: action,
-    p_technician: $('#technician-pending-technician').value.trim() || null,
-    p_due_at: needsDue ? new Date($('#technician-pending-due').value).toISOString() : null,
-    p_customer_name: action === 'utilizado' ? $('#technician-pending-customer').value.trim() || null : null,
-    p_work_order: action === 'utilizado' ? $('#technician-pending-work-order').value.trim() || null : null,
-    p_occurred_at: action === 'utilizado' && $('#technician-pending-installed-at').value ? new Date($('#technician-pending-installed-at').value).toISOString() : new Date().toISOString(),
-    p_note: $('#technician-pending-note').value.trim() || null
-  });
-  if (error) return alert(error.message);
-  $('#technician-pending-dialog').close();
-  await load();
+  if (submitButton) { submitButton.disabled = true; submitButton.textContent = 'Processando…'; }
+  try {
+    const { error } = await supabase.rpc('resolve_integrated_technician_pending', {
+      p_pending_id: pendingId,
+      p_action: action,
+      p_technician: $('#technician-pending-technician').value.trim() || null,
+      p_due_at: needsDue ? new Date($('#technician-pending-due').value).toISOString() : null,
+      p_customer_name: action === 'utilizado' ? $('#technician-pending-customer').value.trim() || null : null,
+      p_work_order: action === 'utilizado' ? $('#technician-pending-work-order').value.trim() || null : null,
+      p_occurred_at: action === 'utilizado' && $('#technician-pending-installed-at').value ? new Date($('#technician-pending-installed-at').value).toISOString() : new Date().toISOString(),
+      p_note: $('#technician-pending-note').value.trim() || null
+    });
+    if (error) return alert(error.message);
+    $('#technician-pending-dialog').close();
+    await load();
+  } finally {
+    if (submitButton) { submitButton.disabled = false; submitButton.textContent = 'Confirmar ação'; }
+  }
 }
 
 function receiptProducts() {
