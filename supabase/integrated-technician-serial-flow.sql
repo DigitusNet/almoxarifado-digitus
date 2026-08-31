@@ -125,6 +125,9 @@ begin
   select * into product_record from public.products where id=p_product_id and coalesce(is_active,true)=true for update;
   if not found then raise exception 'Produto não encontrado ou arquivado'; end if;
   if product_record.stock < p_quantity then raise exception 'Estoque insuficiente. Saldo atual: %', product_record.stock; end if;
+  if product_record.tracking_mode <> 'serializado' then
+    raise exception 'Prazo e pendência são permitidos somente para unidades com MAC, serial ou patrimônio. Registre este material como uma movimentação comum.';
+  end if;
 
   if product_record.tracking_mode = 'serializado' then
     if p_quantity <> trunc(p_quantity) then raise exception 'Produtos com controle individual exigem quantidade inteira'; end if;

@@ -2632,12 +2632,31 @@ function movementUnitValues() {
     asset_tag: row.querySelector('[data-unit-asset]')?.value.trim() || ''
   }));
 }
+const movementUnitIsIdentified = unit => Boolean(unit.mac || unit.serial_number || unit.asset_tag);
+function updateMovementDeadlineVisibility(clearWhenHidden = false) {
+  const hasIdentifiedUnit = $('#movement-type').value === 'saida'
+    && $('#movement-holder-type').value === 'tecnico'
+    && movementUnitValues().some(movementUnitIsIdentified);
+  $('#movement-deadline-section').hidden = !hasIdentifiedUnit;
+  $('#movement-withdrawn-at').required = hasIdentifiedUnit;
+  $('#movement-due-at').required = hasIdentifiedUnit;
+  if (hasIdentifiedUnit) {
+    if (!$('#movement-withdrawn-at').value) {
+      const now = new Date();
+      $('#movement-withdrawn-at').value = localDateTimeInputValue(now);
+      $('#movement-due-at').value = localDateTimeInputValue(new Date(now.getTime() + 24 * 60 * 60 * 1000));
+    }
+  } else if (clearWhenHidden) {
+    $('#movement-withdrawn-at').value = '';
+    $('#movement-due-at').value = '';
+  }
+}
 function renderMovementSerialUnits() {
   const container = $('#movement-serial-units');
   const selectedProduct = product($('#movement-product').value);
   const serialized = $('#movement-type').value === 'saida' && $('#movement-holder-type').value === 'tecnico' && selectedProduct?.tracking_mode === 'serializado';
   container.hidden = !serialized;
-  if (!serialized) { container.innerHTML = ''; return; }
+  if (!serialized) { container.innerHTML = ''; updateMovementDeadlineVisibility(true); return; }
   const rawQuantity = Number($('#movement-quantity').value);
   const count = Number.isInteger(rawQuantity) && rawQuantity > 0 ? Math.min(rawQuantity, 100) : 0;
   const previous = movementUnitValues();
@@ -2645,10 +2664,11 @@ function renderMovementSerialUnits() {
     const saved = previous[index] || {};
     return `<section class="movement-unit-row"><h4>Unidade ${index + 1}</h4><div class="movement-unit-fields"><label>MAC <input data-unit-mac value="${esc(saved.mac || '')}" placeholder="MAC exato" /></label><label>Serial <input data-unit-serial value="${esc(saved.serial_number || '')}" placeholder="Serial exato" /></label><label>Patrimônio <input data-unit-asset value="${esc(saved.asset_tag || '')}" placeholder="Patrimônio exato" /></label></div><small>Informe pelo menos um identificador desta unidade.</small></section>`;
   }).join('') : '<p class="form-error">Para produtos individualizados, informe uma quantidade inteira.</p>';
+  updateMovementDeadlineVisibility(true);
 }
 function updateMovementMode() {
   const isFieldUsage = $('#movement-type').value === 'uso_os';
-  const hasDeadline = $('#movement-type').value === 'saida' && $('#movement-holder-type').value === 'tecnico';
+  const technicianExit = $('#movement-type').value === 'saida' && $('#movement-holder-type').value === 'tecnico';
   const holder = $('#movement-holder-type'), workOrder = $('#movement-work-order'), quantityInput = $('#movement-quantity');
   if (isFieldUsage) holder.value = 'tecnico';
   holder.disabled = isFieldUsage;
@@ -2656,17 +2676,9 @@ function updateMovementMode() {
   $('#movement-destination-label').textContent = isFieldUsage ? 'Destino (técnico)' : 'Destino';
   $('#movement-person-label').textContent = isFieldUsage ? 'Técnico responsável' : 'Responsável / destino';
   $('#movement-os-label').textContent = isFieldUsage ? 'Número da OS *' : 'Número da OS';
-  $('#movement-deadline-section').hidden = !hasDeadline;
-  $('#movement-withdrawn-at').required = hasDeadline;
-  $('#movement-due-at').required = hasDeadline;
-  const serializedExit = hasDeadline && product($('#movement-product').value)?.tracking_mode === 'serializado';
+  const serializedExit = technicianExit && product($('#movement-product').value)?.tracking_mode === 'serializado';
   quantityInput.step = serializedExit ? '1' : '0.001';
   quantityInput.min = serializedExit ? '1' : '0.001';
-  if (hasDeadline && !$('#movement-withdrawn-at').value) {
-    const now = new Date();
-    $('#movement-withdrawn-at').value = localDateTimeInputValue(now);
-    $('#movement-due-at').value = localDateTimeInputValue(new Date(now.getTime() + 24 * 60 * 60 * 1000));
-  }
   renderMovementSerialUnits();
   updateMovementRecipientPlaceholder();
 }
@@ -2674,6 +2686,7 @@ $('#movement-type').onchange = updateMovementMode;
 $('#movement-holder-type').onchange = updateMovementMode;
 $('#movement-product').onchange = updateMovementMode;
 $('#movement-quantity').oninput = renderMovementSerialUnits;
+$('#movement-serial-units').oninput = () => updateMovementDeadlineVisibility(true);
 document.querySelectorAll('[data-deadline-hours]').forEach(button => button.onclick = () => {
   const withdrawn = new Date($('#movement-withdrawn-at').value || Date.now());
   $('#movement-due-at').value = localDateTimeInputValue(new Date(withdrawn.getTime() + Number(button.dataset.deadlineHours) * 60 * 60 * 1000));
@@ -2772,17 +2785,18 @@ $('#movement-form').onsubmit = async event => {
   if (!selectedProduct) return alert('Selecione um produto.');
   if (fieldUsage && !workOrder) return alert('Informe o número da OS para registrar o uso do material.');
   if (!fieldUsage && type === 'saida' && itemQuantity > selectedProduct.stock) return alert('Estoque insuficiente.');
-  const timedTechnicianExit = operation === 'saida' && $('#movement-holder-type').value === 'tecnico';
+  const units = selectedProduct.tracking_mode === 'serializado' ? movementUnitValues() : [];
+  const serializedTechnicianExit = operation === 'saida' && $('#movement-holder-type').value === 'tecnico' && selectedProduct.tracking_mode === 'serializado';
+  if (serializedTechnicianExit) {
+    if (!Number.isInteger(itemQuantity) || units.length !== itemQuantity) return alert('Informe uma quantidade inteira e os identificadores de cada unidade.');
+    if (units.some(unit => !movementUnitIsIdentified(unit))) return alert('Informe MAC, serial ou patrimônio para cada unidade.');
+  }
+  const timedTechnicianExit = serializedTechnicianExit && units.some(movementUnitIsIdentified);
   let result;
   if (timedTechnicianExit) {
     if (state.technicianPendenciesLoadError) return alert('Execute primeiro o arquivo integrated-technician-serial-flow.sql no Supabase.');
     const withdrawnAt = new Date($('#movement-withdrawn-at').value), dueAt = new Date($('#movement-due-at').value);
     if (!Number.isFinite(withdrawnAt.getTime()) || !Number.isFinite(dueAt.getTime()) || dueAt <= withdrawnAt) return alert('Informe um prazo limite posterior à retirada.');
-    const units = selectedProduct.tracking_mode === 'serializado' ? movementUnitValues() : [];
-    if (selectedProduct.tracking_mode === 'serializado') {
-      if (!Number.isInteger(itemQuantity) || units.length !== itemQuantity) return alert('Informe uma quantidade inteira e os identificadores de cada unidade.');
-      if (units.some(unit => !unit.mac && !unit.serial_number && !unit.asset_tag)) return alert('Informe MAC, serial ou patrimônio para cada unidade.');
-    }
     result = await supabase.rpc('record_integrated_technician_movement', { p_product_id:selectedProduct.id, p_quantity:itemQuantity, p_technician:$('#movement-person').value.trim(), p_withdrawn_at:withdrawnAt.toISOString(), p_due_at:dueAt.toISOString(), p_work_order:workOrder || null, p_note:$('#movement-note').value || null, p_units:units });
   } else {
     const movementData = { p_product_id:selectedProduct.id, p_type:type, p_quantity:itemQuantity, p_recipient:$('#movement-person').value.trim(), p_note:$('#movement-note').value || null, p_holder_type:$('#movement-holder-type').value, p_work_order:workOrder || null, p_field_usage:fieldUsage };
