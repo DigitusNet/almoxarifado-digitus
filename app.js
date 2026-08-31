@@ -128,6 +128,25 @@ const quantity = value => Number(value || 0).toLocaleString('pt-BR', { maximumFr
 const currency = value => Number(value || 0).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });
 const dateOnly = value => value ? new Date(`${value}T00:00:00`).toLocaleDateString('pt-BR') : '—';
 const stockLabel = item => `${quantity(item.stock)} ${unitName(item.unit_of_measure)}`;
+const READ_PAGE_SIZE = 500;
+
+// Busca blocos menores para não depender do limite máximo configurado no
+// PostgREST. A ordenação estável no banco impede saltos ou duplicações entre
+// páginas quando vários registros possuem o mesmo horário.
+async function selectAllPages(table, orders, columns = '*') {
+  const rows = [];
+  for (let from = 0; ; from += READ_PAGE_SIZE) {
+    let query = supabase.from(table).select(columns);
+    orders.forEach(({ column, ascending = false }) => {
+      query = query.order(column, { ascending });
+    });
+    const result = await query.range(from, from + READ_PAGE_SIZE - 1);
+    if (result.error) return { data: rows, error: result.error };
+    const page = result.data || [];
+    rows.push(...page);
+    if (page.length < READ_PAGE_SIZE) return { data: rows, error: null };
+  }
+}
 function pendingDeadlineState(item) {
   if (item.resolution !== 'aberta') return { key:'done', label:'⚪ Finalizado' };
   const remaining = new Date(item.due_at).getTime() - Date.now();
@@ -2100,24 +2119,24 @@ async function loadUsers() {
 async function load() {
   const [products, movements, collaborators, vehicles, locations, suppliers, serialItems, serialMovements, toolLoans, clientLoans, receipts, receiptItems, inventorySessions, inventoryCounts, reminders, materialRequests, technicianPendencies, technicianPendingEvents, technicianPendingItems] = await Promise.all([
     supabase.from('products').select('*').order('name'),
-    supabase.from('movements').select('*').order('created_at', { ascending: false }),
+    selectAllPages('movements', [{ column:'created_at' }, { column:'id' }]),
     supabase.from('collaborators').select('*').order('name'),
     supabase.from('vehicles').select('*').order('name'),
     supabase.from('stock_locations').select('*').order('name'),
     supabase.from('suppliers').select('*').order('name'),
-    supabase.from('serial_items').select('*').order('created_at', { ascending: false }),
-    supabase.from('serial_movements').select('*').order('created_at', { ascending: false }),
-    supabase.from('tool_loans').select('*').order('issued_at', { ascending: false }),
-    supabase.from('client_loans').select('*').order('issued_at', { ascending: false }),
-    supabase.from('receipts').select('*').order('received_at', { ascending: false }),
-    supabase.from('receipt_items').select('*').order('created_at', { ascending: false }),
-    supabase.from('inventory_sessions').select('*').order('started_at', { ascending: false }),
-    supabase.from('inventory_counts').select('*').order('created_at', { ascending: false }),
-    supabase.from('dashboard_reminders').select('*').order('due_date'),
-    supabase.from('material_requests').select('*').order('created_at', { ascending: false }),
-    supabase.from('technician_pendencies').select('*').order('withdrawn_at', { ascending: false }),
-    supabase.from('technician_pending_events').select('*').order('created_at', { ascending: false }),
-    supabase.from('technician_pending_items').select('*')
+    selectAllPages('serial_items', [{ column:'created_at' }, { column:'id' }]),
+    selectAllPages('serial_movements', [{ column:'created_at' }, { column:'id' }]),
+    selectAllPages('tool_loans', [{ column:'issued_at' }, { column:'id' }]),
+    selectAllPages('client_loans', [{ column:'issued_at' }, { column:'id' }]),
+    selectAllPages('receipts', [{ column:'received_at' }, { column:'id' }]),
+    selectAllPages('receipt_items', [{ column:'created_at' }, { column:'id' }]),
+    selectAllPages('inventory_sessions', [{ column:'started_at' }, { column:'id' }]),
+    selectAllPages('inventory_counts', [{ column:'created_at' }, { column:'id' }]),
+    selectAllPages('dashboard_reminders', [{ column:'due_date', ascending:true }, { column:'id', ascending:true }]),
+    selectAllPages('material_requests', [{ column:'created_at' }, { column:'id' }]),
+    selectAllPages('technician_pendencies', [{ column:'withdrawn_at' }, { column:'id' }]),
+    selectAllPages('technician_pending_events', [{ column:'occurred_at' }, { column:'id' }]),
+    selectAllPages('technician_pending_items', [{ column:'created_at' }, { column:'pending_id' }, { column:'serial_item_id' }])
   ]);
   if (products.error || movements.error || collaborators.error || vehicles.error || locations.error || suppliers.error || serialItems.error || serialMovements.error || toolLoans.error || receipts.error || receiptItems.error || inventorySessions.error || inventoryCounts.error) throw products.error || movements.error || collaborators.error || vehicles.error || locations.error || suppliers.error || serialItems.error || serialMovements.error || toolLoans.error || receipts.error || receiptItems.error || inventorySessions.error || inventoryCounts.error;
   state.products = products.data.map(item => ({ ...item, minimum: item.minimum_stock }));
