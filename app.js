@@ -2,7 +2,7 @@ import { createClient } from '@supabase/supabase-js';
 import { readSheet as readXlsxSheet } from 'read-excel-file/browser';
 
 const supabase = createClient(import.meta.env.VITE_SUPABASE_URL, import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY);
-let state = { products: [], movements: [], users: [], usersLoadNote: '', collaborators: [], vehicles: [], locations: [], suppliers: [], serialItems: [], serialMovements: [], toolLoans: [], clientLoans: [], clientLoansLoadError: '', receipts: [], receiptItems: [], inventorySessions: [], inventoryCounts: [], reminders: [], materialRequests: [], technicianPendencies: [], technicianPendingEvents: [], technicianPendingItems: [], technicianPendenciesLoadError: '', productFilter: 'all', clientLoanImport: null };
+let state = { products: [], movements: [], users: [], usersLoadNote: '', collaborators: [], vehicles: [], locations: [], suppliers: [], serialItems: [], serialMovements: [], toolLoans: [], clientLoans: [], clientLoansLoadError: '', receipts: [], receiptItems: [], inventorySessions: [], inventoryCounts: [], reminders: [], materialRequests: [], technicianPendencies: [], technicianPendingEvents: [], technicianPendingItems: [], technicianPendenciesLoadError: '', loadStatus: { clientLoans:'idle', reminders:'idle', materialRequests:'idle', technicianPendencies:'idle' }, loadErrors: {}, productFilter: 'all', clientLoanImport: null };
 let movementSubmitting = false;
 let receiptSubmitting = false;
 let movementOperationId = null;
@@ -146,6 +146,22 @@ async function selectAllPages(table, orders, columns = '*') {
     rows.push(...page);
     if (page.length < READ_PAGE_SIZE) return { data: rows, error: null };
   }
+}
+
+function setModuleLoadError(module, label, error) {
+  state.loadStatus[module] = 'error';
+  state.loadErrors[module] = error;
+  console.error(`[${label}] Não foi possível carregar os dados.`, {
+    code: error?.code,
+    message: error?.message,
+    details: error?.details,
+    hint: error?.hint
+  });
+}
+
+function setModuleLoadSuccess(module) {
+  state.loadStatus[module] = 'success';
+  delete state.loadErrors[module];
 }
 function pendingDeadlineState(item) {
   if (item.resolution !== 'aberta') return { key:'done', label:'⚪ Finalizado' };
@@ -930,18 +946,20 @@ function renderDashboardOperations() {
   const expired = expiredMaterialLots();
   const openPendencies = state.technicianPendencies.filter(item => item.resolution === 'aberta').sort((a, b) => new Date(a.due_at) - new Date(b.due_at));
   const overduePendencies = openPendencies.filter(item => pendingDeadlineState(item).key === 'overdue');
+  const remindersStatus = state.loadStatus.reminders;
+  const pendenciesStatus = state.loadStatus.technicianPendencies;
   $('#dashboard-overdue-loan-list-count').textContent = overdue.length;
   $('#dashboard-loan-alert').hidden = false;
-  $('#dashboard-loan-alert').classList.toggle('success', overduePendencies.length === 0);
-  $('#dashboard-loan-alert-text').textContent = overduePendencies.length ? `${overduePendencies.length} pendência${overduePendencies.length === 1 ? '' : 's'} de técnico${overduePendencies.length === 1 ? ' está' : 's estão'} atrasada${overduePendencies.length === 1 ? '' : 's'}` : 'Nenhuma pendência de técnico atrasada';
-  $('#dashboard-loan-alert').firstChild.textContent = overduePendencies.length ? '⚠️ ' : '✓ ';
-  $('#dashboard-reminder-count').textContent = openReminders.length;
+  $('#dashboard-loan-alert').classList.toggle('success', pendenciesStatus === 'success' && overduePendencies.length === 0);
+  $('#dashboard-loan-alert-text').textContent = pendenciesStatus === 'loading' ? 'Carregando pendências dos técnicos...' : pendenciesStatus === 'error' ? 'Não foi possível carregar as pendências dos técnicos.' : overduePendencies.length ? `${overduePendencies.length} pendência${overduePendencies.length === 1 ? '' : 's'} de técnico${overduePendencies.length === 1 ? ' está' : 's estão'} atrasada${overduePendencies.length === 1 ? '' : 's'}` : 'Nenhuma pendência de técnico atrasada';
+  $('#dashboard-loan-alert').firstChild.textContent = pendenciesStatus === 'error' ? '⚠️ ' : pendenciesStatus === 'loading' ? '… ' : overduePendencies.length ? '⚠️ ' : '✓ ';
+  $('#dashboard-reminder-count').textContent = ['loading','error'].includes(remindersStatus) ? '—' : openReminders.length;
   $('#dashboard-expiry-count').textContent = expired.length;
-  $('#dashboard-request-count').textContent = openPendencies.length;
+  $('#dashboard-request-count').textContent = ['loading','error'].includes(pendenciesStatus) ? '—' : openPendencies.length;
   $('#dashboard-overdue-loans-table').innerHTML = overdue.map((loan, index) => `<tr><td>${index + 1}</td><td>${esc(loan.collaborator_name || 'Não informado')}</td><td>${date(loan.due_at)}</td><td><button class="dashboard-icon-action" data-dashboard-loan="${loan.id}" type="button" aria-label="Ver empréstimo">◉</button></td></tr>`).join('') || '<tr><td colspan="4" class="empty">Nenhum empréstimo em atraso.</td></tr>';
-  $('#dashboard-reminders-table').innerHTML = openReminders.map(item => `<tr><td>${esc(item.recipient)}</td><td>${esc(item.description)}</td><td>${date(item.due_date)}</td><td><button class="dashboard-icon-action danger" data-close-reminder="${item.id}" type="button" aria-label="Concluir lembrete">×</button></td></tr>`).join('') || '<tr><td colspan="4" class="empty">Nenhum lembrete registrado.</td></tr>';
+  $('#dashboard-reminders-table').innerHTML = remindersStatus === 'loading' ? '<tr><td colspan="4" class="empty">Carregando lembretes...</td></tr>' : remindersStatus === 'error' ? '<tr><td colspan="4" class="empty">Não foi possível carregar os lembretes. Tente novamente.</td></tr>' : openReminders.map(item => `<tr><td>${esc(item.recipient)}</td><td>${esc(item.description)}</td><td>${date(item.due_date)}</td><td><button class="dashboard-icon-action danger" data-close-reminder="${item.id}" type="button" aria-label="Concluir lembrete">×</button></td></tr>`).join('') || '<tr><td colspan="4" class="empty">Nenhum lembrete registrado.</td></tr>';
   $('#dashboard-expiring-table').innerHTML = expired.map(item => `<tr><td>${esc(item.product_name || product(item.product_id)?.name || 'Material')}</td><td>${esc(item.batch_number || 'Não informado')}</td><td>${dateOnly(item.expiry_date)}</td><td><button class="dashboard-icon-action" data-dashboard-expiry="${item.receipt_id}" type="button" aria-label="Ver recebimento">◉</button></td></tr>`).join('') || '<tr><td colspan="4" class="empty">Nenhum material vencido.</td></tr>';
-  $('#dashboard-requests-table').innerHTML = openPendencies.map(item => { const deadline = pendingDeadlineState(item); return `<tr><td>${esc(item.technician_name)}</td><td>${esc(product(item.product_id)?.name || 'Material')}</td><td>${quantity(item.quantity)}</td><td>${date(item.withdrawn_at)}</td><td>${date(item.due_at)}</td><td><span class="pending-status ${deadline.key}">${deadline.label}</span></td><td><button class="secondary-button" data-view-pending="${item.id}" type="button">Ver</button></td></tr>`; }).join('') || '<tr><td colspan="7" class="empty">Nenhuma pendência de técnico aberta.</td></tr>';
+  $('#dashboard-requests-table').innerHTML = pendenciesStatus === 'loading' ? '<tr><td colspan="7" class="empty">Carregando pendências dos técnicos...</td></tr>' : pendenciesStatus === 'error' ? '<tr><td colspan="7" class="empty">Não foi possível carregar as pendências dos técnicos. Tente novamente.</td></tr>' : openPendencies.map(item => { const deadline = pendingDeadlineState(item); return `<tr><td>${esc(item.technician_name)}</td><td>${esc(product(item.product_id)?.name || 'Material')}</td><td>${quantity(item.quantity)}</td><td>${date(item.withdrawn_at)}</td><td>${date(item.due_at)}</td><td><span class="pending-status ${deadline.key}">${deadline.label}</span></td><td><button class="secondary-button" data-view-pending="${item.id}" type="button">Ver</button></td></tr>`; }).join('') || '<tr><td colspan="7" class="empty">Nenhuma pendência de técnico aberta.</td></tr>';
   document.querySelectorAll('[data-dashboard-loan]').forEach(button => button.onclick = () => {
     view('loans');
     $('#loan-status-filter').value = 'atrasado';
@@ -1819,8 +1837,10 @@ function renderClientLoans() {
   if (activeCount) activeCount.textContent = activeLoans.length;
   if (returnedCount) returnedCount.textContent = returnedLoans.length;
 
-  if (state.clientLoansLoadError) {
-    table.innerHTML = '<tr><td colspan="9" class="empty">O controle de comodatos ainda precisa ser ativado no banco de dados.</td></tr>';
+  if (state.loadStatus.clientLoans === 'loading') {
+    table.innerHTML = '<tr><td colspan="9" class="empty">Carregando comodatos...</td></tr>';
+  } else if (state.loadStatus.clientLoans === 'error') {
+    table.innerHTML = '<tr><td colspan="9" class="empty">Não foi possível carregar os comodatos. Tente novamente.</td></tr>';
   } else if (filteredLoans.length) {
     table.innerHTML = filteredLoans.map(loan => {
       const item = state.serialItems.find(entry => entry.id === loan.serial_item_id), itemProduct = item && product(item.product_id);
@@ -2117,6 +2137,9 @@ async function loadUsers() {
 }
 
 async function load() {
+  ['clientLoans','reminders','materialRequests','technicianPendencies'].forEach(module => { state.loadStatus[module] = 'loading'; });
+  renderDashboardOperations();
+  renderClientLoans();
   const [products, movements, collaborators, vehicles, locations, suppliers, serialItems, serialMovements, toolLoans, clientLoans, receipts, receiptItems, inventorySessions, inventoryCounts, reminders, materialRequests, technicianPendencies, technicianPendingEvents, technicianPendingItems] = await Promise.all([
     supabase.from('products').select('*').order('name'),
     selectAllPages('movements', [{ column:'created_at' }, { column:'id' }]),
@@ -2148,18 +2171,33 @@ async function load() {
   state.serialItems = serialItems.data;
   state.serialMovements = serialMovements.data;
   state.toolLoans = toolLoans.data;
-  state.clientLoans = clientLoans.error ? [] : clientLoans.data;
-  state.clientLoansLoadError = clientLoans.error ? clientLoans.error.message : '';
+  if (clientLoans.error) {
+    setModuleLoadError('clientLoans', 'Comodatos', clientLoans.error);
+    state.clientLoansLoadError = clientLoans.error.message;
+  } else {
+    state.clientLoans = clientLoans.data;
+    state.clientLoansLoadError = '';
+    setModuleLoadSuccess('clientLoans');
+  }
   state.receipts = receipts.data;
   state.receiptItems = receiptItems.data;
   state.inventorySessions = inventorySessions.data;
   state.inventoryCounts = inventoryCounts.data;
-  state.reminders = reminders.error ? [] : reminders.data;
-  state.materialRequests = materialRequests.error ? [] : materialRequests.data;
-  state.technicianPendencies = technicianPendencies.error ? [] : technicianPendencies.data;
-  state.technicianPendingEvents = technicianPendingEvents.error ? [] : technicianPendingEvents.data;
-  state.technicianPendingItems = technicianPendingItems.error ? [] : technicianPendingItems.data;
-  state.technicianPendenciesLoadError = technicianPendencies.error || technicianPendingItems.error ? (technicianPendencies.error || technicianPendingItems.error).message : '';
+  if (reminders.error) setModuleLoadError('reminders', 'Lembretes', reminders.error);
+  else { state.reminders = reminders.data; setModuleLoadSuccess('reminders'); }
+  if (materialRequests.error) setModuleLoadError('materialRequests', 'Solicitações', materialRequests.error);
+  else { state.materialRequests = materialRequests.data; setModuleLoadSuccess('materialRequests'); }
+  const pendenciesError = technicianPendencies.error || technicianPendingEvents.error || technicianPendingItems.error;
+  if (pendenciesError) {
+    setModuleLoadError('technicianPendencies', 'Pendências dos técnicos', pendenciesError);
+    state.technicianPendenciesLoadError = pendenciesError.message;
+  } else {
+    state.technicianPendencies = technicianPendencies.data;
+    state.technicianPendingEvents = technicianPendingEvents.data;
+    state.technicianPendingItems = technicianPendingItems.data;
+    state.technicianPendenciesLoadError = '';
+    setModuleLoadSuccess('technicianPendencies');
+  }
   try {
     await loadUsers();
   } catch (error) {
@@ -2459,7 +2497,7 @@ $('#add-loan').onclick = () => {
   $('#loan-dialog').showModal();
 };
 $('#add-client-loan').onclick = () => {
-  if (state.clientLoansLoadError) return alert('O controle de comodatos ainda não foi ativado no banco de dados. Execute o arquivo client-equipment-loans.sql no SQL Editor do Supabase.');
+  if (state.clientLoansLoadError) return alert('Não foi possível carregar os comodatos. Tente novamente.');
   if (!state.serialItems.some(item => item.status === 'disponivel')) return alert('Cadastre uma ONU, roteador ou outra unidade rastreável disponível antes de registrar um comodato.');
   $('#client-loan-form').reset();
   setClientLoanError('');
@@ -2503,7 +2541,7 @@ async function logout() {
   if (error) return alert(error.message);
   setAccountMenu(false);
   currentUser = null;
-  state = { products: [], movements: [], users: [], usersLoadNote: '', collaborators: [], vehicles: [], locations: [], suppliers: [], serialItems: [], serialMovements: [], toolLoans: [], clientLoans: [], clientLoansLoadError: '', receipts: [], receiptItems: [], inventorySessions: [], inventoryCounts: [], reminders: [], materialRequests: [], technicianPendencies: [], technicianPendingEvents: [], technicianPendingItems: [], technicianPendenciesLoadError: '', productFilter: 'all', clientLoanImport: null };
+  state = { products: [], movements: [], users: [], usersLoadNote: '', collaborators: [], vehicles: [], locations: [], suppliers: [], serialItems: [], serialMovements: [], toolLoans: [], clientLoans: [], clientLoansLoadError: '', receipts: [], receiptItems: [], inventorySessions: [], inventoryCounts: [], reminders: [], materialRequests: [], technicianPendencies: [], technicianPendingEvents: [], technicianPendingItems: [], technicianPendenciesLoadError: '', loadStatus: { clientLoans:'idle', reminders:'idle', materialRequests:'idle', technicianPendencies:'idle' }, loadErrors: {}, productFilter: 'all', clientLoanImport: null };
   $('#login-form').reset();
   $('#auth-gate').hidden = false;
 }
@@ -2824,7 +2862,7 @@ $('#movement-form').onsubmit = async event => {
     if (units.some(unit => !movementUnitIsIdentified(unit))) return alert('Informe MAC, serial ou patrimônio para cada unidade.');
   }
   const timedTechnicianExit = serializedTechnicianExit && units.some(movementUnitIsIdentified);
-  if (timedTechnicianExit && state.technicianPendenciesLoadError) return alert('Execute primeiro o arquivo integrated-technician-serial-flow.sql no Supabase.');
+  if (timedTechnicianExit && state.technicianPendenciesLoadError) return alert('Não foi possível carregar as pendências dos técnicos. Tente novamente.');
   const withdrawnAt = timedTechnicianExit ? new Date($('#movement-withdrawn-at').value) : null;
   const dueAt = timedTechnicianExit ? new Date($('#movement-due-at').value) : null;
   if (timedTechnicianExit && (!Number.isFinite(withdrawnAt.getTime()) || !Number.isFinite(dueAt.getTime()) || dueAt <= withdrawnAt)) return alert('Informe um prazo limite posterior à retirada.');
