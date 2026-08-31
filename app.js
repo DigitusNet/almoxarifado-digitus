@@ -2634,13 +2634,13 @@ function movementUnitValues() {
 }
 const movementUnitIsIdentified = unit => Boolean(unit.mac || unit.serial_number || unit.asset_tag);
 function updateMovementDeadlineVisibility(clearWhenHidden = false) {
-  const hasIdentifiedUnit = $('#movement-type').value === 'saida'
+  const hasTrackedProduct = $('#movement-type').value === 'saida'
     && $('#movement-holder-type').value === 'tecnico'
-    && movementUnitValues().some(movementUnitIsIdentified);
-  $('#movement-deadline-section').hidden = !hasIdentifiedUnit;
-  $('#movement-withdrawn-at').required = hasIdentifiedUnit;
-  $('#movement-due-at').required = hasIdentifiedUnit;
-  if (hasIdentifiedUnit) {
+    && product($('#movement-product').value)?.tracking_mode === 'serializado';
+  $('#movement-deadline-section').hidden = !hasTrackedProduct;
+  $('#movement-withdrawn-at').required = hasTrackedProduct;
+  $('#movement-due-at').required = hasTrackedProduct;
+  if (hasTrackedProduct) {
     if (!$('#movement-withdrawn-at').value) {
       const now = new Date();
       $('#movement-withdrawn-at').value = localDateTimeInputValue(now);
@@ -2684,9 +2684,13 @@ function updateMovementMode() {
 }
 $('#movement-type').onchange = updateMovementMode;
 $('#movement-holder-type').onchange = updateMovementMode;
-$('#movement-product').onchange = updateMovementMode;
+$('#movement-product').onchange = () => {
+  $('#movement-serial-units').innerHTML = '';
+  $('#movement-withdrawn-at').value = '';
+  $('#movement-due-at').value = '';
+  updateMovementMode();
+};
 $('#movement-quantity').oninput = renderMovementSerialUnits;
-$('#movement-serial-units').oninput = () => updateMovementDeadlineVisibility(true);
 document.querySelectorAll('[data-deadline-hours]').forEach(button => button.onclick = () => {
   const withdrawn = new Date($('#movement-withdrawn-at').value || Date.now());
   $('#movement-due-at').value = localDateTimeInputValue(new Date(withdrawn.getTime() + Number(button.dataset.deadlineHours) * 60 * 60 * 1000));
