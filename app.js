@@ -148,6 +148,19 @@ async function selectAllPages(table, orders, columns = '*') {
   }
 }
 
+function loginErrorMessage(error) {
+  const code = String(error?.code || '').toLowerCase();
+  const message = String(error?.message || '').toLowerCase();
+  const status = Number(error?.status || 0);
+  if (code === 'invalid_credentials' || message.includes('invalid login credentials')) return 'E-mail ou senha inválidos.';
+  if (code === 'email_not_confirmed' || message.includes('email not confirmed')) return 'Confirme seu e-mail antes de entrar.';
+  if (code.includes('rate_limit') || status === 429 || message.includes('too many requests')) return 'Muitas tentativas de acesso. Aguarde alguns minutos e tente novamente.';
+  if (code === 'validation_failed' || message.includes('invalid email')) return 'Informe um endereço de e-mail válido.';
+  if (status >= 500) return 'O serviço de login está temporariamente indisponível. Tente novamente em alguns minutos.';
+  if (!status || message.includes('failed to fetch') || message.includes('network')) return 'Não foi possível conectar ao serviço de login. Verifique sua conexão e tente novamente.';
+  return 'Não foi possível realizar o login. Tente novamente.';
+}
+
 function setModuleLoadError(module, label, error) {
   state.loadStatus[module] = 'error';
   state.loadErrors[module] = error;
@@ -3267,7 +3280,11 @@ $('#user-form').onsubmit = async event => {
 $('#login-form').onsubmit = async event => {
   event.preventDefault(); setLoginMessage();
   const { data, error } = await supabase.auth.signInWithPassword({ email:$('#login-email').value, password:$('#login-password').value });
-  if (error) { setLoginMessage(error.message); return; }
+  if (error) {
+    console.error('[Login] Falha de autenticação.', { code:error.code, status:error.status, message:error.message });
+    setLoginMessage(loginErrorMessage(error));
+    return;
+  }
   setPasswordRecoveryMode(false);
   $('#auth-gate').hidden = true; await start(data.session);
 };
