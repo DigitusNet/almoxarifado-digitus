@@ -3,6 +3,10 @@ import { readSheet as readXlsxSheet } from 'read-excel-file/browser';
 
 const supabase = createClient(import.meta.env.VITE_SUPABASE_URL, import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY);
 let state = { products: [], movements: [], users: [], usersLoadNote: '', collaborators: [], vehicles: [], locations: [], suppliers: [], serialItems: [], serialMovements: [], toolLoans: [], clientLoans: [], clientLoansLoadError: '', receipts: [], receiptItems: [], inventorySessions: [], inventoryCounts: [], reminders: [], materialRequests: [], technicianPendencies: [], technicianPendingEvents: [], technicianPendingItems: [], technicianPendenciesLoadError: '', productFilter: 'all', clientLoanImport: null };
+let movementSubmitting = false;
+let receiptSubmitting = false;
+let movementOperationId = null;
+let receiptOperationId = null;
 let currentUser = null;
 let passwordRecoveryMode = false;
 const passwordRecoveryStorageKey = 'digitus-password-recovery';
@@ -1178,6 +1182,7 @@ function addReceiptLine(selected = '') {
 }
 
 function openReceiptDialog() {
+  receiptOperationId = null;
   $('#receipt-form').reset();
   populateReceiptSuppliers();
   $('#receipt-lines').innerHTML = '';
@@ -1212,23 +1217,25 @@ async function createProductsForReceipt(lines) {
   return lines;
 }
 
-async function registerReceipt({ supplierName, invoiceNumber, note, lines }) {
+async function registerReceipt({ supplierName, invoiceNumber, note, lines, operationId }) {
   const name = String(supplierName || '').trim();
   if (!name) throw new Error('Informe o fornecedor.');
   if (!lines.length || lines.some(line => !line.product_id || !Number.isFinite(line.quantity) || line.quantity <= 0 || !Number.isFinite(line.unit_cost) || line.unit_cost < 0)) throw new Error('Preencha o material, a quantidade e o valor unitário em todas as linhas.');
   const savedSupplier = state.suppliers.find(item => item.active && item.name.trim().toLocaleLowerCase('pt-BR') === name.toLocaleLowerCase('pt-BR'));
   const receiptData = savedSupplier ? {
+    p_operation_id: operationId,
     p_supplier_id: savedSupplier.id,
     p_invoice_number: String(invoiceNumber || '').trim() || null,
     p_note: String(note || '').trim() || null,
     p_items: lines
   } : {
+    p_operation_id: operationId,
     p_supplier: name,
     p_invoice_number: String(invoiceNumber || '').trim() || null,
     p_note: String(note || '').trim() || null,
     p_items: lines
   };
-  const { error } = await supabase.rpc('record_receipt', receiptData);
+  const { error } = await supabase.rpc('record_receipt_idempotent', receiptData);
   if (error) throw error;
 }
 
@@ -2785,7 +2792,9 @@ $('#edit-product-form').onsubmit = async event => {
 };
 
 $('#movement-form').onsubmit = async event => {
-  event.preventDefault(); const selectedProduct = product($('#movement-product').value), itemQuantity = Number($('#movement-quantity').value), operation = $('#movement-type').value, fieldUsage = operation === 'uso_os', type = fieldUsage ? 'saida' : operation, workOrder = $('#movement-work-order').value.trim();
+  event.preventDefault();
+  if (movementSubmitting) return;
+  const selectedProduct = product($('#movement-product').value), itemQuantity = Number($('#movement-quantity').value), operation = $('#movement-type').value, fieldUsage = operation === 'uso_os', type = fieldUsage ? 'saida' : operation, workOrder = $('#movement-work-order').value.trim();
   if (!selectedProduct) return alert('Selecione um produto.');
   if (fieldUsage && !workOrder) return alert('Informe o número da OS para registrar o uso do material.');
   if (!fieldUsage && type === 'saida' && itemQuantity > selectedProduct.stock) return alert('Estoque insuficiente.');
@@ -2796,23 +2805,41 @@ $('#movement-form').onsubmit = async event => {
     if (units.some(unit => !movementUnitIsIdentified(unit))) return alert('Informe MAC, serial ou patrimônio para cada unidade.');
   }
   const timedTechnicianExit = serializedTechnicianExit && units.some(movementUnitIsIdentified);
-  let result;
-  if (timedTechnicianExit) {
-    if (state.technicianPendenciesLoadError) return alert('Execute primeiro o arquivo integrated-technician-serial-flow.sql no Supabase.');
-    const withdrawnAt = new Date($('#movement-withdrawn-at').value), dueAt = new Date($('#movement-due-at').value);
-    if (!Number.isFinite(withdrawnAt.getTime()) || !Number.isFinite(dueAt.getTime()) || dueAt <= withdrawnAt) return alert('Informe um prazo limite posterior à retirada.');
-    result = await supabase.rpc('record_integrated_technician_movement', { p_product_id:selectedProduct.id, p_quantity:itemQuantity, p_technician:$('#movement-person').value.trim(), p_withdrawn_at:withdrawnAt.toISOString(), p_due_at:dueAt.toISOString(), p_work_order:workOrder || null, p_note:$('#movement-note').value || null, p_units:units });
-  } else {
-    const movementData = { p_product_id:selectedProduct.id, p_type:type, p_quantity:itemQuantity, p_recipient:$('#movement-person').value.trim(), p_note:$('#movement-note').value || null, p_holder_type:$('#movement-holder-type').value, p_work_order:workOrder || null, p_field_usage:fieldUsage };
-    result = await supabase.rpc('record_movement', movementData);
+  if (timedTechnicianExit && state.technicianPendenciesLoadError) return alert('Execute primeiro o arquivo integrated-technician-serial-flow.sql no Supabase.');
+  const withdrawnAt = timedTechnicianExit ? new Date($('#movement-withdrawn-at').value) : null;
+  const dueAt = timedTechnicianExit ? new Date($('#movement-due-at').value) : null;
+  if (timedTechnicianExit && (!Number.isFinite(withdrawnAt.getTime()) || !Number.isFinite(dueAt.getTime()) || dueAt <= withdrawnAt)) return alert('Informe um prazo limite posterior à retirada.');
+
+  const submitButton = event.submitter || event.currentTarget.querySelector('button[type="submit"]');
+  const originalButtonText = submitButton?.textContent;
+  movementSubmitting = true;
+  if (submitButton) { submitButton.disabled = true; submitButton.textContent = 'Processando...'; }
+  try {
+    let result;
+    if (timedTechnicianExit) {
+      result = await supabase.rpc('record_integrated_technician_movement', { p_product_id:selectedProduct.id, p_quantity:itemQuantity, p_technician:$('#movement-person').value.trim(), p_withdrawn_at:withdrawnAt.toISOString(), p_due_at:dueAt.toISOString(), p_work_order:workOrder || null, p_note:$('#movement-note').value || null, p_units:units });
+    } else {
+      movementOperationId ||= crypto.randomUUID();
+      const movementData = { p_operation_id:movementOperationId, p_product_id:selectedProduct.id, p_type:type, p_quantity:itemQuantity, p_recipient:$('#movement-person').value.trim(), p_note:$('#movement-note').value || null, p_holder_type:$('#movement-holder-type').value, p_work_order:workOrder || null, p_field_usage:fieldUsage };
+      result = await supabase.rpc('record_movement_idempotent', movementData);
+    }
+    const { error } = result;
+    if (error) return alert(error.message);
+    movementOperationId = null;
+    event.target.reset(); $('#movement-quantity').value = 1; updateMovementMode(); await load(); view('dashboard');
+  } finally {
+    movementSubmitting = false;
+    if (submitButton) { submitButton.disabled = false; submitButton.textContent = originalButtonText; }
   }
-  const { error } = result;
-  if (error) return alert(error.message);
-  event.target.reset(); $('#movement-quantity').value = 1; updateMovementMode(); await load(); view('dashboard');
 };
 
 $('#receipt-form').onsubmit = async event => {
   event.preventDefault();
+  if (receiptSubmitting) return;
+  const submitButton = event.submitter || event.currentTarget.querySelector('button[type="submit"]');
+  const originalButtonText = submitButton?.textContent;
+  receiptSubmitting = true;
+  if (submitButton) { submitButton.disabled = true; submitButton.textContent = 'Processando...'; }
   try {
     const lines = [...document.querySelectorAll('.receipt-line')].map(line => ({
       product_id: line.querySelector('[data-receipt-product]').value === '__new__' ? '' : line.querySelector('[data-receipt-product]').value,
@@ -2827,20 +2854,31 @@ $('#receipt-form').onsubmit = async event => {
       expiry_date: line.querySelector('[data-receipt-expiry]').value || null
     }));
     await createProductsForReceipt(lines);
+    receiptOperationId ||= crypto.randomUUID();
     await registerReceipt({
       supplierName: $('#receipt-supplier').value,
       invoiceNumber: $('#receipt-invoice').value,
       note: $('#receipt-note').value,
-      lines
+      lines,
+      operationId: receiptOperationId
     });
+    receiptOperationId = null;
     $('#receipt-dialog').close();
     await load();
     view('receipts');
     alert('Recebimento registrado e estoque atualizado.');
   } catch (error) {
     alert(error.message);
+  } finally {
+    receiptSubmitting = false;
+    if (submitButton) { submitButton.disabled = false; submitButton.textContent = originalButtonText; }
   }
 };
+
+$('#movement-form').addEventListener('input', () => { if (!movementSubmitting) movementOperationId = null; });
+$('#movement-form').addEventListener('change', () => { if (!movementSubmitting) movementOperationId = null; });
+$('#receipt-form').addEventListener('input', () => { if (!receiptSubmitting) receiptOperationId = null; });
+$('#receipt-form').addEventListener('change', () => { if (!receiptSubmitting) receiptOperationId = null; });
 
 $('#xml-file-form').onsubmit = async event => {
   event.preventDefault();
