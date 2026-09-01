@@ -2,7 +2,7 @@ import { createClient } from '@supabase/supabase-js';
 import { readSheet as readXlsxSheet } from 'read-excel-file/browser';
 
 const supabase = createClient(import.meta.env.VITE_SUPABASE_URL, import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY);
-let state = { products: [], movements: [], users: [], usersLoadNote: '', collaborators: [], vehicles: [], locations: [], suppliers: [], serialItems: [], serialMovements: [], toolLoans: [], clientLoans: [], clientLoansLoadError: '', receipts: [], receiptItems: [], inventorySessions: [], inventoryCounts: [], reminders: [], materialRequests: [], technicianPendencies: [], technicianPendingEvents: [], technicianPendingItems: [], technicianPendenciesLoadError: '', loadStatus: { clientLoans:'idle', reminders:'idle', materialRequests:'idle', technicianPendencies:'idle' }, loadErrors: {}, productFilter: 'all', clientLoanImport: null };
+let state = { products: [], movements: [], users: [], usersLoadNote: '', collaborators: [], vehicles: [], locations: [], suppliers: [], serialItems: [], serialMovements: [], toolLoans: [], clientLoans: [], clientLoansLoadError: '', receipts: [], receiptItems: [], inventorySessions: [], inventoryCounts: [], reminders: [], materialRequests: [], technicianPendencies: [], technicianPendingEvents: [], technicianPendingItems: [], technicianPendenciesLoadError: '', vehicleKits: [], vehicleKitRequirements: [], vehicleKitItems: [], vehicleKitEvents: [], vehicleKitsLoadError: '', loadStatus: { clientLoans:'idle', reminders:'idle', materialRequests:'idle', technicianPendencies:'idle' }, loadErrors: {}, productFilter: 'all', clientLoanImport: null };
 let movementSubmitting = false;
 let receiptSubmitting = false;
 let movementOperationId = null;
@@ -11,6 +11,24 @@ let currentUser = null;
 let passwordRecoveryMode = false;
 const passwordRecoveryStorageKey = 'digitus-password-recovery';
 const $ = selector => document.querySelector(selector);
+
+function addToolNumberFields() {
+  const addAfter = (anchorSelector, id) => {
+    const anchor = $(anchorSelector);
+    if (!anchor || $(`#${id}`)) return;
+    const label = document.createElement('label');
+    label.textContent = 'Número da ferramenta / Identificação ';
+    const input = document.createElement('input');
+    input.id = id;
+    input.inputMode = 'numeric';
+    input.placeholder = 'Ex.: 12';
+    label.append(input);
+    anchor.closest('label')?.insertAdjacentElement('afterend', label);
+  };
+  addAfter('#serial-asset-tag', 'serial-tool-number');
+  addAfter('#edit-serial-asset-tag', 'edit-serial-tool-number');
+}
+addToolNumberFields();
 
 function addPackageUnitOption(root = document) {
   root.querySelectorAll('select#new-unit, select#edit-unit, select[data-receipt-new-unit]').forEach(select => {
@@ -615,7 +633,7 @@ function findScannedItem(code) {
 
 // MAC, serial e patrimônio identificam a mesma unidade rastreável.
 // Mantemos essa lista em um único lugar para o leitor e as buscas não ficarem diferentes.
-const serialIdentifiers = item => [item?.mac_address, item?.serial_number, item?.asset_tag].filter(Boolean);
+const serialIdentifiers = item => [item?.mac_address, item?.serial_number, item?.asset_tag, item?.tool_number].filter(Boolean);
 
 function matchesSerialIdentifier(item, query) {
   const search = String(query || '').trim().toLocaleLowerCase('pt-BR');
@@ -949,7 +967,7 @@ function render() {
   renderDashboardStockValue(activeProducts());
   renderDashboardOperations();
   renderNotifications();
-  renderProducts(); renderEpis(); renderMovement(); renderUsers(); renderRegistry(); renderReceipts(); renderSerials(); renderLaboratory(); renderLoans(); renderClientLoans(); renderInventory(); renderStatement();
+  renderProducts(); renderEpis(); renderMovement(); renderUsers(); renderRegistry(); renderReceipts(); renderSerials(); renderLaboratory(); renderLoans(); renderClientLoans(); renderVehicleKits(); renderInventory(); renderStatement();
   addPackageUnitOption();
 }
 
@@ -1724,6 +1742,7 @@ function openSerialEdit(id) {
   $('#edit-serial-number').value = item.serial_number || '';
   $('#edit-serial-mac').value = item.mac_address || '';
   $('#edit-serial-asset-tag').value = item.asset_tag || '';
+  if ($('#edit-serial-tool-number')) $('#edit-serial-tool-number').value = item.tool_number || '';
   $('#edit-serial-notes').value = item.notes || '';
   $('#edit-serial-dialog').showModal();
 }
@@ -1893,6 +1912,41 @@ function renderClientLoans() {
   document.querySelectorAll('[data-open-client-loan]').forEach(button => button.onclick = () => $('#add-client-loan')?.click());
   document.querySelectorAll('[data-delete-client-loan]').forEach(button => { button.hidden = currentUser?.role !== 'admin'; });
 }
+
+const toolLabel = item => {
+  const p = item && product(item.product_id);
+  return `${p?.name || 'Ferramenta'} nº ${item?.tool_number || item?.asset_tag || item?.serial_number || 'sem identificação'}`;
+};
+function activeVehicleKitItems(kitId) { return state.vehicleKitItems.filter(item => item.kit_id === kitId && !item.removed_at); }
+function renderVehicleKits() {
+  const grid = $('#vehicle-kits-grid'); if (!grid) return;
+  const canManage = ['admin','operador'].includes(currentUser?.role);
+  if (state.vehicleKitsLoadError) { grid.innerHTML='<p class="empty">Não foi possível carregar os kits dos veículos. Execute o SQL desta atualização.</p>'; return; }
+  const q = $('#vehicle-kit-search')?.value.trim().toLocaleLowerCase('pt-BR') || '';
+  grid.innerHTML = state.vehicles.filter(v => v.active).map(vehicle => {
+    const kit=state.vehicleKits.find(k=>k.vehicle_id===vehicle.id), items=kit?activeVehicleKitItems(kit.id):[];
+    const requirements=kit?state.vehicleKitRequirements.filter(r=>r.kit_id===kit.id):[];
+    const required=requirements.reduce((n,r)=>n+Number(r.required_quantity),0), complete=required>0&&requirements.every(r=>items.filter(x=>state.serialItems.find(s=>s.id===x.serial_item_id)?.product_id===r.product_id).length>=Number(r.required_quantity));
+    const matches=!q||vehicle.name.toLocaleLowerCase('pt-BR').includes(q)||items.some(x=>toolLabel(state.serialItems.find(s=>s.id===x.serial_item_id)).toLocaleLowerCase('pt-BR').includes(q));
+    if(!matches)return '';
+    const missing=requirements.flatMap(r=>{const have=items.filter(x=>state.serialItems.find(s=>s.id===x.serial_item_id)?.product_id===r.product_id).length;return Array(Math.max(0,r.required_quantity-have)).fill(product(r.product_id)?.name||'Ferramenta');});
+    return `<article class="vehicle-kit-card"><header><div><h2>${esc(vehicle.name)}</h2><small>${esc(kit?.name||'Kit ainda não montado')}</small></div><span class="badge ${complete?'ok':'low'}">${complete?'✓ Kit completo':'⚠ Kit incompleto'}</span></header><strong>${items.length}/${required||items.length} ferramentas</strong><div class="vehicle-kit-items">${items.map(link=>{const s=state.serialItems.find(x=>x.id===link.serial_item_id);return `<div><span>✓ ${esc(toolLabel(s))}</span>${canManage?`<button class="text-button" data-kit-tool-action="${s?.id}">Mover</button>`:''}</div>`;}).join('')||'<p class="muted">Nenhuma ferramenta vinculada.</p>'}</div>${missing.length?`<small class="kit-missing">Faltando: ${esc(missing.join(', '))}</small>`:''}<footer>${canManage?`<button class="secondary-button" data-edit-kit="${vehicle.id}">Editar Kit</button>`:''}${kit?`<button class="secondary-button" data-kit-history="${kit.id}">Histórico</button>`:''}</footer></article>`;
+  }).join('')||'<p class="empty">Nenhum veículo ou ferramenta corresponde à pesquisa.</p>';
+  document.querySelectorAll('[data-edit-kit]').forEach(b=>b.onclick=()=>openVehicleKitEditor(b.dataset.editKit));
+  document.querySelectorAll('[data-kit-tool-action]').forEach(b=>b.onclick=()=>openVehicleKitAction(b.dataset.kitToolAction));
+  document.querySelectorAll('[data-kit-history]').forEach(b=>b.onclick=()=>openVehicleKitHistory(b.dataset.kitHistory));
+}
+function openVehicleKitEditor(vehicleId='') {
+  const vehicles=state.vehicles.filter(v=>v.active); $('#vehicle-kit-vehicle').innerHTML=vehicles.map(v=>`<option value="${v.id}">${esc(v.name)}</option>`).join(''); $('#vehicle-kit-vehicle').value=vehicleId||vehicles[0]?.id||'';
+  const kit=state.vehicleKits.find(k=>k.vehicle_id===$('#vehicle-kit-vehicle').value), selected=new Set(kit?activeVehicleKitItems(kit.id).map(x=>x.serial_item_id):[]);
+  $('#vehicle-kit-name').value=kit?.name||`Kit ${state.vehicles.find(v=>v.id===$('#vehicle-kit-vehicle').value)?.name||''}`; $('#vehicle-kit-note').value='';
+  const tools=state.serialItems.filter(s=>product(s.product_id)?.category==='Ferramentas'&&(s.status==='disponivel'||selected.has(s.id)));
+  $('#vehicle-kit-tool-list').innerHTML=tools.map(s=>`<label class="vehicle-kit-option"><input type="checkbox" data-kit-unit value="${s.id}" ${selected.has(s.id)?'checked disabled':''}/><span>${esc(toolLabel(s))}${selected.has(s.id)?' · já no veículo':''}</span></label>`).join('')||'<p class="empty">Cadastre ferramentas individuais disponíveis em Serial / MAC.</p>';
+  $('#vehicle-kit-dialog').showModal();
+}
+function openVehicleKitAction(serialId){const s=state.serialItems.find(x=>x.id===serialId);$('#vehicle-kit-action-item').value=serialId;$('#vehicle-kit-action-description').textContent=toolLabel(s);$('#vehicle-kit-target').innerHTML=state.vehicles.filter(v=>v.active).map(v=>`<option value="${v.id}">${esc(v.name)}</option>`).join('');$('#vehicle-kit-replacement').innerHTML=state.serialItems.filter(x=>x.status==='disponivel'&&x.product_id===s.product_id&&x.id!==s.id).map(x=>`<option value="${x.id}">${esc(toolLabel(x))}</option>`).join('');$('#vehicle-kit-action').value='almoxarifado';updateVehicleKitAction();$('#vehicle-kit-action-dialog').showModal();}
+function updateVehicleKitAction(){const a=$('#vehicle-kit-action').value;$('#vehicle-kit-target-group').hidden=a!=='transferir';$('#vehicle-kit-replacement-group').hidden=a!=='substituir';}
+function openVehicleKitHistory(kitId){const kit=state.vehicleKits.find(k=>k.id===kitId),vehicle=state.vehicles.find(v=>v.id===kit?.vehicle_id);$('#vehicle-kit-history-title').textContent=`Histórico — ${vehicle?.name||'Veículo'}`;$('#vehicle-kit-history').innerHTML=state.vehicleKitEvents.filter(e=>e.kit_id===kitId).sort((a,b)=>new Date(b.created_at)-new Date(a.created_at)).map(e=>`<div class="serial-history-item"><b>${esc({adicionado:'Adicionada',removido:'Removida',transferido:'Transferida',manutencao:'Enviada à manutenção',baixa:'Baixada',substituido:'Substituída'}[e.event_type]||e.event_type)} — ${esc(toolLabel(state.serialItems.find(s=>s.id===e.serial_item_id)))}</b><small>${date(e.created_at)}${e.note?' · '+esc(e.note):''}</small></div>`).join('')||'<p class="empty">Nenhum evento registrado.</p>';$('#vehicle-kit-history-dialog').showModal();}
 
 async function deleteClientLoan(id) {
   if (currentUser?.role !== 'admin') return alert('Apenas administradores podem excluir comodatos.');
@@ -2153,7 +2207,7 @@ async function load() {
   ['clientLoans','reminders','materialRequests','technicianPendencies'].forEach(module => { state.loadStatus[module] = 'loading'; });
   renderDashboardOperations();
   renderClientLoans();
-  const [products, movements, collaborators, vehicles, locations, suppliers, serialItems, serialMovements, toolLoans, clientLoans, receipts, receiptItems, inventorySessions, inventoryCounts, reminders, materialRequests, technicianPendencies, technicianPendingEvents, technicianPendingItems] = await Promise.all([
+  const [products, movements, collaborators, vehicles, locations, suppliers, serialItems, serialMovements, toolLoans, clientLoans, receipts, receiptItems, inventorySessions, inventoryCounts, reminders, materialRequests, technicianPendencies, technicianPendingEvents, technicianPendingItems, vehicleKits, vehicleKitRequirements, vehicleKitItems, vehicleKitEvents] = await Promise.all([
     supabase.from('products').select('*').order('name'),
     selectAllPages('movements', [{ column:'created_at' }, { column:'id' }]),
     supabase.from('collaborators').select('*').order('name'),
@@ -2172,7 +2226,11 @@ async function load() {
     selectAllPages('material_requests', [{ column:'created_at' }, { column:'id' }]),
     selectAllPages('technician_pendencies', [{ column:'withdrawn_at' }, { column:'id' }]),
     selectAllPages('technician_pending_events', [{ column:'occurred_at' }, { column:'id' }]),
-    selectAllPages('technician_pending_items', [{ column:'created_at' }, { column:'pending_id' }, { column:'serial_item_id' }])
+    selectAllPages('technician_pending_items', [{ column:'created_at' }, { column:'pending_id' }, { column:'serial_item_id' }]),
+    selectAllPages('vehicle_tool_kits', [{ column:'created_at' }, { column:'id' }]),
+    selectAllPages('vehicle_tool_kit_requirements', [{ column:'id', ascending:true }]),
+    selectAllPages('vehicle_tool_kit_items', [{ column:'added_at' }, { column:'id' }]),
+    selectAllPages('vehicle_tool_kit_events', [{ column:'created_at' }, { column:'id' }])
   ]);
   if (products.error || movements.error || collaborators.error || vehicles.error || locations.error || suppliers.error || serialItems.error || serialMovements.error || toolLoans.error || receipts.error || receiptItems.error || inventorySessions.error || inventoryCounts.error) throw products.error || movements.error || collaborators.error || vehicles.error || locations.error || suppliers.error || serialItems.error || serialMovements.error || toolLoans.error || receipts.error || receiptItems.error || inventorySessions.error || inventoryCounts.error;
   state.products = products.data.map(item => ({ ...item, minimum: item.minimum_stock }));
@@ -2211,6 +2269,8 @@ async function load() {
     state.technicianPendenciesLoadError = '';
     setModuleLoadSuccess('technicianPendencies');
   }
+  const kitsError=vehicleKits.error||vehicleKitRequirements.error||vehicleKitItems.error||vehicleKitEvents.error;
+  if(kitsError){state.vehicleKitsLoadError=kitsError.message;console.error('[Kits dos Veículos] Falha ao carregar.',kitsError);}else{state.vehicleKits=vehicleKits.data;state.vehicleKitRequirements=vehicleKitRequirements.data;state.vehicleKitItems=vehicleKitItems.data;state.vehicleKitEvents=vehicleKitEvents.data;state.vehicleKitsLoadError='';}
   try {
     await loadUsers();
   } catch (error) {
@@ -2330,7 +2390,7 @@ function view(id, options = {}) {
   document.querySelectorAll('.view').forEach(element => element.classList.toggle('active', element.id === id));
   document.querySelectorAll('.nav-link').forEach(button => button.classList.toggle('active', button.dataset.view === id));
   document.querySelector('main').classList.toggle('dashboard-mode', id === 'dashboard');
-  $('#page-title').textContent = ({ dashboard:'Visão geral', products:'Produtos', epis:'Controle de EPIs', movement:'Movimentações', receipts:'Recebimentos', serials:'Serial / MAC', laboratory:'Oficina', loans:'Empréstimos', 'client-loans':'Comodatos', inventory:'Conferência de estoque', registry:'Cadastros', users:'Usuários', statement:'Extrato financeiro' })[id];
+  $('#page-title').textContent = ({ dashboard:'Visão geral', products:'Produtos', epis:'Controle de EPIs', movement:'Movimentações', receipts:'Recebimentos', serials:'Serial / MAC', laboratory:'Oficina', loans:'Empréstimos', 'client-loans':'Comodatos', 'vehicle-kits':'Kits dos Veículos', inventory:'Conferência de estoque', registry:'Cadastros', users:'Usuários', statement:'Extrato financeiro' })[id];
 }
 
 document.querySelector('main').classList.add('dashboard-mode');
@@ -2554,7 +2614,7 @@ async function logout() {
   if (error) return alert(error.message);
   setAccountMenu(false);
   currentUser = null;
-  state = { products: [], movements: [], users: [], usersLoadNote: '', collaborators: [], vehicles: [], locations: [], suppliers: [], serialItems: [], serialMovements: [], toolLoans: [], clientLoans: [], clientLoansLoadError: '', receipts: [], receiptItems: [], inventorySessions: [], inventoryCounts: [], reminders: [], materialRequests: [], technicianPendencies: [], technicianPendingEvents: [], technicianPendingItems: [], technicianPendenciesLoadError: '', loadStatus: { clientLoans:'idle', reminders:'idle', materialRequests:'idle', technicianPendencies:'idle' }, loadErrors: {}, productFilter: 'all', clientLoanImport: null };
+  state = { products: [], movements: [], users: [], usersLoadNote: '', collaborators: [], vehicles: [], locations: [], suppliers: [], serialItems: [], serialMovements: [], toolLoans: [], clientLoans: [], clientLoansLoadError: '', receipts: [], receiptItems: [], inventorySessions: [], inventoryCounts: [], reminders: [], materialRequests: [], technicianPendencies: [], technicianPendingEvents: [], technicianPendingItems: [], technicianPendenciesLoadError: '', vehicleKits: [], vehicleKitRequirements: [], vehicleKitItems: [], vehicleKitEvents: [], vehicleKitsLoadError: '', loadStatus: { clientLoans:'idle', reminders:'idle', materialRequests:'idle', technicianPendencies:'idle' }, loadErrors: {}, productFilter: 'all', clientLoanImport: null };
   $('#login-form').reset();
   $('#auth-gate').hidden = false;
 }
@@ -2692,6 +2752,10 @@ if (clientLoanCustomerName) clientLoanCustomerName.oninput = renderClientLoanFor
 const clientLoanReference = $('#client-loan-reference');
 if (clientLoanReference) clientLoanReference.oninput = renderClientLoanFormSummary;
 document.querySelectorAll('[data-history-filter]').forEach(element => { element.oninput = renderMovement; element.onchange = renderMovement; });
+$('#vehicle-kit-search').oninput = renderVehicleKits;
+$('#edit-vehicle-kit').onclick = () => openVehicleKitEditor();
+$('#vehicle-kit-vehicle').onchange = event => openVehicleKitEditor(event.target.value);
+$('#vehicle-kit-action').onchange = updateVehicleKitAction;
 $('#clear-history-filters').onclick = () => { document.querySelectorAll('[data-history-filter]').forEach(element => { element.value = ''; }); renderMovement(); };
 document.querySelectorAll('[data-statement-filter]').forEach(element => { element.oninput = renderStatement; element.onchange = renderStatement; });
 $('#clear-statement-filters').onclick = () => { document.querySelectorAll('[data-statement-filter]').forEach(element => { element.value = ''; }); renderStatement(); };
@@ -2706,10 +2770,11 @@ function movementUnitValues() {
   return [...document.querySelectorAll('.movement-unit-row')].map(row => ({
     mac: row.querySelector('[data-unit-mac]')?.value.trim() || '',
     serial_number: row.querySelector('[data-unit-serial]')?.value.trim() || '',
-    asset_tag: row.querySelector('[data-unit-asset]')?.value.trim() || ''
+    asset_tag: row.querySelector('[data-unit-asset]')?.value.trim() || '',
+    tool_number: row.querySelector('[data-unit-tool-number]')?.value.trim() || ''
   }));
 }
-const movementUnitIsIdentified = unit => Boolean(unit.mac || unit.serial_number || unit.asset_tag);
+const movementUnitIsIdentified = unit => Boolean(unit.mac || unit.serial_number || unit.asset_tag || unit.tool_number);
 function updateMovementDeadlineVisibility(clearWhenHidden = false) {
   const hasTrackedProduct = $('#movement-type').value === 'saida'
     && $('#movement-holder-type').value === 'tecnico'
@@ -2731,7 +2796,9 @@ function updateMovementDeadlineVisibility(clearWhenHidden = false) {
 function renderMovementSerialUnits() {
   const container = $('#movement-serial-units');
   const selectedProduct = product($('#movement-product').value);
-  const serialized = $('#movement-type').value === 'saida' && $('#movement-holder-type').value === 'tecnico' && selectedProduct?.tracking_mode === 'serializado';
+  const holderType = $('#movement-holder-type').value;
+  const serialized = $('#movement-type').value === 'saida' && selectedProduct?.tracking_mode === 'serializado'
+    && (holderType === 'tecnico' || (holderType === 'veiculo' && selectedProduct?.category === 'Ferramentas'));
   container.hidden = !serialized;
   if (!serialized) { container.innerHTML = ''; updateMovementDeadlineVisibility(true); return; }
   const rawQuantity = Number($('#movement-quantity').value);
@@ -2739,7 +2806,7 @@ function renderMovementSerialUnits() {
   const previous = movementUnitValues();
   container.innerHTML = count ? Array.from({ length: count }, (_, index) => {
     const saved = previous[index] || {};
-    return `<section class="movement-unit-row"><h4>Unidade ${index + 1}</h4><div class="movement-unit-fields"><label>MAC <input data-unit-mac value="${esc(saved.mac || '')}" placeholder="MAC exato" /></label><label>Serial <input data-unit-serial value="${esc(saved.serial_number || '')}" placeholder="Serial exato" /></label><label>Patrimônio <input data-unit-asset value="${esc(saved.asset_tag || '')}" placeholder="Patrimônio exato" /></label></div><small>Informe pelo menos um identificador desta unidade.</small></section>`;
+    return `<section class="movement-unit-row"><h4>Unidade ${index + 1}</h4><div class="movement-unit-fields"><label>MAC <input data-unit-mac value="${esc(saved.mac || '')}" placeholder="MAC exato" /></label><label>Serial <input data-unit-serial value="${esc(saved.serial_number || '')}" placeholder="Serial exato" /></label><label>Patrimônio <input data-unit-asset value="${esc(saved.asset_tag || '')}" placeholder="Patrimônio exato" /></label>${holderType==='veiculo'&&selectedProduct.category==='Ferramentas'?`<label>Número da ferramenta <input data-unit-tool-number inputmode="numeric" value="${esc(saved.tool_number || '')}" placeholder="Número exato" /></label>`:''}</div><small>Informe pelo menos um identificador desta unidade.</small></section>`;
   }).join('') : '<p class="form-error">Para produtos individualizados, informe uma quantidade inteira.</p>';
   updateMovementDeadlineVisibility(true);
 }
@@ -2869,8 +2936,10 @@ $('#movement-form').onsubmit = async event => {
   if (fieldUsage && !workOrder) return alert('Informe o número da OS para registrar o uso do material.');
   if (!fieldUsage && type === 'saida' && itemQuantity > selectedProduct.stock) return alert('Estoque insuficiente.');
   const units = selectedProduct.tracking_mode === 'serializado' ? movementUnitValues() : [];
-  const serializedTechnicianExit = operation === 'saida' && $('#movement-holder-type').value === 'tecnico' && selectedProduct.tracking_mode === 'serializado';
-  if (serializedTechnicianExit) {
+  const holderType = $('#movement-holder-type').value;
+  const serializedTechnicianExit = operation === 'saida' && holderType === 'tecnico' && selectedProduct.tracking_mode === 'serializado';
+  const serializedVehicleToolExit = operation === 'saida' && holderType === 'veiculo' && selectedProduct.tracking_mode === 'serializado' && selectedProduct.category === 'Ferramentas';
+  if (serializedTechnicianExit || serializedVehicleToolExit) {
     if (!Number.isInteger(itemQuantity) || units.length !== itemQuantity) return alert('Informe uma quantidade inteira e os identificadores de cada unidade.');
     if (units.some(unit => !movementUnitIsIdentified(unit))) return alert('Informe MAC, serial ou patrimônio para cada unidade.');
   }
@@ -2886,7 +2955,27 @@ $('#movement-form').onsubmit = async event => {
   if (submitButton) { submitButton.disabled = true; submitButton.textContent = 'Processando...'; }
   try {
     let result;
-    if (timedTechnicianExit) {
+    if (serializedVehicleToolExit) {
+      const recipient = $('#movement-person').value.trim().toLocaleLowerCase('pt-BR');
+      const vehicle = state.vehicles.find(item => item.active !== false && item.name.trim().toLocaleLowerCase('pt-BR') === recipient);
+      if (!vehicle) return alert('Selecione um veículo cadastrado exatamente como aparece na lista.');
+      const unitIds = [];
+      for (const unit of units) {
+        const matches = state.serialItems.filter(item => item.product_id === selectedProduct.id &&
+          ((!unit.mac || String(item.mac_address || '').toLocaleLowerCase('pt-BR') === unit.mac.toLocaleLowerCase('pt-BR')) &&
+           (!unit.serial_number || String(item.serial_number || '').toLocaleLowerCase('pt-BR') === unit.serial_number.toLocaleLowerCase('pt-BR')) &&
+           (!unit.asset_tag || String(item.asset_tag || '').toLocaleLowerCase('pt-BR') === unit.asset_tag.toLocaleLowerCase('pt-BR')) &&
+           (!unit.tool_number || String(item.tool_number || '') === unit.tool_number)));
+        if (matches.length !== 1) return alert(`Não foi possível localizar uma única ferramenta para ${unit.mac || unit.serial_number || unit.asset_tag || unit.tool_number}.`);
+        unitIds.push(matches[0].id);
+      }
+      const kit = state.vehicleKits.find(item => item.vehicle_id === vehicle.id);
+      const currentIds = kit ? activeVehicleKitItems(kit.id).map(item => item.serial_item_id) : [];
+      const allIds = [...new Set([...currentIds, ...unitIds])];
+      const counts = new Map();
+      allIds.forEach(id => { const item=state.serialItems.find(entry=>entry.id===id); if(item) counts.set(item.product_id,(counts.get(item.product_id)||0)+1); });
+      result = await supabase.rpc('save_vehicle_tool_kit', { p_vehicle_id:vehicle.id, p_name:kit?.name || `Kit ${vehicle.name}`, p_requirements:[...counts].map(([product_id,quantity])=>({product_id,quantity})), p_serial_item_ids:allIds, p_note:$('#movement-note').value || null });
+    } else if (timedTechnicianExit) {
       result = await supabase.rpc('record_integrated_technician_movement', { p_product_id:selectedProduct.id, p_quantity:itemQuantity, p_technician:$('#movement-person').value.trim(), p_withdrawn_at:withdrawnAt.toISOString(), p_due_at:dueAt.toISOString(), p_work_order:workOrder || null, p_note:$('#movement-note').value || null, p_units:units });
     } else {
       movementOperationId ||= crypto.randomUUID();
@@ -3110,7 +3199,9 @@ $('#material-request-form').onsubmit = async event => {
 
 $('#serial-form').onsubmit = async event => {
   event.preventDefault();
-  const { error } = await supabase.rpc('register_serial_item', {
+  const toolNumber = $('#serial-tool-number')?.value.trim() || '';
+  const rpcName = toolNumber ? 'register_vehicle_tool_item' : 'register_serial_item';
+  const params = {
     p_product_id: $('#serial-product').value,
     p_serial_number: $('#serial-number').value || null,
     p_mac_address: $('#serial-mac').value || null,
@@ -3119,9 +3210,10 @@ $('#serial-form').onsubmit = async event => {
     p_location_id: $('#serial-location').value || null,
     p_customer_name: $('#serial-customer').value || null,
     p_customer_reference: $('#serial-customer-reference').value || null,
-    p_notes: $('#serial-notes').value || null,
-    p_add_to_stock: false
-  });
+    p_notes: $('#serial-notes').value || null
+  };
+  if (toolNumber) params.p_tool_number = toolNumber; else params.p_add_to_stock = false;
+  const { error } = await supabase.rpc(rpcName, params);
   if (error) return alert(error.message);
   event.target.reset(); $('#serial-dialog').close(); await load(); view('serials');
 };
@@ -3139,6 +3231,7 @@ $('#edit-serial-form').onsubmit = async event => {
     p_notes: $('#edit-serial-notes').value.trim() || null
   });
   if (error) return alert(error.message);
+  if($('#edit-serial-tool-number')) { const result=await supabase.rpc('set_tool_number',{p_serial_item_id:id,p_tool_number:$('#edit-serial-tool-number').value.trim()||null}); if(result.error)return alert(result.error.message); }
   $('#edit-serial-dialog').close();
   await load();
   view('serials');
@@ -3235,6 +3328,9 @@ $('#client-loan-form').onsubmit = async event => {
     submitButton.disabled = false;
   }
 };
+
+$('#vehicle-kit-form').onsubmit=async event=>{event.preventDefault();const ids=[...document.querySelectorAll('[data-kit-unit]:checked')].map(x=>x.value),counts=new Map();ids.forEach(id=>{const s=state.serialItems.find(x=>x.id===id);if(s)counts.set(s.product_id,(counts.get(s.product_id)||0)+1);});const requirements=[...counts].map(([product_id,quantity])=>({product_id,quantity}));const {error}=await supabase.rpc('save_vehicle_tool_kit',{p_vehicle_id:$('#vehicle-kit-vehicle').value,p_name:$('#vehicle-kit-name').value.trim(),p_requirements:requirements,p_serial_item_ids:ids,p_note:$('#vehicle-kit-note').value.trim()||null});if(error)return alert(error.message);$('#vehicle-kit-dialog').close();await load();view('vehicle-kits');};
+$('#vehicle-kit-action-form').onsubmit=async event=>{event.preventDefault();const action=$('#vehicle-kit-action').value;if(!confirm('Confirmar esta movimentação da ferramenta?'))return;const {error}=await supabase.rpc('move_vehicle_tool',{p_serial_item_id:$('#vehicle-kit-action-item').value,p_action:action,p_target_vehicle_id:action==='transferir'?$('#vehicle-kit-target').value:null,p_replacement_id:action==='substituir'?$('#vehicle-kit-replacement').value:null,p_note:$('#vehicle-kit-action-note').value.trim()||null});if(error)return alert(error.message);$('#vehicle-kit-action-dialog').close();await load();view('vehicle-kits');};
 
 $('#client-loan-import-form').onsubmit = async event => {
   event.preventDefault();
