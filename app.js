@@ -1216,14 +1216,58 @@ async function submitTechnicianPending(event) {
 }
 
 function receiptProducts() {
-  return activeProducts().filter(item => item.tracking_mode !== 'serializado');
+  return activeProducts();
 }
 
 function receiptLineHtml(selected = '') {
   const products = receiptProducts();
   const selectedProduct = product(selected);
   const unitCost = Number(selectedProduct?.average_cost || 0).toFixed(2);
-  return `<div class="receipt-line"><label>Material <select data-receipt-product required><option value="">Selecione</option><option value="__new__" ${selected === '__new__' ? 'selected' : ''}>+ Cadastrar novo material nesta entrega</option>${products.map(item => `<option value="${item.id}" ${item.id === selected ? 'selected' : ''}>${esc(item.name)} (${stockLabel(item)})</option>`).join('')}</select></label><label>Quantidade <input data-receipt-quantity type="number" min="0.001" step="0.001" required value="1" /></label><label>Valor unitário (R$) <input data-receipt-unit-cost type="number" min="0" step="0.01" required value="${unitCost}" /></label><label>Lote <input data-receipt-batch maxlength="80" placeholder="Opcional" /></label><label>Validade <input data-receipt-expiry type="date" /></label><button class="receipt-line-remove" data-remove-receipt-line type="button" aria-label="Remover material">×</button><div class="receipt-new-product" data-receipt-new-product ${selected === '__new__' ? '' : 'hidden'}><label>Nome do novo material <input data-receipt-new-name ${selected === '__new__' ? 'required' : ''} placeholder="Ex.: Cabo de rede CAT6" /></label><label>Código <input data-receipt-new-code ${selected === '__new__' ? 'required' : ''} placeholder="Ex.: CAB-CAT6" /></label><label>Categoria <select data-receipt-new-category><option value="Produtos">Produtos</option><option value="Equipamentos">Equipamentos</option><option value="Insumos">Insumos</option><option value="Patrimônio">Patrimônio</option><option value="Ferramentas">Ferramentas</option></select></label><label>Unidade <select data-receipt-new-unit><option value="unidade">Unidade</option><option value="metro">Metro</option><option value="par">Par</option><option value="caixa">Caixa</option></select></label></div></div>`;
+  return `<div class="receipt-line"><label>Material <select data-receipt-product required><option value="">Selecione</option><option value="__new__" ${selected === '__new__' ? 'selected' : ''}>+ Cadastrar novo material nesta entrega</option>${products.map(item => `<option value="${item.id}" ${item.id === selected ? 'selected' : ''}>${esc(item.name)} (${item.tracking_mode==='serializado'?'MAC/Serial':stockLabel(item)})</option>`).join('')}</select></label><label>Quantidade <input data-receipt-quantity type="number" min="0.001" step="0.001" required value="1" /></label><label>Valor unitário (R$) <input data-receipt-unit-cost type="number" min="0" step="0.01" required value="${unitCost}" /></label><label>Lote <input data-receipt-batch maxlength="80" placeholder="Opcional" /></label><label>Validade <input data-receipt-expiry type="date" /></label><button class="receipt-line-remove" data-remove-receipt-line type="button" aria-label="Remover material">×</button><div class="receipt-new-product" data-receipt-new-product ${selected === '__new__' ? '' : 'hidden'}><label>Nome do novo material <input data-receipt-new-name ${selected === '__new__' ? 'required' : ''} placeholder="Ex.: Cabo de rede CAT6" /></label><label>Código <input data-receipt-new-code ${selected === '__new__' ? 'required' : ''} placeholder="Ex.: CAB-CAT6" /></label><label>Categoria <select data-receipt-new-category><option value="Produtos">Produtos</option><option value="Equipamentos">Equipamentos</option><option value="Insumos">Insumos</option><option value="Patrimônio">Patrimônio</option><option value="Ferramentas">Ferramentas</option></select></label><label>Unidade <select data-receipt-new-unit><option value="unidade">Unidade</option><option value="metro">Metro</option><option value="par">Par</option><option value="caixa">Caixa</option></select></label></div><section class="receipt-serial-section" data-receipt-serial-section hidden><div class="receipt-serial-heading"><div><h4>Identificação dos equipamentos recebidos</h4><small>Preencha MAC, Serial e Patrimônio de cada unidade física.</small></div><button class="secondary-button" data-add-receipt-unit type="button">+ Adicionar equipamento</button></div><div class="receipt-serial-summary" data-receipt-serial-summary></div><div class="receipt-serial-units" data-receipt-serial-units></div></section></div>`;
+}
+
+function receiptUnitValues(line) {
+  return [...line.querySelectorAll('.receipt-serial-unit')].map(row => ({
+    mac: row.querySelector('[data-receipt-unit-mac]')?.value.trim() || '',
+    serial_number: row.querySelector('[data-receipt-unit-serial]')?.value.trim() || '',
+    asset_tag: row.querySelector('[data-receipt-unit-asset]')?.value.trim() || ''
+  }));
+}
+
+function renderReceiptSerialUnits(line) {
+  const selectedProduct = product(line.querySelector('[data-receipt-product]').value);
+  const section = line.querySelector('[data-receipt-serial-section]');
+  const serialized = selectedProduct?.tracking_mode === 'serializado';
+  section.hidden = !serialized;
+  const quantityInput = line.querySelector('[data-receipt-quantity]');
+  if (!serialized) { quantityInput.step='0.001';quantityInput.min='0.001';section.querySelector('[data-receipt-serial-units]').innerHTML=''; renderReceiptSummary(); return; }
+  quantityInput.step='1'; quantityInput.min='1';
+  const raw = Number(quantityInput.value), count = Number.isInteger(raw) && raw>0 ? Math.min(raw,500) : 0;
+  const previous = receiptUnitValues(line);
+  section.querySelector('[data-receipt-serial-units]').innerHTML = Array.from({length:count},(_,index)=>{
+    const unit=previous[index]||{};
+    return `<div class="receipt-serial-unit"><b>${index+1}</b><label>MAC <input data-receipt-unit-mac value="${esc(unit.mac)}" placeholder="MAC obrigatório" /></label><label>Serial <input data-receipt-unit-serial value="${esc(unit.serial_number)}" placeholder="Serial obrigatório" /></label><label>Patrimônio <input data-receipt-unit-asset value="${esc(unit.asset_tag)}" placeholder="Patrimônio obrigatório" /></label><span data-receipt-unit-status></span></div>`;
+  }).join('');
+  updateReceiptSerialSummary(line);
+}
+
+function updateReceiptSerialSummary(line) {
+  const quantityValue=Number(line.querySelector('[data-receipt-quantity]').value)||0;
+  const units=receiptUnitValues(line), complete=units.filter(unit=>unit.mac&&unit.serial_number&&unit.asset_tag).length;
+  const pending=Math.max(0,quantityValue-complete), summary=line.querySelector('[data-receipt-serial-summary]');
+  if(summary) summary.innerHTML=`<span>Quantidade recebida: <b>${quantityValue}</b></span><span>Equipamentos cadastrados: <b>${complete}</b></span><span class="${pending?'pending':'ready'}">${pending?`Pendentes: ${pending}`:'✓ Pronto para finalizar'}</span>`;
+  line.querySelectorAll('.receipt-serial-unit').forEach(row=>{const completeRow=row.querySelector('[data-receipt-unit-mac]').value.trim()&&row.querySelector('[data-receipt-unit-serial]').value.trim()&&row.querySelector('[data-receipt-unit-asset]').value.trim();row.querySelector('[data-receipt-unit-status]').textContent=completeRow?'Completo':'Pendente';row.classList.toggle('complete',Boolean(completeRow));});
+  renderReceiptSummary();
+}
+
+function renderReceiptSummary() {
+  const summary=$('#receipt-summary'); if(!summary)return;
+  const lines=[...document.querySelectorAll('.receipt-line')];
+  const total=lines.reduce((sum,line)=>sum+(Number(line.querySelector('[data-receipt-quantity]')?.value)||0)*(Number(line.querySelector('[data-receipt-unit-cost]')?.value)||0),0);
+  const serialized=lines.filter(line=>product(line.querySelector('[data-receipt-product]')?.value)?.tracking_mode==='serializado');
+  const declared=serialized.reduce((sum,line)=>sum+(Number(line.querySelector('[data-receipt-quantity]').value)||0),0);
+  const identified=serialized.reduce((sum,line)=>sum+receiptUnitValues(line).filter(unit=>unit.mac&&unit.serial_number&&unit.asset_tag).length,0);
+  summary.innerHTML=`<span>Valor total: <b>${currency(total)}</b></span>${serialized.length?`<span>Equipamentos: <b>${identified}/${declared}</b></span><span class="${identified===declared?'ready':'pending'}">${identified===declared?'Pronto para finalizar':`${declared-identified} pendente(s)`}</span>`:''}`;
 }
 
 function toggleReceiptNewProductFields(line) {
@@ -1234,14 +1278,23 @@ function toggleReceiptNewProductFields(line) {
 }
 
 function bindReceiptLineEvents() {
-  document.querySelectorAll('[data-remove-receipt-line]').forEach(button => button.onclick = () => button.closest('.receipt-line').remove());
+  document.querySelectorAll('[data-remove-receipt-line]').forEach(button => button.onclick = () => {button.closest('.receipt-line').remove();renderReceiptSummary();});
   document.querySelectorAll('[data-receipt-product]').forEach(select => select.onchange = () => {
     const item = product(select.value);
     const line = select.closest('.receipt-line');
     if (item) line.querySelector('[data-receipt-unit-cost]').value = Number(item.average_cost || 0).toFixed(2);
     toggleReceiptNewProductFields(line);
+    renderReceiptSerialUnits(line);
   });
-  document.querySelectorAll('.receipt-line').forEach(toggleReceiptNewProductFields);
+  document.querySelectorAll('.receipt-line').forEach(line=>{
+    toggleReceiptNewProductFields(line);
+    line.querySelector('[data-receipt-quantity]').oninput=()=>renderReceiptSerialUnits(line);
+    line.querySelector('[data-receipt-unit-cost]').oninput=renderReceiptSummary;
+    line.querySelector('[data-add-receipt-unit]').onclick=()=>{const input=line.querySelector('[data-receipt-quantity]');input.value=Math.max(0,Number(input.value)||0)+1;renderReceiptSerialUnits(line);};
+    line.querySelector('[data-receipt-serial-units]').oninput=()=>updateReceiptSerialSummary(line);
+    line.querySelector('[data-receipt-serial-units]').onkeydown=event=>{if(event.key!=='Enter')return;event.preventDefault();const inputs=[...line.querySelectorAll('.receipt-serial-unit input')],index=inputs.indexOf(event.target);inputs[index+1]?.focus();};
+    renderReceiptSerialUnits(line);
+  });
 }
 
 function addReceiptLine(selected = '') {
@@ -1290,21 +1343,39 @@ async function registerReceipt({ supplierName, invoiceNumber, note, lines, opera
   if (!name) throw new Error('Informe o fornecedor.');
   if (!lines.length || lines.some(line => !line.product_id || !Number.isFinite(line.quantity) || line.quantity <= 0 || !Number.isFinite(line.unit_cost) || line.unit_cost < 0)) throw new Error('Preencha o material, a quantidade e o valor unitário em todas as linhas.');
   const savedSupplier = state.suppliers.find(item => item.active && item.name.trim().toLocaleLowerCase('pt-BR') === name.toLocaleLowerCase('pt-BR'));
-  const receiptData = savedSupplier ? {
-    p_operation_id: operationId,
-    p_supplier_id: savedSupplier.id,
-    p_invoice_number: String(invoiceNumber || '').trim() || null,
-    p_note: String(note || '').trim() || null,
-    p_items: lines
-  } : {
+  const receiptData = {
     p_operation_id: operationId,
     p_supplier: name,
+    p_supplier_id: savedSupplier?.id || null,
     p_invoice_number: String(invoiceNumber || '').trim() || null,
     p_note: String(note || '').trim() || null,
     p_items: lines
   };
-  const { error } = await supabase.rpc('record_receipt_idempotent', receiptData);
+  const { error } = await supabase.rpc('record_integrated_receipt_idempotent', receiptData);
   if (error) throw error;
+}
+
+function validateReceiptSerializedLines(lines) {
+  const seen={mac:new Map(),serial_number:new Map(),asset_tag:new Map()};
+  for(const line of lines) {
+    const item=product(line.product_id);
+    if(item?.tracking_mode!=='serializado') continue;
+    if(!Number.isInteger(line.quantity)) throw new Error(`A quantidade de ${item.name} deve ser inteira.`);
+    if(line.units.length!==line.quantity) throw new Error(`Existem ${line.quantity-line.units.length} equipamentos que ainda não foram identificados. Cadastre MAC, Serial e Patrimônio antes de finalizar o recebimento.`);
+    line.units.forEach((unit,index)=>{
+      if(!unit.mac) throw new Error(`Informe o MAC da unidade ${index+1} de ${item.name}.`);
+      if(!unit.serial_number) throw new Error(`Informe o Serial da unidade ${index+1} de ${item.name}.`);
+      if(!unit.asset_tag) throw new Error(`Informe o Patrimônio da unidade ${index+1} de ${item.name}.`);
+      for(const key of Object.keys(seen)) {
+        const rawNormalized=unit[key].trim().toLocaleLowerCase('pt-BR');
+        const normalized=key==='mac'?normalizedScanCode(rawNormalized):rawNormalized;
+        const existing=state.serialItems.find(saved=>{const value=String(key==='mac'?saved.mac_address:key==='serial_number'?saved.serial_number:saved.asset_tag||'').trim().toLocaleLowerCase('pt-BR');return (key==='mac'?normalizedScanCode(value):value)===normalized;});
+        if(existing) throw new Error(`O ${key==='mac'?'MAC':key==='serial_number'?'serial':'patrimônio'} ${unit[key]} já está cadastrado no sistema.`);
+        if(seen[key].has(normalized)) throw new Error(`O ${key==='mac'?'MAC':key==='serial_number'?'serial':'patrimônio'} ${unit[key]} está repetido neste recebimento.`);
+        seen[key].set(normalized,true);
+      }
+    });
+  }
 }
 
 function xmlNodes(parent, tagName) {
@@ -1419,7 +1490,9 @@ function openReceiptDetails(id) {
   $('#receipt-details-list').innerHTML = items.map(item => {
     const unitCost = Number(item.unit_cost || 0);
     const lot = [item.batch_number ? `Lote: ${esc(item.batch_number)}` : '', item.expiry_date ? `Validade: ${dateOnly(item.expiry_date)}` : ''].filter(Boolean).join(' · ');
-    return `<div class="serial-history-item"><b>${esc(item.product_name)}</b><small>${quantity(item.quantity)} ${unitName(item.unit_of_measure)} · Código: ${esc(item.product_code)}${unitCost ? ` · ${currency(unitCost)} cada · Total: ${currency(Number(item.quantity) * unitCost)}` : ''}${lot ? ` · ${lot}` : ''}</small></div>`;
+    const receivedUnits=state.serialItems.filter(unit=>unit.receipt_id===id&&unit.product_id===item.product_id);
+    const unitsHtml=receivedUnits.length?`<small>${receivedUnits.map(unit=>`MAC: ${esc(unit.mac_address)} · Serial: ${esc(unit.serial_number)} · Patrimônio: ${esc(unit.asset_tag)}`).join('<br>')}</small>`:'';
+    return `<div class="serial-history-item"><b>${esc(item.product_name)}</b><small>${quantity(item.quantity)} ${unitName(item.unit_of_measure)} · Código: ${esc(item.product_code)}${unitCost ? ` · ${currency(unitCost)} cada · Total: ${currency(Number(item.quantity) * unitCost)}` : ''}${lot ? ` · ${lot}` : ''}</small>${unitsHtml}</div>`;
   }).join('') || '<p class="empty">Nenhum material encontrado neste recebimento.</p>';
   $('#receipt-details-dialog').showModal();
 }
@@ -1690,15 +1763,18 @@ function openSerialHistory(id) {
   $('#delete-serial-history').dataset.serialItemId = id;
   $('#delete-serial-item').dataset.serialItemId = id;
   const movements = state.serialMovements.filter(entry => entry.serial_item_id === id);
+  const originReceipt = item.receipt_id ? state.receipts.find(entry => entry.id === item.receipt_id) : null;
   $('#serial-history-title').textContent = itemProduct?.name || 'Histórico do equipamento';
   $('#serial-history-subtitle').textContent = `Serial: ${item.serial_number || '—'} · MAC: ${item.mac_address || '—'} · Patrimônio: ${item.asset_tag || '—'}`;
-  $('#serial-history-list').innerHTML = movements.map(entry => {
+  const receiptOrigin = originReceipt ? `<div class="serial-history-item"><div><b>Entrada por recebimento</b><small>${date(originReceipt.received_at || item.created_at)} · Recebimento #${esc(String(originReceipt.id).slice(0,8))}${originReceipt.invoice_number?` · NF: ${esc(originReceipt.invoice_number)}`:''} · Fornecedor: ${esc(originReceipt.supplier)}</small></div></div>` : '';
+  const movementHistory = movements.map(entry => {
     const from = state.locations.find(location => location.id === entry.from_location_id)?.name || '—';
     const to = state.locations.find(location => location.id === entry.to_location_id)?.name || entry.customer_name || entry.recipient || '—';
     const impact = Number(entry.stock_impact ?? (entry.previous_status === 'disponivel' && entry.new_status !== 'disponivel' ? -1 : entry.previous_status !== 'disponivel' && entry.new_status === 'disponivel' ? 1 : 0));
     const impactLabel = impact > 0 ? '+1 no estoque' : impact < 0 ? '-1 no estoque' : 'sem alteração no estoque';
     return `<div class="serial-history-item"><div><b>${esc(serialActionName(entry.action))}</b><small>${esc(serialStatusName(entry.previous_status))} → ${esc(serialStatusName(entry.new_status))} · ${date(entry.created_at)} · ${esc(impactLabel)}</small><small>${esc(from)} → ${esc(to)}${entry.work_order ? ` · OS: ${esc(entry.work_order)}` : ''}${entry.note ? ` · ${esc(entry.note)}` : ''}</small></div></div>`;
-  }).join('') || '<p class="empty">Ainda não há movimentações para esta unidade.</p>';
+  }).join('');
+  $('#serial-history-list').innerHTML = movementHistory + receiptOrigin || '<p class="empty">Ainda não há movimentações para esta unidade.</p>';
   $('#serial-history-dialog').showModal();
 }
 
@@ -3010,9 +3086,11 @@ $('#receipt-form').onsubmit = async event => {
       quantity: Number(line.querySelector('[data-receipt-quantity]').value),
       unit_cost: Number(line.querySelector('[data-receipt-unit-cost]').value),
       batch_number: line.querySelector('[data-receipt-batch]').value.trim() || null,
-      expiry_date: line.querySelector('[data-receipt-expiry]').value || null
+      expiry_date: line.querySelector('[data-receipt-expiry]').value || null,
+      units: receiptUnitValues(line)
     }));
     await createProductsForReceipt(lines);
+    validateReceiptSerializedLines(lines);
     receiptOperationId ||= crypto.randomUUID();
     await registerReceipt({
       supplierName: $('#receipt-supplier').value,
