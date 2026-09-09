@@ -8,6 +8,9 @@ let receiptSubmitting = false;
 let movementOperationId = null;
 let receiptOperationId = null;
 let currentUser = null;
+let inventoryDetailsSessionId = null;
+let inventoryDetailsFilter = 'all';
+let pendingInventoryEdit = null;
 let passwordRecoveryMode = false;
 const passwordRecoveryStorageKey = 'digitus-password-recovery';
 const $ = selector => document.querySelector(selector);
@@ -2411,7 +2414,89 @@ function renderInventory() {
   }
 
   const history = state.inventorySessions.filter(item => item.status === 'finalizado').slice(0, 8);
-  $('#inventory-history-table').innerHTML = history.map(item => `<tr><td><b>${esc(item.title)}</b><small>${esc(item.final_note || 'Sem observação')}</small></td><td>${esc(item.category || 'Todo o almoxarifado')}</td><td>${date(item.started_at)}</td><td>${item.closed_at ? date(item.closed_at) : '—'}</td><td><span class="badge ok">Finalizado</span></td></tr>`).join('') || '<tr><td colspan="5" class="empty">Nenhuma conferência finalizada ainda.</td></tr>';
+  const canEditInventory = currentUser?.role === 'admin';
+  $('#inventory-history-table').innerHTML = history.map(item => `<tr><td data-label="Conferência"><b>${esc(item.title)}</b><small>${esc(item.final_note || 'Sem observação')}</small></td><td data-label="Filtro">${esc(item.category || 'Todo o almoxarifado')}</td><td data-label="Início">${date(item.started_at)}</td><td data-label="Finalização">${item.closed_at ? date(item.closed_at) : '—'}</td><td data-label="Status"><span class="badge ok">Finalizado</span></td><td data-label="Ações"><div class="inventory-history-actions"><button class="secondary-button" data-inventory-view="${item.id}" type="button" title="Ver checagem"><span aria-hidden="true">◉</span><b>Ver checagem</b></button>${canEditInventory ? `<button class="text-button" data-inventory-edit="${item.id}" type="button" title="Editar conferência"><span aria-hidden="true">✎</span><b>Editar</b></button>` : ''}</div></td></tr>`).join('') || '<tr><td colspan="6" class="empty">Nenhuma conferência finalizada ainda.</td></tr>';
+  document.querySelectorAll('[data-inventory-view]').forEach(button => button.onclick = () => openInventoryDetails(button.dataset.inventoryView));
+  document.querySelectorAll('[data-inventory-edit]').forEach(button => button.onclick = () => openInventoryEdit(button.dataset.inventoryEdit));
+}
+
+const inventoryUserName = id => state.users.find(user => user.id === id)?.name || (id === currentUser?.id ? currentUser.name : '') || 'Não informado';
+const inventorySessionCounts = id => state.inventoryCounts.filter(item => item.inventory_id === id);
+const inventoryItemIdentifiers = item => state.serialItems.filter(unit => unit.product_id === item.product_id).flatMap(unit => [unit.mac_address, unit.serial_number].filter(Boolean));
+const inventorySituation = item => {
+  const difference = inventoryDifference(item);
+  if (difference === null) return { key:'different', label:'Não contado' };
+  if (difference === 0) return { key:'correct', label:'Correto' };
+  return difference < 0 ? { key:'missing', label:'Faltando' } : { key:'excess', label:'Excedente' };
+};
+
+function renderInventoryDetailsItems() {
+  const session = state.inventorySessions.find(item => item.id === inventoryDetailsSessionId);
+  if (!session) return;
+  const search = $('#inventory-details-search').value.trim().toLocaleLowerCase('pt-BR');
+  const items = inventorySessionCounts(session.id).filter(item => {
+    const situation = inventorySituation(item);
+    const identifiers = inventoryItemIdentifiers(item);
+    const matchesSearch = !search || [item.product_name, item.product_code, ...identifiers].some(value => String(value || '').toLocaleLowerCase('pt-BR').includes(search));
+    const matchesFilter = inventoryDetailsFilter === 'all' || inventoryDetailsFilter === 'different' && situation.key !== 'correct' || situation.key === inventoryDetailsFilter;
+    return matchesSearch && matchesFilter;
+  });
+  $('#inventory-details-items').innerHTML = items.map(item => {
+    const difference = inventoryDifference(item);
+    const situation = inventorySituation(item);
+    const identifiers = inventoryItemIdentifiers(item);
+    const identifierText = identifiers.length ? identifiers.slice(0, 3).join(' · ') : '—';
+    return `<tr class="inventory-result-${situation.key}"><td><b>${esc(item.product_name)}</b><small>${esc(item.product_code)}</small></td><td><span title="${esc(identifiers.join(' · '))}">${esc(identifierText)}${identifiers.length > 3 ? ` +${identifiers.length - 3}` : ''}</span></td><td>${quantity(item.expected_stock)} ${unitName(item.unit_of_measure)}</td><td>${item.counted_stock === null || item.counted_stock === undefined ? '—' : `${quantity(item.counted_stock)} ${unitName(item.unit_of_measure)}`}</td><td><b>${difference === null ? '—' : `${difference > 0 ? '+' : ''}${quantity(difference)}`}</b></td><td><span class="inventory-result-badge ${situation.key}">${esc(situation.label)}</span></td></tr>`;
+  }).join('') || '<tr><td colspan="6" class="empty">Nenhum item corresponde à pesquisa ou ao filtro.</td></tr>';
+}
+
+function openInventoryDetails(id) {
+  const session = state.inventorySessions.find(item => item.id === id && item.status === 'finalizado');
+  if (!session) return alert('Conferência finalizada não encontrada.');
+  inventoryDetailsSessionId = id;
+  inventoryDetailsFilter = 'all';
+  $('#inventory-details-search').value = '';
+  document.querySelectorAll('[data-inventory-filter]').forEach(button => button.classList.toggle('active', button.dataset.inventoryFilter === 'all'));
+  const counts = inventorySessionCounts(id);
+  const correct = counts.filter(item => inventoryDifference(item) === 0).length;
+  const missing = counts.filter(item => inventoryDifference(item) < 0).length;
+  const excess = counts.filter(item => inventoryDifference(item) > 0).length;
+  $('#inventory-details-title').textContent = session.title;
+  $('#inventory-details-summary').innerHTML = `<section class="inventory-details-meta"><div><span>Filtro utilizado</span><b>${esc(session.category || 'Todo o almoxarifado')}</b></div><div><span>Iniciado por</span><b>${esc(inventoryUserName(session.started_by))}</b></div><div><span>Início</span><b>${date(session.started_at)}</b></div><div><span>Finalizado por</span><b>${esc(inventoryUserName(session.closed_by))}</b></div><div><span>Finalização</span><b>${session.closed_at ? date(session.closed_at) : '—'}</b></div><div><span>Status</span><b>Finalizado</b></div>${session.edited_at ? `<div><span>Última edição</span><b>${date(session.edited_at)} · ${esc(inventoryUserName(session.edited_by))}</b></div>` : ''}</section><section class="inventory-details-metrics"><article><span>Itens conferidos</span><strong>${counts.length}</strong></article><article class="correct"><span>Corretos</span><strong>${correct}</strong></article><article class="different"><span>Divergências</span><strong>${missing + excess}</strong></article><article class="missing"><span>Faltando</span><strong>${missing}</strong></article><article class="excess"><span>Excedentes</span><strong>${excess}</strong></article></section>${session.final_note ? `<p class="inventory-detail-note"><b>Observação final:</b> ${esc(session.final_note)}</p>` : ''}`;
+  $('#inventory-details-edit').hidden = currentUser?.role !== 'admin';
+  renderInventoryDetailsItems();
+  $('#inventory-details-dialog').showModal();
+}
+
+function openInventoryEdit(id) {
+  if (currentUser?.role !== 'admin') return alert('Apenas administradores podem editar conferências finalizadas.');
+  const session = state.inventorySessions.find(item => item.id === id && item.status === 'finalizado');
+  if (!session) return alert('Conferência finalizada não encontrada.');
+  $('#inventory-edit-id').value = id;
+  $('#inventory-edit-title').textContent = session.title;
+  $('#inventory-edit-name').value = session.title;
+  $('#inventory-edit-category').value = session.category || '';
+  $('#inventory-edit-note').value = session.final_note || '';
+  $('#inventory-edit-items').innerHTML = inventorySessionCounts(id).map(item => `<tr><td><b>${esc(item.product_name)}</b><small>${esc(item.product_code)}</small></td><td>${quantity(item.expected_stock)} ${unitName(item.unit_of_measure)}</td><td><input data-inventory-edit-count="${item.product_id}" type="number" min="0" step="0.001" required value="${item.counted_stock ?? ''}" aria-label="Quantidade contada de ${esc(item.product_name)}" /></td><td><input data-inventory-edit-note="${item.product_id}" value="${esc(item.note || '')}" placeholder="Opcional" aria-label="Observação de ${esc(item.product_name)}" /></td></tr>`).join('');
+  $('#inventory-details-dialog').close();
+  $('#inventory-edit-dialog').showModal();
+}
+
+async function saveFinalizedInventoryEdit() {
+  const payload = pendingInventoryEdit;
+  if (!payload) return;
+  try {
+    $('#inventory-edit-save').disabled = true;
+    const { error } = await supabase.rpc('edit_finalized_inventory', payload);
+    if (error) throw error;
+    pendingInventoryEdit = null;
+    $('#inventory-edit-confirm-dialog').close();
+    $('#inventory-edit-dialog').close();
+    await load();
+    alert('Conferência atualizada. Nenhum saldo de estoque foi alterado.');
+    openInventoryDetails(payload.p_inventory_id);
+  } catch (error) { alert(error.message); }
+  finally { $('#inventory-edit-save').disabled = false; }
 }
 
 async function saveInventoryCounts(silent = false) {
@@ -2861,6 +2946,33 @@ $('#save-inventory-counts').onclick = async () => {
   try { await saveInventoryCounts(); } catch (error) { alert(error.message); }
 };
 $('#finish-inventory').onclick = finishInventory;
+$('#inventory-details-search').oninput = renderInventoryDetailsItems;
+$('#inventory-details-filters').onclick = event => {
+  const button = event.target.closest('[data-inventory-filter]');
+  if (!button) return;
+  inventoryDetailsFilter = button.dataset.inventoryFilter;
+  document.querySelectorAll('[data-inventory-filter]').forEach(item => item.classList.toggle('active', item === button));
+  renderInventoryDetailsItems();
+};
+$('#inventory-details-edit').onclick = () => openInventoryEdit(inventoryDetailsSessionId);
+$('#inventory-edit-form').onsubmit = event => {
+  event.preventDefault();
+  const id = $('#inventory-edit-id').value;
+  pendingInventoryEdit = {
+    p_inventory_id: id,
+    p_title: $('#inventory-edit-name').value.trim(),
+    p_category: $('#inventory-edit-category').value.trim() || null,
+    p_final_note: $('#inventory-edit-note').value.trim() || null,
+    p_counts: [...document.querySelectorAll('[data-inventory-edit-count]')].map(input => ({
+      product_id: input.dataset.inventoryEditCount,
+      counted_stock: Number(input.value),
+      note: document.querySelector(`[data-inventory-edit-note="${input.dataset.inventoryEditCount}"]`)?.value.trim() || null
+    }))
+  };
+  $('#inventory-edit-confirm-dialog').showModal();
+};
+$('#inventory-edit-cancel').onclick = () => { pendingInventoryEdit = null; $('#inventory-edit-confirm-dialog').close(); };
+$('#inventory-edit-save').onclick = saveFinalizedInventoryEdit;
 $('#add-collaborator').onclick = () => $('#collaborator-dialog').showModal();
 $('#add-vehicle').onclick = () => $('#vehicle-dialog').showModal();
 $('#add-location').onclick = () => $('#location-dialog').showModal();
