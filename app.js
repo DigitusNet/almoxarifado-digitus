@@ -1617,8 +1617,9 @@ function openReceiptDetails(id) {
     const movement = links.byItem.get(item.id);
     const balance = movement?.stockBefore != null && movement?.stockAfter != null ? `Estoque: ${quantity(movement.stockBefore)} → ${quantity(movement.stockAfter)}` : 'Entrada já registrada no estoque';
     const unitsHtml=receivedUnits.length?`<div class="receipt-detail-units">${receivedUnits.map(unit=>`<article><dl><div><dt>Patrimônio</dt><dd>${esc(unit.asset_tag || '—')}</dd></div><div><dt>MAC</dt><dd>${esc(unit.mac_address || '—')}</dd></div><div><dt>Serial</dt><dd>${esc(unit.serial_number || '—')}</dd></div><div><dt>Status atual</dt><dd><span class="badge ${serialStatusClass(unit.status)}">${esc(serialStatusName(unit.status))}</span></dd></div></dl></article>`).join('')}</div>`:'';
-    return `<section class="receipt-detail-item"><header><div><b>${esc(item.product_name)}</b><small>${quantity(item.quantity)} ${unitName(item.unit_of_measure)} · Código: ${esc(item.product_code)}</small></div><strong>${esc(balance)}</strong></header><p>${unitCost ? `${currency(unitCost)} cada · Total: ${currency(Number(item.quantity) * unitCost)}` : 'Valor não informado'}${lot ? ` · ${lot}` : ''}</p>${unitsHtml}</section>`;
+    return `<section class="receipt-detail-item"><header><div><b>${esc(item.product_name)}</b><small>${quantity(item.quantity)} ${unitName(item.unit_of_measure)} · Código: ${esc(item.product_code)}</small></div><div class="receipt-detail-actions"><strong>${esc(balance)}</strong>${currentUser?.role === 'admin' && movement ? `<button class="danger-button" data-delete-movement="${movement.id}" type="button">Apagar entrada</button>` : ''}</div></header><p>${unitCost ? `${currency(unitCost)} cada · Total: ${currency(Number(item.quantity) * unitCost)}` : 'Valor não informado'}${lot ? ` · ${lot}` : ''}</p>${unitsHtml}</section>`;
   }).join('') || '<p class="empty">Nenhum material encontrado neste recebimento.</p>';
+  $('#receipt-details-list').querySelectorAll('[data-delete-movement]').forEach(button => button.onclick = () => deleteMovement(button.dataset.deleteMovement));
   $('#receipt-details-dialog').showModal();
 }
 
