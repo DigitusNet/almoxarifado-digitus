@@ -1663,12 +1663,14 @@ function renderReceipts() {
   const table = $('#receipts-table');
   if (!table) return;
   populateReceiptSuppliers();
+  const canManage = ['admin','operador'].includes(currentUser?.role);
   const now = new Date();
   const isCurrentMonth = value => { const parsed = new Date(value); return !Number.isNaN(parsed.getTime()) && parsed.getFullYear() === now.getFullYear() && parsed.getMonth() === now.getMonth(); };
   const receipts = [...state.receipts].sort((a,b) => new Date(b.received_at) - new Date(a.received_at));
   const monthReceipts = receipts.filter(receipt => isCurrentMonth(receipt.received_at));
   const itemsByReceipt = new Map(receipts.map(receipt => [receipt.id, state.receiptItems.filter(item => item.receipt_id === receipt.id)]));
   const identifications = new Map(receipts.map(receipt => [receipt.id, receiptIdentification(receipt, itemsByReceipt.get(receipt.id) || [])]));
+  $('.receipts-list-heading').hidden = !receipts.length;
   $('#receipts-month-count').textContent = monthReceipts.length;
   $('#receipts-units-count').textContent = quantity(monthReceipts.reduce((sum, receipt) => sum + (itemsByReceipt.get(receipt.id) || []).reduce((subtotal, item) => subtotal + Number(item.quantity || 0), 0), 0));
   $('#receipts-pending-count').textContent = quantity(receipts.reduce((sum, receipt) => sum + identifications.get(receipt.id).pending, 0));
@@ -1681,10 +1683,14 @@ function renderReceipts() {
     const identificationLabel = identification.kind === 'none' ? 'Não se aplica' : identification.kind === 'legacy' ? 'Registro anterior' : `${identification.label} identificados`;
     const statusLabel = identification.kind === 'pending' ? 'Aguardando identificação' : 'Finalizado';
     const mainAction = identification.kind === 'none' ? 'Ver materiais' : 'Ver equipamentos';
-    return `<article class="receipt-list-row"><div data-label="Recebimento"><b>${esc(code)}</b><small>${items.length} ${items.length === 1 ? 'material' : 'materiais'}</small></div><div data-label="Fornecedor / NF"><b>${esc(receipt.supplier)}</b><small>${receipt.invoice_number ? `NF ${esc(receipt.invoice_number)}` : 'NF não informada'}</small></div><div data-label="Materiais"><span>${summary}</span></div><div data-label="Identificação"><span class="receipt-identification ${identification.kind}">${esc(identificationLabel)}</span></div><div data-label="Recebido em"><time>${date(receipt.received_at)}</time></div><div data-label="Status"><span class="receipt-status ${identification.kind === 'pending' ? 'pending' : 'finalized'}">${esc(statusLabel)}</span></div><div data-label="Ações" class="receipt-row-actions"><button class="secondary-button" data-receipt-details="${receipt.id}" data-receipt-equipment="${identification.kind !== 'none'}" type="button">${mainAction}</button><button class="text-button" data-receipt-history="${receipt.id}" type="button">Histórico</button></div></article>`;
-  }).join('') || '<div class="receipts-empty"><span aria-hidden="true">↓</span><b>Nenhum recebimento registrado</b><p>Use “Novo recebimento” para registrar a primeira carga ou importe o XML de uma NF-e.</p></div>';
+    const progress = identification.declared ? Math.min(100, (identification.identified / identification.declared) * 100) : 0;
+    const identificationHtml = ['ready','pending'].includes(identification.kind) ? `<div class="receipt-identification-progress"><span>${esc(identificationLabel)}</span><i aria-hidden="true"><b style="width:${progress}%"></b></i></div>` : `<span class="receipt-identification ${identification.kind}">${esc(identificationLabel)}</span>`;
+    return `<article class="receipt-list-row"><div data-label="Recebimento"><b>${esc(code)}</b><small>${items.length} ${items.length === 1 ? 'material' : 'materiais'}</small></div><div data-label="Fornecedor / NF"><b>${esc(receipt.supplier)}</b><small>${receipt.invoice_number ? `NF ${esc(receipt.invoice_number)}` : 'NF não informada'}</small></div><div data-label="Materiais"><span>${summary}</span></div><div data-label="Identificação">${identificationHtml}</div><div data-label="Recebido em"><time>${date(receipt.received_at)}</time></div><div data-label="Status"><span class="receipt-status ${identification.kind === 'pending' ? 'pending' : 'finalized'}"><i aria-hidden="true"></i>${esc(statusLabel)}</span></div><div data-label="Ações" class="receipt-row-actions"><button class="secondary-button" data-receipt-details="${receipt.id}" data-receipt-equipment="${identification.kind !== 'none'}" type="button">${mainAction}</button><button class="text-button" data-receipt-history="${receipt.id}" type="button">Histórico</button></div></article>`;
+  }).join('') || `<div class="receipts-empty"><span aria-hidden="true">↓</span><b>Nenhum recebimento registrado</b><p>Registre sua primeira entrada de materiais ou importe o XML de uma NF-e.</p>${canManage ? '<div><button class="primary" data-empty-new-receipt type="button">+ Novo recebimento</button><button class="secondary-button" data-empty-import-xml type="button">Importar XML da NF-e</button></div>' : ''}</div>`;
   document.querySelectorAll('[data-receipt-details]').forEach(button => button.onclick = () => openReceiptDetails(button.dataset.receiptDetails, { equipment:button.dataset.receiptEquipment === 'true' }));
   document.querySelectorAll('[data-receipt-history]').forEach(button => button.onclick = () => openReceiptInHistory(button.dataset.receiptHistory));
+  $('[data-empty-new-receipt]')?.addEventListener('click', openReceiptDialog);
+  $('[data-empty-import-xml]')?.addEventListener('click', openXmlImportDialog);
 }
 
 function financialEntries() {
