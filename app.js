@@ -1273,7 +1273,7 @@ function historyFactHtml(fact) {
 
 function historyCardHtml(entry, canDelete) {
   const visibleFacts = entry.facts.slice(0, 3), extraFacts = entry.facts.slice(3);
-  return `<article class="history-card ${entry.variant}"><span class="history-card-accent" aria-hidden="true"></span><div class="history-card-icon" aria-hidden="true">${entry.icon}</div><div class="history-card-content"><header><div><span class="history-type-badge">${esc(entry.label)}</span><time datetime="${esc(entry.at || '')}">${date(entry.at)}</time></div><h4>${esc(entry.title)}</h4>${entry.subtitle ? `<p>${esc(entry.subtitle)}</p>` : ''}</header>${visibleFacts.length ? `<dl class="history-card-facts">${visibleFacts.map(historyFactHtml).join('')}</dl>` : ''}<div class="history-card-footer"><strong class="history-stock-impact">${esc(entry.stockText)}</strong><div class="history-card-actions">${entry.receiptId ? `<button class="secondary-button" data-history-receipt="${entry.receiptId}" type="button">Ver recebimento</button>` : ''}${canDelete && entry.deleteMovementId ? `<button class="danger-button" data-delete-movement="${entry.deleteMovementId}" type="button">Apagar</button>` : ''}</div></div>${extraFacts.length ? `<details class="history-card-details"><summary>Ver mais detalhes</summary><dl>${extraFacts.map(historyFactHtml).join('')}</dl></details>` : ''}</div></article>`;
+  return `<article class="history-card ${entry.variant}" data-history-entry="${esc(entry.id)}"><span class="history-card-accent" aria-hidden="true"></span><div class="history-card-icon" aria-hidden="true">${entry.icon}</div><div class="history-card-content"><header><div><span class="history-type-badge">${esc(entry.label)}</span><time datetime="${esc(entry.at || '')}">${date(entry.at)}</time></div><h4>${esc(entry.title)}</h4>${entry.subtitle ? `<p>${esc(entry.subtitle)}</p>` : ''}</header>${visibleFacts.length ? `<dl class="history-card-facts">${visibleFacts.map(historyFactHtml).join('')}</dl>` : ''}<div class="history-card-footer"><strong class="history-stock-impact">${esc(entry.stockText)}</strong><div class="history-card-actions">${entry.receiptId ? `<button class="secondary-button" data-history-receipt="${entry.receiptId}" type="button">Ver recebimento</button>` : ''}${canDelete && entry.deleteMovementId ? `<button class="danger-button" data-delete-movement="${entry.deleteMovementId}" type="button">Apagar</button>` : ''}</div></div>${extraFacts.length ? `<details class="history-card-details"><summary>Ver mais detalhes</summary><dl>${extraFacts.map(historyFactHtml).join('')}</dl></details>` : ''}</div></article>`;
 }
 
 function updateTechnicianPendingAction() {
@@ -1345,7 +1345,7 @@ function receiptLineHtml(selected = '') {
   const products = receiptProducts();
   const selectedProduct = product(selected);
   const unitCost = Number(selectedProduct?.average_cost || 0).toFixed(2);
-  return `<div class="receipt-line"><label>Material <select data-receipt-product required><option value="">Selecione</option><option value="__new__" ${selected === '__new__' ? 'selected' : ''}>+ Cadastrar novo material nesta entrega</option>${products.map(item => `<option value="${item.id}" ${item.id === selected ? 'selected' : ''}>${esc(item.name)} (${item.tracking_mode==='serializado'?'MAC/Serial':stockLabel(item)})</option>`).join('')}</select></label><label>Quantidade <input data-receipt-quantity type="number" min="0.001" step="0.001" required value="1" /></label><label>Valor unitário (R$) <input data-receipt-unit-cost type="number" min="0" step="0.01" required value="${unitCost}" /></label><label>Lote <input data-receipt-batch maxlength="80" placeholder="Opcional" /></label><label>Validade <input data-receipt-expiry type="date" /></label><button class="receipt-line-remove" data-remove-receipt-line type="button" aria-label="Remover material">×</button><div class="receipt-new-product" data-receipt-new-product ${selected === '__new__' ? '' : 'hidden'}><label>Nome do novo material <input data-receipt-new-name ${selected === '__new__' ? 'required' : ''} placeholder="Ex.: Cabo de rede CAT6" /></label><label>Código <input data-receipt-new-code ${selected === '__new__' ? 'required' : ''} placeholder="Ex.: CAB-CAT6" /></label><label>Categoria <select data-receipt-new-category><option value="Produtos">Produtos</option><option value="Equipamentos">Equipamentos</option><option value="Insumos">Insumos</option><option value="Patrimônio">Patrimônio</option><option value="Ferramentas">Ferramentas</option></select></label><label>Unidade <select data-receipt-new-unit><option value="unidade">Unidade</option><option value="metro">Metro</option><option value="par">Par</option><option value="caixa">Caixa</option></select></label></div><section class="receipt-serial-section" data-receipt-serial-section hidden><div class="receipt-serial-heading"><div><h4>Identificação dos equipamentos recebidos</h4><small>Preencha MAC, Serial e Patrimônio de cada unidade física.</small></div><button class="secondary-button" data-add-receipt-unit type="button">+ Adicionar equipamento</button></div><div class="receipt-serial-summary" data-receipt-serial-summary></div><div class="receipt-serial-units" data-receipt-serial-units></div></section></div>`;
+  return `<div class="receipt-line"><label>Material <select data-receipt-product required><option value="">Selecione</option><option value="__new__" ${selected === '__new__' ? 'selected' : ''}>+ Cadastrar novo material nesta entrega</option>${products.map(item => `<option value="${item.id}" ${item.id === selected ? 'selected' : ''}>${esc(item.name)} (${item.tracking_mode==='serializado'?'MAC/Serial':stockLabel(item)})</option>`).join('')}</select></label><label>Quantidade <input data-receipt-quantity type="number" min="0.001" step="0.001" required value="1" /></label><label>Valor unitário (R$) <input data-receipt-unit-cost type="number" min="0" step="0.01" required value="${unitCost}" /></label><label>Lote <input data-receipt-batch maxlength="80" placeholder="Opcional" /></label><label>Validade <input data-receipt-expiry type="date" /></label><button class="receipt-line-remove" data-remove-receipt-line type="button" aria-label="Remover material">×</button><div class="receipt-new-product" data-receipt-new-product ${selected === '__new__' ? '' : 'hidden'}><label>Nome do novo material <input data-receipt-new-name ${selected === '__new__' ? 'required' : ''} placeholder="Ex.: Cabo de rede CAT6" /></label><label>Código <input data-receipt-new-code ${selected === '__new__' ? 'required' : ''} placeholder="Ex.: CAB-CAT6" /></label><label>Categoria <select data-receipt-new-category><option value="Produtos">Produtos</option><option value="Equipamentos">Equipamentos</option><option value="Insumos">Insumos</option><option value="Patrimônio">Patrimônio</option><option value="Ferramentas">Ferramentas</option></select></label><label>Unidade <select data-receipt-new-unit><option value="unidade">Unidade</option><option value="metro">Metro</option><option value="par">Par</option><option value="caixa">Caixa</option></select></label></div><section class="receipt-serial-section" data-receipt-serial-section hidden><div class="receipt-serial-heading"><div><h4>Identificação dos equipamentos recebidos</h4><small>Preencha MAC, Serial e Patrimônio de cada unidade física.</small></div><button class="secondary-button" data-add-receipt-unit type="button">+ Adicionar equipamento</button></div><div class="receipt-serial-summary" data-receipt-serial-summary></div><div class="receipt-serial-progress" aria-hidden="true"><span data-receipt-serial-progress></span></div><div class="receipt-serial-units" data-receipt-serial-units></div></section></div>`;
 }
 
 function receiptUnitValues(line) {
@@ -1368,7 +1368,7 @@ function renderReceiptSerialUnits(line) {
   const previous = receiptUnitValues(line);
   section.querySelector('[data-receipt-serial-units]').innerHTML = Array.from({length:count},(_,index)=>{
     const unit=previous[index]||{};
-    return `<div class="receipt-serial-unit"><b>${index+1}</b><label>MAC <input data-receipt-unit-mac value="${esc(unit.mac)}" placeholder="MAC obrigatório" /></label><label>Serial <input data-receipt-unit-serial value="${esc(unit.serial_number)}" placeholder="Serial obrigatório" /></label><label>Patrimônio <input data-receipt-unit-asset value="${esc(unit.asset_tag)}" placeholder="Patrimônio obrigatório" /></label><span data-receipt-unit-status></span></div>`;
+    return `<div class="receipt-serial-unit"><b>${index+1}</b><label>MAC <input data-receipt-unit-mac value="${esc(unit.mac)}" placeholder="MAC obrigatório" /></label><label>Serial <input data-receipt-unit-serial value="${esc(unit.serial_number)}" placeholder="Serial obrigatório" /></label><label>Patrimônio <input data-receipt-unit-asset value="${esc(unit.asset_tag)}" placeholder="Patrimônio obrigatório" /></label><span data-receipt-unit-status></span><button class="receipt-unit-remove" data-remove-receipt-unit type="button" aria-label="Remover equipamento ${index+1}">×</button></div>`;
   }).join('');
   updateReceiptSerialSummary(line);
 }
@@ -1378,6 +1378,8 @@ function updateReceiptSerialSummary(line) {
   const units=receiptUnitValues(line), complete=units.filter(unit=>unit.mac&&unit.serial_number&&unit.asset_tag).length;
   const pending=Math.max(0,quantityValue-complete), summary=line.querySelector('[data-receipt-serial-summary]');
   if(summary) summary.innerHTML=`<span>Quantidade recebida: <b>${quantityValue}</b></span><span>Equipamentos cadastrados: <b>${complete}</b></span><span class="${pending?'pending':'ready'}">${pending?`Pendentes: ${pending}`:'✓ Pronto para finalizar'}</span>`;
+  const progress=line.querySelector('[data-receipt-serial-progress]');
+  if(progress) progress.style.width=`${quantityValue ? Math.min(100,(complete/quantityValue)*100) : 0}%`;
   line.querySelectorAll('.receipt-serial-unit').forEach(row=>{const completeRow=row.querySelector('[data-receipt-unit-mac]').value.trim()&&row.querySelector('[data-receipt-unit-serial]').value.trim()&&row.querySelector('[data-receipt-unit-asset]').value.trim();row.querySelector('[data-receipt-unit-status]').textContent=completeRow?'Completo':'Pendente';row.classList.toggle('complete',Boolean(completeRow));});
   renderReceiptSummary();
 }
@@ -1414,6 +1416,7 @@ function bindReceiptLineEvents() {
     line.querySelector('[data-receipt-unit-cost]').oninput=renderReceiptSummary;
     line.querySelector('[data-add-receipt-unit]').onclick=()=>{const input=line.querySelector('[data-receipt-quantity]');input.value=Math.max(0,Number(input.value)||0)+1;renderReceiptSerialUnits(line);};
     line.querySelector('[data-receipt-serial-units]').oninput=()=>updateReceiptSerialSummary(line);
+    line.querySelector('[data-receipt-serial-units]').onclick=event=>{const button=event.target.closest('[data-remove-receipt-unit]');if(!button)return;const input=line.querySelector('[data-receipt-quantity]');button.closest('.receipt-serial-unit').remove();input.value=Math.max(1,Number(input.value||1)-1);renderReceiptSerialUnits(line);};
     line.querySelector('[data-receipt-serial-units]').onkeydown=event=>{if(event.key!=='Enter')return;event.preventDefault();const inputs=[...line.querySelectorAll('.receipt-serial-unit input')],index=inputs.indexOf(event.target);inputs[index+1]?.focus();};
     renderReceiptSerialUnits(line);
   });
@@ -1429,6 +1432,7 @@ function openReceiptDialog() {
   $('#receipt-form').reset();
   populateReceiptSuppliers();
   $('#receipt-lines').innerHTML = '';
+  $('#receipt-date').value = localDateTimeInputValue(new Date());
   addReceiptLine();
   $('#receipt-dialog').showModal();
 }
@@ -1603,7 +1607,7 @@ function openXmlImportDialog() {
   $('#xml-import-dialog').showModal();
 }
 
-function openReceiptDetails(id) {
+function openReceiptDetails(id, options = {}) {
   const receipt = state.receipts.find(item => item.id === id);
   if (!receipt) return;
   const items = state.receiptItems.filter(item => item.receipt_id === id);
@@ -1620,19 +1624,64 @@ function openReceiptDetails(id) {
     return `<section class="receipt-detail-item"><header><div><b>${esc(item.product_name)}</b><small>${quantity(item.quantity)} ${unitName(item.unit_of_measure)} · Código: ${esc(item.product_code)}</small></div><div class="receipt-detail-actions"><strong>${esc(balance)}</strong>${currentUser?.role === 'admin' && movement ? `<button class="danger-button" data-delete-movement="${movement.id}" type="button">Apagar entrada</button>` : ''}</div></header><p>${unitCost ? `${currency(unitCost)} cada · Total: ${currency(Number(item.quantity) * unitCost)}` : 'Valor não informado'}${lot ? ` · ${lot}` : ''}</p>${unitsHtml}</section>`;
   }).join('') || '<p class="empty">Nenhum material encontrado neste recebimento.</p>';
   $('#receipt-details-list').querySelectorAll('[data-delete-movement]').forEach(button => button.onclick = () => deleteMovement(button.dataset.deleteMovement));
+  const equipmentButton = $('#receipt-view-equipment');
+  const hasEquipment = Boolean($('#receipt-details-list').querySelector('.receipt-detail-units'));
+  equipmentButton.hidden = !hasEquipment;
+  equipmentButton.onclick = () => $('#receipt-details-list').querySelector('.receipt-detail-units')?.scrollIntoView({ behavior:'smooth', block:'center' });
+  $('#receipt-view-history').onclick = () => openReceiptInHistory(id);
   $('#receipt-details-dialog').showModal();
+  if (options.equipment) requestAnimationFrame(() => $('#receipt-details-list').querySelector('.receipt-detail-units')?.scrollIntoView({ behavior:'smooth', block:'center' }));
+}
+
+function openReceiptInHistory(id) {
+  $('#receipt-details-dialog').close();
+  view('movement');
+  $('#history-search').value = String(id).slice(0, 8);
+  $('#history-type').value = 'recebimento';
+  $('#history-holder').value = '';
+  $('#history-from').value = '';
+  $('#history-to').value = '';
+  renderMovement();
+  requestAnimationFrame(() => document.querySelector(`[data-history-entry="receipt-${CSS.escape(String(id))}"]`)?.scrollIntoView({ behavior:'smooth', block:'center' }));
+}
+
+function receiptIdentification(receipt, items) {
+  const tracked = items.filter(item => product(item.product_id)?.tracking_mode === 'serializado');
+  if (!tracked.length) return { declared:0, identified:0, pending:0, kind:'none', label:'Não se aplica' };
+  const declared = tracked.reduce((sum, item) => sum + Number(item.quantity || 0), 0);
+  const productIds = new Set(tracked.map(item => item.product_id));
+  const identified = state.serialItems.filter(unit => unit.receipt_id === receipt.id && productIds.has(unit.product_id)).length;
+  if (!identified) return { declared, identified, pending:0, kind:'legacy', label:'Registro anterior' };
+  const pending = Math.max(0, declared - identified);
+  return { declared, identified, pending, kind:pending ? 'pending' : 'ready', label:`${identified}/${declared}` };
 }
 
 function renderReceipts() {
   const table = $('#receipts-table');
   if (!table) return;
   populateReceiptSuppliers();
-  table.innerHTML = state.receipts.map(receipt => {
-    const items = state.receiptItems.filter(item => item.receipt_id === receipt.id);
+  const now = new Date();
+  const isCurrentMonth = value => { const parsed = new Date(value); return !Number.isNaN(parsed.getTime()) && parsed.getFullYear() === now.getFullYear() && parsed.getMonth() === now.getMonth(); };
+  const receipts = [...state.receipts].sort((a,b) => new Date(b.received_at) - new Date(a.received_at));
+  const monthReceipts = receipts.filter(receipt => isCurrentMonth(receipt.received_at));
+  const itemsByReceipt = new Map(receipts.map(receipt => [receipt.id, state.receiptItems.filter(item => item.receipt_id === receipt.id)]));
+  const identifications = new Map(receipts.map(receipt => [receipt.id, receiptIdentification(receipt, itemsByReceipt.get(receipt.id) || [])]));
+  $('#receipts-month-count').textContent = monthReceipts.length;
+  $('#receipts-units-count').textContent = quantity(monthReceipts.reduce((sum, receipt) => sum + (itemsByReceipt.get(receipt.id) || []).reduce((subtotal, item) => subtotal + Number(item.quantity || 0), 0), 0));
+  $('#receipts-pending-count').textContent = quantity(receipts.reduce((sum, receipt) => sum + identifications.get(receipt.id).pending, 0));
+  $('#receipts-finalized-count').textContent = monthReceipts.filter(receipt => identifications.get(receipt.id).kind !== 'pending').length;
+  table.innerHTML = receipts.map(receipt => {
+    const items = itemsByReceipt.get(receipt.id) || [];
+    const identification = identifications.get(receipt.id);
     const summary = items.length ? `${items.slice(0, 2).map(item => esc(item.product_name)).join(', ')}${items.length > 2 ? ` +${items.length - 2}` : ''}` : 'Sem materiais';
-    return `<tr><td><b>${esc(receipt.supplier)}</b><small>${esc(receipt.note || 'Sem observação')}</small></td><td>${esc(receipt.invoice_number || '—')}</td><td>${summary}</td><td>${date(receipt.received_at)}</td><td><button class="secondary-button" data-receipt-details="${receipt.id}">Detalhes</button></td></tr>`;
-  }).join('') || '<tr><td colspan="5" class="empty">Nenhum recebimento registrado.</td></tr>';
-  document.querySelectorAll('[data-receipt-details]').forEach(button => button.onclick = () => openReceiptDetails(button.dataset.receiptDetails));
+    const code = `#${String(receipt.id).slice(0, 8).toUpperCase()}`;
+    const identificationLabel = identification.kind === 'none' ? 'Não se aplica' : identification.kind === 'legacy' ? 'Registro anterior' : `${identification.label} identificados`;
+    const statusLabel = identification.kind === 'pending' ? 'Aguardando identificação' : 'Finalizado';
+    const mainAction = identification.kind === 'none' ? 'Ver materiais' : 'Ver equipamentos';
+    return `<article class="receipt-list-row"><div data-label="Recebimento"><b>${esc(code)}</b><small>${items.length} ${items.length === 1 ? 'material' : 'materiais'}</small></div><div data-label="Fornecedor / NF"><b>${esc(receipt.supplier)}</b><small>${receipt.invoice_number ? `NF ${esc(receipt.invoice_number)}` : 'NF não informada'}</small></div><div data-label="Materiais"><span>${summary}</span></div><div data-label="Identificação"><span class="receipt-identification ${identification.kind}">${esc(identificationLabel)}</span></div><div data-label="Recebido em"><time>${date(receipt.received_at)}</time></div><div data-label="Status"><span class="receipt-status ${identification.kind === 'pending' ? 'pending' : 'finalized'}">${esc(statusLabel)}</span></div><div data-label="Ações" class="receipt-row-actions"><button class="secondary-button" data-receipt-details="${receipt.id}" data-receipt-equipment="${identification.kind !== 'none'}" type="button">${mainAction}</button><button class="text-button" data-receipt-history="${receipt.id}" type="button">Histórico</button></div></article>`;
+  }).join('') || '<div class="receipts-empty"><span aria-hidden="true">↓</span><b>Nenhum recebimento registrado</b><p>Use “Novo recebimento” para registrar a primeira carga ou importe o XML de uma NF-e.</p></div>';
+  document.querySelectorAll('[data-receipt-details]').forEach(button => button.onclick = () => openReceiptDetails(button.dataset.receiptDetails, { equipment:button.dataset.receiptEquipment === 'true' }));
+  document.querySelectorAll('[data-receipt-history]').forEach(button => button.onclick = () => openReceiptInHistory(button.dataset.receiptHistory));
 }
 
 function financialEntries() {
@@ -1890,6 +1939,9 @@ function openSerialHistory(id) {
   $('#delete-serial-item').dataset.serialItemId = id;
   const movements = state.serialMovements.filter(entry => entry.serial_item_id === id);
   const originReceipt = item.receipt_id ? state.receipts.find(entry => entry.id === item.receipt_id) : null;
+  const originButton = $('#serial-origin-receipt');
+  originButton.hidden = !originReceipt;
+  originButton.onclick = originReceipt ? () => { $('#serial-history-dialog').close(); openReceiptDetails(originReceipt.id); } : null;
   $('#serial-history-title').textContent = itemProduct?.name || 'Histórico do equipamento';
   $('#serial-history-subtitle').textContent = `Serial: ${item.serial_number || '—'} · MAC: ${item.mac_address || '—'} · Patrimônio: ${item.asset_tag || '—'}`;
   const receiptOrigin = originReceipt ? `<div class="serial-history-item"><div><b>Entrada por recebimento</b><small>${date(originReceipt.received_at || item.created_at)} · Recebimento #${esc(String(originReceipt.id).slice(0,8))}${originReceipt.invoice_number?` · NF: ${esc(originReceipt.invoice_number)}`:''} · Fornecedor: ${esc(originReceipt.supplier)}</small></div></div>` : '';
