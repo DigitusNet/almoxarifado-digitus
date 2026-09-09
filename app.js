@@ -971,7 +971,7 @@ function buildHistoryEntries() {
     const stockImpact = Number(item.stockImpact ?? (item.type === 'entrada' ? item.quantity : -item.quantity));
     const stockText = item.stockBefore != null && item.stockAfter != null ? `Estoque: ${quantity(item.stockBefore)} → ${quantity(item.stockAfter)}` : stockImpact === 0 ? 'Estoque: sem alteração' : `Estoque: ${stockImpact > 0 ? '+' : ''}${quantity(stockImpact)}`;
     const label = isAdjustment ? 'Ajuste de estoque' : item.fieldUsage ? 'Uso em OS' : item.type === 'entrada' ? 'Entrada no almoxarifado' : isTechnician ? 'Retirada para técnico' : 'Saída do estoque';
-    const types = [item.fieldUsage ? 'uso_os' : item.type, item.fieldUsage && 'instalacao', isTechnician && 'tecnico', isAdjustment && 'ajuste'].filter(Boolean);
+    const types = isAdjustment ? ['ajuste'] : item.fieldUsage ? ['uso_os','instalacao'] : isTechnician ? ['tecnico'] : [item.type];
     const destinations = item.type === 'entrada' ? ['almoxarifado'] : [item.holderType || 'outro'];
     entries.push({
       id:`movement-${item.id}`, at:item.createdAt,
@@ -984,7 +984,7 @@ function buildHistoryEntries() {
         item.note && { label:'Observação', value:item.note }
       ].filter(Boolean),
       stockText, deleteMovementId:item.id, types, destinations,
-      metricKinds:[stockImpact > 0 && 'entrada', stockImpact < 0 && 'saida', isTechnician && 'tecnico', item.fieldUsage && 'instalacao'].filter(Boolean),
+      metricKinds:[isAdjustment ? 'ajuste' : item.fieldUsage ? 'instalacao' : isTechnician ? 'tecnico' : stockImpact > 0 ? 'entrada' : stockImpact < 0 ? 'saida' : 'ajuste'],
       searchText:[itemProduct?.name,itemProduct?.code,item.person,item.workOrder,item.note].filter(Boolean).join(' ')
     });
   });
@@ -998,7 +998,7 @@ function buildHistoryEntries() {
     const returned = ['retorno','devolucao_cliente'].includes(item.action);
     const technician = item.new_status === 'com_colaborador' || item.previous_status === 'com_colaborador';
     const administrative = impact === 0 && !installation && !returned && !technician;
-    const types = [impact > 0 && 'entrada', impact < 0 && 'saida', installation && 'instalacao', returned && 'devolucao', item.action === 'transferencia' && 'transferencia', technician && 'tecnico', administrative && 'ajuste'].filter(Boolean);
+    const types = installation ? ['instalacao'] : returned ? ['devolucao'] : technician ? ['tecnico', item.action === 'transferencia' && 'transferencia'].filter(Boolean) : administrative ? ['ajuste'] : impact > 0 ? ['entrada'] : impact < 0 ? ['saida'] : ['ajuste'];
     const destinations = [installation ? 'instalacao' : item.new_status === 'disponivel' ? 'almoxarifado' : item.new_status === 'com_colaborador' ? 'tecnico' : item.new_status === 'com_veiculo' ? 'veiculo' : item.new_status === 'instalado_cliente' ? 'cliente' : 'outro'];
     entries.push({
       id:`serial-${item.id}`, at:item.created_at,
@@ -1016,7 +1016,7 @@ function buildHistoryEntries() {
         item.note && { label:'Observação', value:item.note }
       ].filter(Boolean),
       stockText:impact > 0 ? '+1 no estoque' : impact < 0 ? '-1 no estoque' : 'Estoque: sem alteração', types, destinations,
-      metricKinds:[impact > 0 && 'entrada', impact < 0 && 'saida', technician && 'tecnico', installation && 'instalacao'].filter(Boolean),
+      metricKinds:[installation ? 'instalacao' : returned ? 'devolucao' : technician ? 'tecnico' : administrative ? 'ajuste' : impact > 0 ? 'entrada' : impact < 0 ? 'saida' : 'ajuste'],
       searchText:[itemProduct?.name,itemProduct?.code,serialItem?.mac_address,serialItem?.serial_number,serialItem?.asset_tag,from,to,item.recipient,item.customer_name,item.work_order,item.note].filter(Boolean).join(' ')
     });
   });
@@ -1028,7 +1028,7 @@ function buildHistoryEntries() {
     const linkedUnits = state.technicianPendingItems.filter(link => link.pending_id === pending.id).map(link => state.serialItems.find(item => item.id === link.serial_item_id)).filter(Boolean);
     const eventType = event.event_type;
     const label = { retirada:'Retirada para técnico', transferencia:'Repasse para outro técnico', prorrogacao:'Prorrogação de prazo', devolucao:'Devolução ao almoxarifado', utilizacao:'Instalação / utilização' }[eventType] || eventType;
-    const types = ({ retirada:['saida','tecnico'], transferencia:['transferencia','tecnico'], prorrogacao:['prorrogacao','tecnico'], devolucao:['devolucao'], utilizacao:['instalacao'] })[eventType] || [];
+    const types = ({ retirada:['tecnico'], transferencia:['transferencia','tecnico'], prorrogacao:['prorrogacao','tecnico'], devolucao:['devolucao'], utilizacao:['instalacao'] })[eventType] || [];
     const destinations = ({ retirada:['tecnico'], transferencia:['tecnico'], prorrogacao:['tecnico'], devolucao:['almoxarifado'], utilizacao:['instalacao','cliente'] })[eventType] || ['outro'];
     const stockText = eventType === 'retirada' ? `Estoque: -${quantity(pending.quantity)}` : eventType === 'devolucao' ? `Estoque: +${quantity(pending.quantity)}` : 'Estoque: sem alteração';
     entries.push({
@@ -1048,7 +1048,7 @@ function buildHistoryEntries() {
         event.note && { label:'Observação', value:event.note }
       ].filter(Boolean),
       stockText, types, destinations,
-      metricKinds:[eventType === 'retirada' && 'saida', eventType === 'devolucao' && 'entrada', ['retirada','transferencia','prorrogacao'].includes(eventType) && 'tecnico', eventType === 'utilizacao' && 'instalacao'].filter(Boolean),
+      metricKinds:[eventType === 'utilizacao' ? 'instalacao' : eventType === 'devolucao' ? 'devolucao' : ['retirada','transferencia','prorrogacao'].includes(eventType) ? 'tecnico' : 'ajuste'],
       searchText:[itemProduct?.name,itemProduct?.code,pending.technician_name,event.from_technician,event.to_technician,event.customer_name,event.work_order,pending.work_order,event.note,...linkedUnits.flatMap(unit => [unit.mac_address,unit.serial_number,unit.asset_tag])].filter(Boolean).join(' ')
     });
   });
@@ -1272,8 +1272,11 @@ function historyFactHtml(fact) {
 }
 
 function historyCardHtml(entry, canDelete) {
-  const visibleFacts = entry.facts.slice(0, 3), extraFacts = entry.facts.slice(3);
-  return `<article class="history-card ${entry.variant}" data-history-entry="${esc(entry.id)}"><span class="history-card-accent" aria-hidden="true"></span><div class="history-card-icon" aria-hidden="true">${entry.icon}</div><div class="history-card-content"><header><div><span class="history-type-badge">${esc(entry.label)}</span><time datetime="${esc(entry.at || '')}">${date(entry.at)}</time></div><h4>${esc(entry.title)}</h4>${entry.subtitle ? `<p>${esc(entry.subtitle)}</p>` : ''}</header>${visibleFacts.length ? `<dl class="history-card-facts">${visibleFacts.map(historyFactHtml).join('')}</dl>` : ''}<div class="history-card-footer"><strong class="history-stock-impact">${esc(entry.stockText)}</strong><div class="history-card-actions">${entry.receiptId ? `<button class="secondary-button" data-history-receipt="${entry.receiptId}" type="button">Ver recebimento</button>` : ''}${canDelete && entry.deleteMovementId ? `<button class="danger-button" data-delete-movement="${entry.deleteMovementId}" type="button">Apagar</button>` : ''}</div></div>${extraFacts.length ? `<details class="history-card-details"><summary>Ver mais detalhes</summary><dl>${extraFacts.map(historyFactHtml).join('')}</dl></details>` : ''}</div></article>`;
+  const detailLabels = new Set(['MAC','Serial','OS','Observação','Prazo anterior','Prazo']);
+  const visibleFacts = entry.facts.filter(fact => !detailLabels.has(fact.label)).slice(0, 3);
+  const visibleSet = new Set(visibleFacts);
+  const extraFacts = entry.facts.filter(fact => !visibleSet.has(fact));
+  return `<article class="history-card ${entry.variant}" data-history-entry="${esc(entry.id)}"><span class="history-card-accent" aria-hidden="true"></span><div class="history-card-icon" aria-hidden="true">${entry.icon}</div><div class="history-card-content"><header><div><span class="history-type-badge">${esc(entry.label)}</span><time datetime="${esc(entry.at || '')}">${date(entry.at)}</time></div><h4>${esc(entry.title)}</h4>${entry.subtitle ? `<p>${esc(entry.subtitle)}</p>` : ''}</header>${visibleFacts.length ? `<dl class="history-card-facts">${visibleFacts.map(historyFactHtml).join('')}</dl>` : ''}<div class="history-card-footer"><strong class="history-stock-impact">${esc(entry.stockText)}</strong><div class="history-card-actions">${entry.receiptId ? `<button class="secondary-button" data-history-receipt="${entry.receiptId}" type="button">Ver detalhes</button>` : ''}${canDelete && entry.deleteMovementId ? `<button class="danger-button" data-delete-movement="${entry.deleteMovementId}" type="button">Apagar</button>` : ''}</div></div>${extraFacts.length ? `<details class="history-card-details"><summary>Ver detalhes</summary><dl>${extraFacts.map(historyFactHtml).join('')}</dl></details>` : ''}</div></article>`;
 }
 
 function updateTechnicianPendingAction() {
