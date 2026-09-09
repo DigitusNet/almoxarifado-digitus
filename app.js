@@ -971,7 +971,7 @@ function buildHistoryEntries() {
     const stockImpact = Number(item.stockImpact ?? (item.type === 'entrada' ? item.quantity : -item.quantity));
     const stockText = item.stockBefore != null && item.stockAfter != null ? `Estoque: ${quantity(item.stockBefore)} → ${quantity(item.stockAfter)}` : stockImpact === 0 ? 'Estoque: sem alteração' : `Estoque: ${stockImpact > 0 ? '+' : ''}${quantity(stockImpact)}`;
     const label = isAdjustment ? 'Ajuste de estoque' : item.fieldUsage ? 'Uso em OS' : item.type === 'entrada' ? 'Entrada no almoxarifado' : isTechnician ? 'Retirada para técnico' : 'Saída do estoque';
-    const types = [item.type, item.fieldUsage && 'uso_os', isTechnician && 'tecnico', isAdjustment && 'ajuste'].filter(Boolean);
+    const types = [item.fieldUsage ? 'uso_os' : item.type, item.fieldUsage && 'instalacao', isTechnician && 'tecnico', isAdjustment && 'ajuste'].filter(Boolean);
     const destinations = item.type === 'entrada' ? ['almoxarifado'] : [item.holderType || 'outro'];
     entries.push({
       id:`movement-${item.id}`, at:item.createdAt,
@@ -997,7 +997,8 @@ function buildHistoryEntries() {
     const installation = item.action === 'instalacao';
     const returned = ['retorno','devolucao_cliente'].includes(item.action);
     const technician = item.new_status === 'com_colaborador' || item.previous_status === 'com_colaborador';
-    const types = [impact > 0 && 'entrada', impact < 0 && 'saida', installation && 'instalacao', returned && 'devolucao', item.action === 'transferencia' && 'transferencia', technician && 'tecnico'].filter(Boolean);
+    const administrative = impact === 0 && !installation && !returned && !technician;
+    const types = [impact > 0 && 'entrada', impact < 0 && 'saida', installation && 'instalacao', returned && 'devolucao', item.action === 'transferencia' && 'transferencia', technician && 'tecnico', administrative && 'ajuste'].filter(Boolean);
     const destinations = [installation ? 'instalacao' : item.new_status === 'disponivel' ? 'almoxarifado' : item.new_status === 'com_colaborador' ? 'tecnico' : item.new_status === 'com_veiculo' ? 'veiculo' : item.new_status === 'instalado_cliente' ? 'cliente' : 'outro'];
     entries.push({
       id:`serial-${item.id}`, at:item.created_at,
