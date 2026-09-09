@@ -892,50 +892,167 @@ const isLoanEquipment = item => {
   return !networkEquipment;
 };
 
-function getFilteredMovements() {
-  const query = $('#history-search').value.trim().toLowerCase();
-  const typeFilter = $('#history-type').value, holderFilter = $('#history-holder').value;
-  const from = $('#history-from').value, to = $('#history-to').value;
-  return state.movements.filter(item => {
-    const text = `${product(item.productId)?.name || ''} ${item.person} ${item.workOrder || ''} ${item.note || ''}`.toLowerCase();
-    const day = item.createdAt?.slice(0, 10) || '';
-    const matchesType = !typeFilter || (typeFilter === 'uso_os' ? item.fieldUsage : item.type === typeFilter && !item.fieldUsage);
-    return (!query || text.includes(query)) && matchesType && (!holderFilter || item.holderType === holderFilter) && (!from || day >= from) && (!to || day <= to);
+const normalizeHistoryText = value => String(value ?? '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLocaleLowerCase('pt-BR');
+
+function receiptMovementLinks() {
+  const byItem = new Map(), movementIds = new Set();
+  state.receipts.forEach(receipt => {
+    const receiptTime = new Date(receipt.received_at || 0).getTime();
+    const supplier = `Recebimento: ${String(receipt.supplier || '').trim()}`.toLocaleLowerCase('pt-BR');
+    state.receiptItems.filter(item => item.receipt_id === receipt.id).forEach(item => {
+      const match = state.movements
+        .filter(movement => !movementIds.has(movement.id)
+          && movement.type === 'entrada'
+          && String(movement.person || '').trim().toLocaleLowerCase('pt-BR') === supplier
+          && movement.productId === item.product_id
+          && Number(movement.quantity) === Number(item.quantity)
+          && Math.abs(new Date(movement.createdAt || 0).getTime() - receiptTime) <= 15 * 60 * 1000)
+        .sort((a, b) => Math.abs(new Date(a.createdAt).getTime() - receiptTime) - Math.abs(new Date(b.createdAt).getTime() - receiptTime))[0];
+      if (!match) return;
+      byItem.set(item.id, match);
+      movementIds.add(match.id);
+    });
   });
+  return { byItem, movementIds };
 }
 
-function getFilteredSerialMovements() {
-  const query = $('#history-search').value.trim().toLowerCase();
-  const typeFilter = $('#history-type').value;
-  const holderFilter = $('#history-holder').value;
-  const from = $('#history-from').value, to = $('#history-to').value;
-  return state.serialMovements.filter(item => {
-    const serialItem = state.serialItems.find(entry => entry.id === item.serial_item_id);
-    const itemProduct = serialItem && product(serialItem.product_id);
+function historyFilters() {
+  return {
+    query: normalizeHistoryText($('#history-search').value.trim()),
+    type: $('#history-type').value,
+    destination: $('#history-holder').value,
+    from: $('#history-from').value,
+    to: $('#history-to').value
+  };
+}
+
+function historyEntryMatches(entry, filters) {
+  const day = localDateKey(entry.at);
+  return (!filters.query || normalizeHistoryText(entry.searchText).includes(filters.query))
+    && (!filters.type || entry.types.includes(filters.type))
+    && (!filters.destination || entry.destinations.includes(filters.destination))
+    && (!filters.from || day >= filters.from)
+    && (!filters.to || day <= filters.to);
+}
+
+function buildHistoryEntries() {
+  const links = receiptMovementLinks();
+  const entries = [];
+
+  state.receipts.forEach(receipt => {
+    const items = state.receiptItems.filter(item => item.receipt_id === receipt.id);
+    const units = state.serialItems.filter(item => item.receipt_id === receipt.id);
+    const movements = items.map(item => links.byItem.get(item.id)).filter(Boolean);
+    const oneItem = items.length === 1 ? items[0] : null;
+    const itemSummary = items.map(item => `${quantity(item.quantity)} ${unitName(item.unit_of_measure)} ${item.product_name || product(item.product_id)?.name || 'Produto'}`).join(', ');
+    const balance = oneItem && links.byItem.get(oneItem.id);
+    const stockText = balance?.stockBefore != null && balance?.stockAfter != null
+      ? `Estoque: ${quantity(balance.stockBefore)} → ${quantity(balance.stockAfter)}`
+      : movements.length === items.length && items.length ? `Estoque atualizado em ${items.length} ${items.length === 1 ? 'material' : 'materiais'}` : 'Entrada física já registrada';
+    entries.push({
+      id:`receipt-${receipt.id}`, at:receipt.received_at, variant:'receipt', icon:'↓', label:'Recebimento',
+      title:oneItem ? `${quantity(oneItem.quantity)} ${unitName(oneItem.unit_of_measure)} — ${oneItem.product_name || product(oneItem.product_id)?.name || 'Produto'}` : `${items.length} ${items.length === 1 ? 'material recebido' : 'materiais recebidos'}`,
+      subtitle:oneItem ? '' : itemSummary,
+      facts:[
+        { label:'Fornecedor', value:receipt.supplier || 'Não informado' },
+        receipt.invoice_number && { label:'Nota fiscal', value:receipt.invoice_number },
+        { label:'Recebimento', value:`#${String(receipt.id).slice(0, 8).toUpperCase()}` },
+        receipt.note && { label:'Observação', value:receipt.note }
+      ].filter(Boolean),
+      stockText, receiptId:receipt.id, types:['recebimento'], destinations:['almoxarifado'], metricKinds:['entrada'],
+      searchText:[receipt.id, receipt.supplier, receipt.invoice_number, receipt.note, itemSummary, ...items.flatMap(item => [item.product_name,item.product_code]), ...units.flatMap(item => [item.mac_address,item.serial_number,item.asset_tag])].filter(Boolean).join(' ')
+    });
+  });
+
+  state.movements.filter(item => !item.pendingId && !links.movementIds.has(item.id)).forEach(item => {
+    const itemProduct = product(item.productId);
+    const isAdjustment = /ajuste|confer[eê]ncia|invent[aá]rio/i.test(`${item.person || ''} ${item.note || ''}`);
+    const isTechnician = item.holderType === 'tecnico';
+    const stockImpact = Number(item.stockImpact ?? (item.type === 'entrada' ? item.quantity : -item.quantity));
+    const stockText = item.stockBefore != null && item.stockAfter != null ? `Estoque: ${quantity(item.stockBefore)} → ${quantity(item.stockAfter)}` : stockImpact === 0 ? 'Estoque: sem alteração' : `Estoque: ${stockImpact > 0 ? '+' : ''}${quantity(stockImpact)}`;
+    const label = isAdjustment ? 'Ajuste de estoque' : item.fieldUsage ? 'Uso em OS' : item.type === 'entrada' ? 'Entrada no almoxarifado' : isTechnician ? 'Retirada para técnico' : 'Saída do estoque';
+    const types = [item.type, item.fieldUsage && 'uso_os', isTechnician && 'tecnico', isAdjustment && 'ajuste'].filter(Boolean);
+    const destinations = item.type === 'entrada' ? ['almoxarifado'] : [item.holderType || 'outro'];
+    entries.push({
+      id:`movement-${item.id}`, at:item.createdAt,
+      variant:isAdjustment ? 'admin' : item.fieldUsage ? 'installation' : isTechnician ? 'technician' : item.type === 'entrada' ? 'entry' : 'exit',
+      icon:item.type === 'entrada' ? '↓' : item.fieldUsage ? '✓' : '↑', label,
+      title:`${quantity(item.quantity)} ${unitName(itemProduct?.unit_of_measure)} — ${itemProduct?.name || 'Produto removido'}`,
+      facts:[
+        item.person && { label:holderTypeName(item.holderType), value:item.person },
+        item.workOrder && { label:'OS', value:item.workOrder },
+        item.note && { label:'Observação', value:item.note }
+      ].filter(Boolean),
+      stockText, deleteMovementId:item.id, types, destinations,
+      metricKinds:[stockImpact > 0 && 'entrada', stockImpact < 0 && 'saida', isTechnician && 'tecnico', item.fieldUsage && 'instalacao'].filter(Boolean),
+      searchText:[itemProduct?.name,itemProduct?.code,item.person,item.workOrder,item.note].filter(Boolean).join(' ')
+    });
+  });
+
+  state.serialMovements.filter(item => !item.pending_id).forEach(item => {
+    const serialItem = state.serialItems.find(entry => entry.id === item.serial_item_id), itemProduct = serialItem && product(serialItem.product_id);
+    const from = state.locations.find(location => location.id === item.from_location_id)?.name || serialStatusName(item.previous_status);
+    const to = state.locations.find(location => location.id === item.to_location_id)?.name || item.customer_name || item.recipient || serialStatusName(item.new_status);
     const impact = Number(item.stock_impact ?? (item.previous_status === 'disponivel' && item.new_status !== 'disponivel' ? -1 : item.previous_status !== 'disponivel' && item.new_status === 'disponivel' ? 1 : 0));
-    const text = `${itemProduct?.name || ''} ${serialItem?.serial_number || ''} ${serialItem?.mac_address || ''} ${serialItem?.asset_tag || ''} ${item.recipient || ''} ${item.customer_name || ''} ${item.work_order || ''} ${item.note || ''}`.toLowerCase();
-    const day = item.created_at?.slice(0, 10) || '';
-    const matchesType = !typeFilter || typeFilter === 'entrada' && impact === 1 || typeFilter === 'saida' && impact === -1 || typeFilter === 'uso_os' && false;
-    return (!query || text.includes(query)) && matchesType && !holderFilter && (!from || day >= from) && (!to || day <= to);
+    const installation = item.action === 'instalacao';
+    const returned = ['retorno','devolucao_cliente'].includes(item.action);
+    const technician = item.new_status === 'com_colaborador' || item.previous_status === 'com_colaborador';
+    const types = [impact > 0 && 'entrada', impact < 0 && 'saida', installation && 'instalacao', returned && 'devolucao', item.action === 'transferencia' && 'transferencia', technician && 'tecnico'].filter(Boolean);
+    const destinations = [installation ? 'instalacao' : item.new_status === 'disponivel' ? 'almoxarifado' : item.new_status === 'com_colaborador' ? 'tecnico' : item.new_status === 'com_veiculo' ? 'veiculo' : item.new_status === 'instalado_cliente' ? 'cliente' : 'outro'];
+    entries.push({
+      id:`serial-${item.id}`, at:item.created_at,
+      variant:installation ? 'installation' : returned ? 'return' : technician ? 'technician' : impact > 0 ? 'entry' : impact < 0 ? 'exit' : 'admin',
+      icon:installation ? '✓' : returned || impact > 0 ? '↓' : impact < 0 ? '↑' : '⇄', label:serialActionName(item.action),
+      title:itemProduct?.name || 'Equipamento removido',
+      facts:[
+        { label:'Movimentação', value:`${from} → ${to}` },
+        serialItem?.asset_tag && { label:'Patrimônio', value:serialItem.asset_tag },
+        serialItem?.mac_address && { label:'MAC', value:serialItem.mac_address },
+        serialItem?.serial_number && { label:'Serial', value:serialItem.serial_number },
+        item.customer_name && { label:'Cliente', value:item.customer_name },
+        item.recipient && { label:'Responsável', value:item.recipient },
+        item.work_order && { label:'OS', value:item.work_order },
+        item.note && { label:'Observação', value:item.note }
+      ].filter(Boolean),
+      stockText:impact > 0 ? '+1 no estoque' : impact < 0 ? '-1 no estoque' : 'Estoque: sem alteração', types, destinations,
+      metricKinds:[impact > 0 && 'entrada', impact < 0 && 'saida', technician && 'tecnico', installation && 'instalacao'].filter(Boolean),
+      searchText:[itemProduct?.name,itemProduct?.code,serialItem?.mac_address,serialItem?.serial_number,serialItem?.asset_tag,from,to,item.recipient,item.customer_name,item.work_order,item.note].filter(Boolean).join(' ')
+    });
   });
-}
 
-function getFilteredTechnicianEvents() {
-  const query = $('#history-search').value.trim().toLowerCase();
-  const typeFilter = $('#history-type').value, holderFilter = $('#history-holder').value;
-  const from = $('#history-from').value, to = $('#history-to').value;
-  const typeMap = { retirada:'saida', utilizacao:'instalacao', devolucao:'devolucao', transferencia:'transferencia', prorrogacao:'prorrogacao' };
-  const holderMap = { retirada:'tecnico', utilizacao:'cliente', devolucao:'outro', transferencia:'tecnico', prorrogacao:'tecnico' };
-  return state.technicianPendingEvents.filter(event => {
+  state.technicianPendingEvents.forEach(event => {
     const pending = state.technicianPendencies.find(item => item.id === event.pending_id);
-    if (!pending) return false;
+    if (!pending) return;
+    const itemProduct = product(pending.product_id);
     const linkedUnits = state.technicianPendingItems.filter(link => link.pending_id === pending.id).map(link => state.serialItems.find(item => item.id === link.serial_item_id)).filter(Boolean);
-    const identifiers = linkedUnits.flatMap(item => [item.mac_address,item.serial_number,item.asset_tag]).filter(Boolean).join(' ');
-    const text = `${product(pending.product_id)?.name || ''} ${pending.technician_name || ''} ${event.from_technician || ''} ${event.to_technician || ''} ${event.customer_name || ''} ${event.work_order || pending.work_order || ''} ${event.note || ''} ${identifiers}`.toLowerCase();
-    const timestamp = event.occurred_at || event.created_at;
-    const day = timestamp?.slice(0,10) || '';
-    return (!query || text.includes(query)) && (!typeFilter || typeMap[event.event_type] === typeFilter) && (!holderFilter || holderMap[event.event_type] === holderFilter) && (!from || day >= from) && (!to || day <= to);
+    const eventType = event.event_type;
+    const label = { retirada:'Retirada para técnico', transferencia:'Repasse para outro técnico', prorrogacao:'Prorrogação de prazo', devolucao:'Devolução ao almoxarifado', utilizacao:'Instalação / utilização' }[eventType] || eventType;
+    const types = ({ retirada:['saida','tecnico'], transferencia:['transferencia','tecnico'], prorrogacao:['prorrogacao','tecnico'], devolucao:['devolucao'], utilizacao:['instalacao'] })[eventType] || [];
+    const destinations = ({ retirada:['tecnico'], transferencia:['tecnico'], prorrogacao:['tecnico'], devolucao:['almoxarifado'], utilizacao:['instalacao','cliente'] })[eventType] || ['outro'];
+    const stockText = eventType === 'retirada' ? `Estoque: -${quantity(pending.quantity)}` : eventType === 'devolucao' ? `Estoque: +${quantity(pending.quantity)}` : 'Estoque: sem alteração';
+    entries.push({
+      id:`pending-${event.id}`, at:event.occurred_at || event.created_at,
+      variant:eventType === 'utilizacao' ? 'installation' : eventType === 'devolucao' ? 'return' : ['retirada','transferencia'].includes(eventType) ? 'technician' : 'admin',
+      icon:eventType === 'utilizacao' ? '✓' : eventType === 'devolucao' ? '↓' : eventType === 'retirada' ? '↑' : '⇄', label,
+      title:`${quantity(pending.quantity)} ${unitName(itemProduct?.unit_of_measure)} — ${itemProduct?.name || 'Material'}`,
+      facts:[
+        event.from_technician && { label:eventType === 'transferencia' ? 'Técnico anterior' : 'Técnico', value:event.from_technician },
+        event.to_technician && { label:'Novo técnico', value:event.to_technician },
+        !event.from_technician && pending.technician_name && { label:'Técnico', value:pending.technician_name },
+        event.customer_name && { label:'Cliente', value:event.customer_name },
+        (event.work_order || pending.work_order) && { label:'OS', value:event.work_order || pending.work_order },
+        event.previous_due_at && { label:'Prazo anterior', value:date(event.previous_due_at) },
+        event.new_due_at && { label:'Prazo', value:date(event.new_due_at) },
+        ...linkedUnits.flatMap(unit => [unit.asset_tag && { label:'Patrimônio', value:unit.asset_tag }, unit.mac_address && { label:'MAC', value:unit.mac_address }, unit.serial_number && { label:'Serial', value:unit.serial_number }]).filter(Boolean),
+        event.note && { label:'Observação', value:event.note }
+      ].filter(Boolean),
+      stockText, types, destinations,
+      metricKinds:[eventType === 'retirada' && 'saida', eventType === 'devolucao' && 'entrada', ['retirada','transferencia','prorrogacao'].includes(eventType) && 'tecnico', eventType === 'utilizacao' && 'instalacao'].filter(Boolean),
+      searchText:[itemProduct?.name,itemProduct?.code,pending.technician_name,event.from_technician,event.to_technician,event.customer_name,event.work_order,pending.work_order,event.note,...linkedUnits.flatMap(unit => [unit.mac_address,unit.serial_number,unit.asset_tag])].filter(Boolean).join(' ')
+    });
   });
+
+  return entries.sort((a, b) => new Date(b.at || 0) - new Date(a.at || 0) || String(b.id).localeCompare(String(a.id)));
 }
 
 function getFieldStockItems() {
@@ -1123,35 +1240,39 @@ function renderMovement() {
   select.innerHTML = products.map(item => `<option value="${item.id}">${esc(item.name)} (${stockLabel(item)})</option>`).join('');
   select.value = selected || products[0]?.id || '';
   renderMovementSerialUnits();
-  const movements = getFilteredMovements().filter(item => !item.pendingId);
-  const serialMovements = getFilteredSerialMovements().filter(item => !item.pending_id);
-  const pendingEvents = getFilteredTechnicianEvents();
-  const timeline = movements.map(item => {
-    const balance = item.stockBefore != null && item.stockAfter != null ? ` · Estoque: ${quantity(item.stockBefore)} → ${quantity(item.stockAfter)}` : '';
-    return { at:item.createdAt, id:item.id, html:`<div class="history-item"><span class="history-icon ${item.type === 'saida' ? 'out' : ''}">${item.type === 'entrada' ? '↓' : '↑'}</span><div><b>${movementName(item)} de ${quantity(item.quantity)} ${unitName(product(item.productId)?.unit_of_measure)} — ${esc(product(item.productId)?.name || 'Produto')}</b><small>${holderTypeName(item.holderType)}: ${esc(item.person)} · ${item.date}${balance}${item.workOrder ? ' · OS: ' + esc(item.workOrder) : ''}${item.note ? ' · ' + esc(item.note) : ''}</small></div>${canDelete ? `<button class="danger-button" data-delete-movement="${item.id}">Apagar</button>` : ''}</div>` };
+  const filters = historyFilters();
+  const entries = buildHistoryEntries().filter(item => historyEntryMatches(item, filters));
+  const totals = kind => entries.filter(item => item.metricKinds.includes(kind)).length;
+  $('#history-entry-count').textContent = totals('entrada');
+  $('#history-exit-count').textContent = totals('saida');
+  $('#history-technician-count').textContent = totals('tecnico');
+  $('#history-installation-count').textContent = totals('instalacao');
+  document.querySelectorAll('[data-history-type-shortcut]').forEach(button => button.classList.toggle('active', button.dataset.historyTypeShortcut === $('#history-type').value));
+
+  const grouped = new Map();
+  entries.forEach(entry => {
+    const key = localDateKey(entry.at);
+    if (!grouped.has(key)) grouped.set(key, []);
+    grouped.get(key).push(entry);
   });
-  timeline.push(...serialMovements.map(item => {
-    const serialItem = state.serialItems.find(entry => entry.id === item.serial_item_id), itemProduct = serialItem && product(serialItem.product_id);
-    const from = state.locations.find(location => location.id === item.from_location_id)?.name || serialStatusName(item.previous_status);
-    const to = state.locations.find(location => location.id === item.to_location_id)?.name || item.customer_name || item.recipient || serialStatusName(item.new_status);
-    const impact = Number(item.stock_impact ?? (item.previous_status === 'disponivel' && item.new_status !== 'disponivel' ? -1 : item.previous_status !== 'disponivel' && item.new_status === 'disponivel' ? 1 : 0));
-    const impactLabel = impact > 0 ? '+1 no estoque' : impact < 0 ? '-1 no estoque' : 'sem alteração no estoque';
-    const identifier = serialItem?.asset_tag || serialItem?.mac_address || serialItem?.serial_number || 'sem identificador';
-    return { at:item.created_at, id:item.id, html:`<div class="history-item"><span class="history-icon ${impact < 0 ? 'out' : ''}">${impact > 0 ? '↓' : impact < 0 ? '↑' : '⇄'}</span><div><b>${esc(serialActionName(item.action))} — ${esc(itemProduct?.name || 'Equipamento')} (${esc(identifier)})</b><small>${esc(from)} → ${esc(to)} · ${date(item.created_at)} · <b>${esc(impactLabel)}</b>${item.work_order ? ' · OS: ' + esc(item.work_order) : ''}${item.note ? ' · ' + esc(item.note) : ''}</small></div></div>` };
-  }));
-  timeline.push(...pendingEvents.map(event => {
-    const pending = state.technicianPendencies.find(item => item.id === event.pending_id);
-    const eventName = {retirada:'Retirada do almoxarifado',transferencia:'Repasse para outro técnico',prorrogacao:'Prorrogação de prazo',devolucao:'Devolução ao almoxarifado',utilizacao:'Instalação / utilização'}[event.event_type] || event.event_type;
-    const stockText = event.event_type === 'retirada' ? `Estoque: -${quantity(pending?.quantity)}` : event.event_type === 'devolucao' ? `Estoque: +${quantity(pending?.quantity)}` : 'Estoque: sem alteração';
-    const linkedUnits = state.technicianPendingItems.filter(link => link.pending_id === event.pending_id).map(link => state.serialItems.find(item => item.id === link.serial_item_id)).filter(Boolean);
-    const identifiers = linkedUnits.map(item => item.asset_tag || item.mac_address || item.serial_number).filter(Boolean).join(', ');
-    const details = [event.from_technician, event.to_technician && `→ ${event.to_technician}`, event.customer_name && `Cliente: ${event.customer_name}`, (event.work_order || pending?.work_order) && `OS: ${event.work_order || pending.work_order}`, event.previous_due_at && `Prazo anterior: ${date(event.previous_due_at)}`, event.new_due_at && `Prazo: ${date(event.new_due_at)}`, identifiers && `Unidades: ${identifiers}`, stockText, event.note].filter(Boolean).map(esc).join(' · ');
-    const occurredAt = event.occurred_at || event.created_at;
-    return { at:occurredAt, id:event.id, html:`<div class="history-item"><span class="history-icon ${event.event_type === 'retirada' ? 'out' : ''}">${event.event_type === 'retirada' ? '↑' : event.event_type === 'devolucao' ? '↓' : '⇄'}</span><div><b>${esc(eventName)} — ${esc(product(pending?.product_id)?.name || 'Material')}</b><small>${date(occurredAt)} · ${details}</small></div></div>` };
-  }));
-  timeline.sort((a,b) => new Date(b.at)-new Date(a.at) || String(b.id).localeCompare(String(a.id)));
-  $('#movement-history').innerHTML = timeline.map(item => item.html).join('') || '<p class="empty">Nenhuma movimentação encontrada.</p>';
+  $('#movement-history').innerHTML = [...grouped].map(([day, dayEntries]) => `<section class="history-day"><h3>${esc(historyDayLabel(day))}</h3><div>${dayEntries.map(entry => historyCardHtml(entry, canDelete)).join('')}</div></section>`).join('') || '<div class="history-empty"><span>⌕</span><b>Nenhuma movimentação encontrada</b><small>Ajuste os filtros ou o período para visualizar outros registros.</small></div>';
   document.querySelectorAll('[data-delete-movement]').forEach(button => button.onclick = () => deleteMovement(button.dataset.deleteMovement));
+  document.querySelectorAll('[data-history-receipt]').forEach(button => button.onclick = () => openReceiptDetails(button.dataset.historyReceipt));
+}
+
+function historyDayLabel(day) {
+  const today = localDateKey(), yesterday = localDateKey(new Date(Date.now() - 86400000));
+  const formatted = new Intl.DateTimeFormat('pt-BR', { day:'2-digit', month:'short', year:day.startsWith(String(new Date().getFullYear())) ? undefined : 'numeric' }).format(new Date(`${day}T12:00:00`)).replace('.', '').toLocaleUpperCase('pt-BR');
+  return day === today ? `Hoje — ${formatted}` : day === yesterday ? `Ontem — ${formatted}` : formatted;
+}
+
+function historyFactHtml(fact) {
+  return `<div><dt>${esc(fact.label)}</dt><dd>${esc(fact.value)}</dd></div>`;
+}
+
+function historyCardHtml(entry, canDelete) {
+  const visibleFacts = entry.facts.slice(0, 3), extraFacts = entry.facts.slice(3);
+  return `<article class="history-card ${entry.variant}"><span class="history-card-accent" aria-hidden="true"></span><div class="history-card-icon" aria-hidden="true">${entry.icon}</div><div class="history-card-content"><header><div><span class="history-type-badge">${esc(entry.label)}</span><time datetime="${esc(entry.at || '')}">${date(entry.at)}</time></div><h4>${esc(entry.title)}</h4>${entry.subtitle ? `<p>${esc(entry.subtitle)}</p>` : ''}</header>${visibleFacts.length ? `<dl class="history-card-facts">${visibleFacts.map(historyFactHtml).join('')}</dl>` : ''}<div class="history-card-footer"><strong class="history-stock-impact">${esc(entry.stockText)}</strong><div class="history-card-actions">${entry.receiptId ? `<button class="secondary-button" data-history-receipt="${entry.receiptId}" type="button">Ver recebimento</button>` : ''}${canDelete && entry.deleteMovementId ? `<button class="danger-button" data-delete-movement="${entry.deleteMovementId}" type="button">Apagar</button>` : ''}</div></div>${extraFacts.length ? `<details class="history-card-details"><summary>Ver mais detalhes</summary><dl>${extraFacts.map(historyFactHtml).join('')}</dl></details>` : ''}</div></article>`;
 }
 
 function updateTechnicianPendingAction() {
@@ -1485,14 +1606,17 @@ function openReceiptDetails(id) {
   const receipt = state.receipts.find(item => item.id === id);
   if (!receipt) return;
   const items = state.receiptItems.filter(item => item.receipt_id === id);
+  const links = receiptMovementLinks();
   $('#receipt-details-title').textContent = receipt.supplier;
-  $('#receipt-details-subtitle').textContent = `${receipt.invoice_number ? `NF: ${receipt.invoice_number} · ` : ''}${date(receipt.received_at)}${receipt.note ? ` · ${receipt.note}` : ''}`;
+  $('#receipt-details-subtitle').textContent = `${receipt.invoice_number ? `NF: ${receipt.invoice_number} · ` : ''}${date(receipt.received_at)} · Recebimento #${String(receipt.id).slice(0, 8).toUpperCase()}${receipt.note ? ` · ${receipt.note}` : ''}`;
   $('#receipt-details-list').innerHTML = items.map(item => {
     const unitCost = Number(item.unit_cost || 0);
     const lot = [item.batch_number ? `Lote: ${esc(item.batch_number)}` : '', item.expiry_date ? `Validade: ${dateOnly(item.expiry_date)}` : ''].filter(Boolean).join(' · ');
     const receivedUnits=state.serialItems.filter(unit=>unit.receipt_id===id&&unit.product_id===item.product_id);
-    const unitsHtml=receivedUnits.length?`<small>${receivedUnits.map(unit=>`MAC: ${esc(unit.mac_address)} · Serial: ${esc(unit.serial_number)} · Patrimônio: ${esc(unit.asset_tag)}`).join('<br>')}</small>`:'';
-    return `<div class="serial-history-item"><b>${esc(item.product_name)}</b><small>${quantity(item.quantity)} ${unitName(item.unit_of_measure)} · Código: ${esc(item.product_code)}${unitCost ? ` · ${currency(unitCost)} cada · Total: ${currency(Number(item.quantity) * unitCost)}` : ''}${lot ? ` · ${lot}` : ''}</small>${unitsHtml}</div>`;
+    const movement = links.byItem.get(item.id);
+    const balance = movement?.stockBefore != null && movement?.stockAfter != null ? `Estoque: ${quantity(movement.stockBefore)} → ${quantity(movement.stockAfter)}` : 'Entrada já registrada no estoque';
+    const unitsHtml=receivedUnits.length?`<div class="receipt-detail-units">${receivedUnits.map(unit=>`<article><dl><div><dt>Patrimônio</dt><dd>${esc(unit.asset_tag || '—')}</dd></div><div><dt>MAC</dt><dd>${esc(unit.mac_address || '—')}</dd></div><div><dt>Serial</dt><dd>${esc(unit.serial_number || '—')}</dd></div><div><dt>Status atual</dt><dd><span class="badge ${serialStatusClass(unit.status)}">${esc(serialStatusName(unit.status))}</span></dd></div></dl></article>`).join('')}</div>`:'';
+    return `<section class="receipt-detail-item"><header><div><b>${esc(item.product_name)}</b><small>${quantity(item.quantity)} ${unitName(item.unit_of_measure)} · Código: ${esc(item.product_code)}</small></div><strong>${esc(balance)}</strong></header><p>${unitCost ? `${currency(unitCost)} cada · Total: ${currency(Number(item.quantity) * unitCost)}` : 'Valor não informado'}${lot ? ` · ${lot}` : ''}</p>${unitsHtml}</section>`;
   }).join('') || '<p class="empty">Nenhum material encontrado neste recebimento.</p>';
   $('#receipt-details-dialog').showModal();
 }
@@ -2828,6 +2952,20 @@ if (clientLoanCustomerName) clientLoanCustomerName.oninput = renderClientLoanFor
 const clientLoanReference = $('#client-loan-reference');
 if (clientLoanReference) clientLoanReference.oninput = renderClientLoanFormSummary;
 document.querySelectorAll('[data-history-filter]').forEach(element => { element.oninput = renderMovement; element.onchange = renderMovement; });
+document.querySelectorAll('[data-history-type-shortcut]').forEach(button => button.onclick = () => {
+  $('#history-type').value = button.dataset.historyTypeShortcut;
+  renderMovement();
+});
+document.querySelectorAll('[data-history-period]').forEach(button => button.onclick = () => {
+  const today = new Date(), period = button.dataset.historyPeriod;
+  const from = new Date(today);
+  if (period === '7') from.setDate(today.getDate() - 6);
+  else if (period === '30') from.setDate(today.getDate() - 29);
+  else if (period === 'month') from.setDate(1);
+  $('#history-from').value = localDateKey(from);
+  $('#history-to').value = localDateKey(today);
+  renderMovement();
+});
 $('#vehicle-kit-search').oninput = renderVehicleKits;
 $('#edit-vehicle-kit').onclick = () => openVehicleKitEditor();
 $('#vehicle-kit-vehicle').onchange = event => openVehicleKitEditor(event.target.value);
