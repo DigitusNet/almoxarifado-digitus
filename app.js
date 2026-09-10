@@ -2548,7 +2548,8 @@ function renderInventory() {
 
 const inventoryUserName = id => state.users.find(user => user.id === id)?.name || (id === currentUser?.id ? currentUser.name : '') || 'Não informado';
 const inventorySessionCounts = id => state.inventoryCounts.filter(item => item.inventory_id === id);
-const inventoryItemIdentifiers = item => state.serialItems.filter(unit => unit.product_id === item.product_id).flatMap(unit => [unit.mac_address, unit.serial_number].filter(Boolean));
+const inventoryItemUnits = item => state.serialItems.filter(unit => unit.product_id === item.product_id);
+const inventoryItemIdentifiers = item => inventoryItemUnits(item).flatMap(unit => [unit.mac_address, unit.serial_number].filter(Boolean));
 const inventorySituation = item => {
   const difference = inventoryDifference(item);
   if (difference === null) return { key:'different', label:'Não contado' };
@@ -2570,10 +2571,13 @@ function renderInventoryDetailsItems() {
   $('#inventory-details-items').innerHTML = items.map(item => {
     const difference = inventoryDifference(item);
     const situation = inventorySituation(item);
-    const identifiers = inventoryItemIdentifiers(item);
-    const identifierText = identifiers.length ? identifiers.slice(0, 3).join(' · ') : '—';
-    return `<tr class="inventory-result-${situation.key}"><td><b>${esc(item.product_name)}</b><small>${esc(item.product_code)}</small></td><td><span title="${esc(identifiers.join(' · '))}">${esc(identifierText)}${identifiers.length > 3 ? ` +${identifiers.length - 3}` : ''}</span></td><td>${quantity(item.expected_stock)} ${unitName(item.unit_of_measure)}</td><td>${item.counted_stock === null || item.counted_stock === undefined ? '—' : `${quantity(item.counted_stock)} ${unitName(item.unit_of_measure)}`}</td><td><b>${difference === null ? '—' : `${difference > 0 ? '+' : ''}${quantity(difference)}`}</b></td><td><span class="inventory-result-badge ${situation.key}">${esc(situation.label)}</span></td></tr>`;
-  }).join('') || '<tr><td colspan="6" class="empty">Nenhum item corresponde à pesquisa ou ao filtro.</td></tr>';
+    const units = inventoryItemUnits(item).filter(unit => unit.mac_address || unit.serial_number);
+    const identifiers = units.length ? units.map(unit => `<div class="inventory-identifier-pair">${unit.mac_address ? `<span><b>MAC</b>${esc(unit.mac_address)}</span>` : ''}${unit.serial_number ? `<span><b>Serial</b>${esc(unit.serial_number)}</span>` : ''}</div>`).join('') : '<span class="inventory-no-identifier">—</span>';
+    const expected = `${quantity(item.expected_stock)} ${unitName(item.unit_of_measure)}`;
+    const counted = item.counted_stock === null || item.counted_stock === undefined ? '—' : `${quantity(item.counted_stock)} ${unitName(item.unit_of_measure)}`;
+    const differenceText = difference === null ? '—' : `${difference > 0 ? '+' : ''}${quantity(difference)}`;
+    return `<tr class="inventory-result-${situation.key}"><td data-label="Equipamento"><b>${esc(item.product_name)}</b><small>Código: ${esc(item.product_code)}</small></td><td data-label="Identificação" class="inventory-identifiers">${identifiers}</td><td data-label="Resultado"><div class="inventory-result-summary"><span><small>No sistema</small><b>${expected}</b></span><span><small>Contado</small><b>${counted}</b></span><span><small>Diferença</small><b>${differenceText}</b></span><span class="inventory-result-badge ${situation.key}">${esc(situation.label)}</span></div></td></tr>`;
+  }).join('') || '<tr><td colspan="3" class="empty">Nenhum item corresponde à pesquisa ou ao filtro.</td></tr>';
 }
 
 function openInventoryDetails(id) {
