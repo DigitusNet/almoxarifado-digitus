@@ -11,6 +11,13 @@ let currentUser = null;
 let inventoryDetailsSessionId = null;
 let inventoryDetailsFilter = 'all';
 let pendingInventoryEdit = null;
+let clientLoanPage = 1;
+const clientLoanPageSize = 50;
+let clientLoanTotal = 0;
+let clientLoanMetrics = { active:0, returned:0, pending:0 };
+let clientLoanLocations = [];
+let clientLoanLoadSequence = 0;
+let clientLoanSearchTimer = null;
 let passwordRecoveryMode = false;
 const passwordRecoveryStorageKey = 'digitus-password-recovery';
 const $ = selector => document.querySelector(selector);
@@ -2102,19 +2109,21 @@ function renderClientLoans() {
   const table = $('#client-loans-table'), clientLoanItem = $('#client-loan-item'), clientLoanSearch = $('#client-loan-search');
   if (!table || !clientLoanItem) return;
   const statusOf = loan => loan.record_status || (loan.returned_at ? 'encerrado' : 'ativo');
-  const activeLoans = state.clientLoans.filter(loan => statusOf(loan) === 'ativo' && !loan.returned_at);
-  const returnedLoans = state.clientLoans.filter(loan => statusOf(loan) === 'encerrado' || loan.returned_at);
   const availableItems = state.serialItems.filter(item => ['disponivel', 'com_colaborador', 'com_veiculo'].includes(item.status));
   const tableSearch = $('#client-loan-list-search')?.value.trim().toLocaleLowerCase('pt-BR') || '';
   const statusFilter = $('#client-loan-status-filter')?.value || '';
   const locationFilter = $('#client-loan-location-filter')?.value || '';
-  const locations = [...new Set(state.clientLoans.map(loan => loan.city || loan.location_original).filter(Boolean))].sort((a, b) => a.localeCompare(b, 'pt-BR'));
+  const productFilter = $('#client-loan-product-filter')?.value || '';
+  const locations = clientLoanLocations;
   const locationSelect = $('#client-loan-location-filter');
   if (locationSelect) {
     const selected = locationSelect.value;
     locationSelect.innerHTML = '<option value="">Todas as localizações</option>' + locations.map(value => `<option value="${esc(value)}">${esc(value)}</option>`).join('');
     locationSelect.value = selected;
   }
+  const productSelect = $('#client-loan-product-filter');
+  if (productSelect && productSelect.options.length <= 1) productSelect.innerHTML = '<option value="">Todos os equipamentos</option>' + state.products.filter(item => item.tracking_mode === 'serializado').map(item => `<option value="${item.id}">${esc(item.name)}${item.model ? ` · ${esc(item.model)}` : ''}</option>`).join('');
+  $('#client-loan-clear-filters').hidden = !(tableSearch || statusFilter || locationFilter || productFilter);
   const filteredLoans = state.clientLoans.filter(loan => {
     const item = state.serialItems.find(entry => entry.id === loan.serial_item_id);
     const itemProduct = item && product(item.product_id);
@@ -2130,15 +2139,15 @@ function renderClientLoans() {
   const availableCount = $('#client-loan-available-count');
   const activeCount = $('#client-loan-active-count');
   const returnedCount = $('#client-loan-returned-count');
-  if (openCount) openCount.textContent = activeLoans.length;
+  if (openCount) openCount.textContent = clientLoanMetrics.active;
   if (availableCount) availableCount.textContent = availableItems.length;
-  if (activeCount) activeCount.textContent = activeLoans.length;
-  if (returnedCount) returnedCount.textContent = returnedLoans.length;
+  if (activeCount) activeCount.textContent = clientLoanMetrics.active;
+  if (returnedCount) returnedCount.textContent = clientLoanMetrics.returned;
 
   if (state.loadStatus.clientLoans === 'loading') {
-    table.innerHTML = '<tr><td colspan="9" class="empty">Carregando comodatos...</td></tr>';
+    table.innerHTML = '<tr><td colspan="6" class="empty">Carregando comodatos...</td></tr>';
   } else if (state.loadStatus.clientLoans === 'error') {
-    table.innerHTML = '<tr><td colspan="9" class="empty">Não foi possível carregar os comodatos. Tente novamente.</td></tr>';
+    table.innerHTML = '<tr><td colspan="6" class="empty">Não foi possível carregar os comodatos. Tente novamente.</td></tr>';
   } else if (filteredLoans.length) {
     table.innerHTML = filteredLoans.map(loan => {
       const item = state.serialItems.find(entry => entry.id === loan.serial_item_id), itemProduct = item && product(item.product_id);
@@ -2148,12 +2157,12 @@ function renderClientLoans() {
       const customer = loan.customer_name || 'Não associado';
       const originalLocation = loan.location_original && loan.location_original !== loan.customer_name ? loan.location_original : '';
       const canReturn = status === 'ativo' && loan.serial_item_id && !loan.returned_at;
-      return `<tr><td><b>${esc(item?.asset_tag || loan.asset_tag_original || '—')}</b>${loan.source_type === 'excel' ? '<small>Origem: Excel</small>' : ''}</td><td><b>${esc(itemProduct?.name || loan.equipment_name_original || 'Equipamento não informado')}</b><small>${esc(itemProduct?.model || loan.model_original || loan.brand_original || '—')}</small></td><td>${esc(item?.mac_address || loan.mac_original || '—')}</td><td>${esc(item?.serial_number || loan.serial_original || '—')}</td><td><b>${esc(customer)}</b>${originalLocation ? `<small>Original: ${esc(originalLocation)}</small>` : ''}</td><td>${esc(loan.city || '—')}</td><td>${date(loan.installed_at || loan.issued_at)}</td><td><span class="badge ${statusClass}">${statusLabel}</span>${loan.match_status && loan.match_status !== 'associado' ? `<small>${esc(loan.match_status === 'ambiguo' ? 'Associação ambígua' : 'Sem associação automática')}</small>` : ''}</td><td><div class="table-actions">${canReturn ? `<button class="primary small-primary" data-return-client-loan="${loan.id}">Devolver</button>` : ''}<button class="danger-button" data-admin-only hidden data-delete-client-loan="${loan.id}">Excluir</button></div></td></tr>`;
+      return `<tr><td><b>${esc(itemProduct?.name || loan.equipment_name_original || 'Equipamento não informado')}</b><small>${esc(itemProduct?.model || loan.model_original || loan.brand_original || '—')}</small></td><td><span>Patrimônio: <b>${esc(item?.asset_tag || loan.asset_tag_original || '—')}</b></span><small>MAC: ${esc(item?.mac_address || loan.mac_original || '—')}</small><small>Serial: ${esc(item?.serial_number || loan.serial_original || '—')}</small></td><td><b>${esc(customer)}</b><small>${esc(loan.city || originalLocation || '—')}</small></td><td>${date(loan.installed_at || loan.issued_at)}</td><td><span class="badge ${statusClass}">${statusLabel}</span>${loan.match_status && loan.match_status !== 'associado' ? `<small>${esc(loan.match_status === 'ambiguo' ? 'Associação ambígua' : 'Sem associação automática')}</small>` : ''}</td><td><div class="client-loan-row-actions">${canReturn ? `<button class="primary small-primary" data-return-client-loan="${loan.id}">Devolver</button>` : ''}<details><summary title="Mais ações">⋮</summary><div><button type="button" data-client-loan-details="${loan.id}">Ver detalhes</button><button type="button" data-client-loan-history="${loan.id}">Ver histórico</button><button type="button" disabled title="A edição de dados não faz parte desta otimização somente de consulta">Editar comodato</button><button class="danger-button" data-admin-only hidden data-delete-client-loan="${loan.id}">Excluir registro</button></div></details></div></td></tr>`;
     }).join('');
-  } else if (tableSearch || statusFilter || locationFilter) {
-    table.innerHTML = '<tr><td colspan="9" class="empty">Nenhum comodato corresponde aos filtros.</td></tr>';
+  } else if (tableSearch || statusFilter || locationFilter || productFilter) {
+    table.innerHTML = '<tr><td colspan="6" class="empty">Nenhum comodato corresponde aos filtros.</td></tr>';
   } else {
-    table.innerHTML = '<tr><td colspan="9" class="empty client-loans-empty"><div><span class="client-loans-empty-icon" aria-hidden="true">⌁</span><strong>Nenhum comodato registrado</strong><p>Instalações com MAC ou serial e importações confirmadas aparecerão aqui.</p></div></td></tr>';
+    table.innerHTML = '<tr><td colspan="6" class="empty client-loans-empty"><div><span class="client-loans-empty-icon" aria-hidden="true">⌁</span><strong>Nenhum comodato registrado</strong><p>Instalações com MAC ou serial e importações confirmadas aparecerão aqui.</p></div></td></tr>';
   }
 
   const selectedItem = clientLoanItem.value;
@@ -2175,8 +2184,125 @@ function renderClientLoans() {
   renderClientLoanFormSummary();
   document.querySelectorAll('[data-return-client-loan]').forEach(button => button.onclick = () => openClientLoanReturn(button.dataset.returnClientLoan));
   document.querySelectorAll('[data-delete-client-loan]').forEach(button => button.onclick = () => deleteClientLoan(button.dataset.deleteClientLoan));
+  document.querySelectorAll('[data-client-loan-details]').forEach(button => button.onclick = () => openClientLoanReadView(button.dataset.clientLoanDetails, false));
+  document.querySelectorAll('[data-client-loan-history]').forEach(button => button.onclick = () => openClientLoanReadView(button.dataset.clientLoanHistory, true));
   document.querySelectorAll('[data-open-client-loan]').forEach(button => button.onclick = () => $('#add-client-loan')?.click());
   document.querySelectorAll('[data-delete-client-loan]').forEach(button => { button.hidden = currentUser?.role !== 'admin'; });
+}
+
+async function loadClientLoanLocations() {
+  if (clientLoanLocations.length) return;
+  const { data, error } = await supabase.from('client_loans').select('city,location_original').limit(10000);
+  if (error) return;
+  clientLoanLocations = [...new Set((data || []).flatMap(item => [item.city, item.location_original]).filter(Boolean))].sort((a,b) => a.localeCompare(b, 'pt-BR'));
+}
+
+async function clientLoanMatchingSerialIds(search, selectedProductId) {
+  let query = supabase.from('serial_items').select('id').limit(500);
+  if (selectedProductId) query = query.eq('product_id', selectedProductId);
+  if (search) {
+    const term = search.replace(/[,%()]/g, ' ').trim();
+    query = query.or(`mac_address.ilike.%${term}%,serial_number.ilike.%${term}%,asset_tag.ilike.%${term}%`);
+  }
+  if (!search && !selectedProductId) return [];
+  const { data } = await query;
+  return (data || []).map(item => item.id);
+}
+
+async function loadClientLoansPage({ resetPage = false } = {}) {
+  const sequence = ++clientLoanLoadSequence;
+  if (resetPage) clientLoanPage = 1;
+  state.loadStatus.clientLoans = 'loading';
+  renderClientLoans();
+  const search = $('#client-loan-list-search')?.value.trim() || '';
+  const status = $('#client-loan-status-filter')?.value || '';
+  const location = $('#client-loan-location-filter')?.value || '';
+  const selectedProductId = $('#client-loan-product-filter')?.value || '';
+  const identifierSerialIds = await clientLoanMatchingSerialIds(search, '');
+  const normalizedProductSearch = search.toLocaleLowerCase('pt-BR');
+  const matchingProductIds = search ? state.products.filter(item => [item.name, item.model, item.brand].filter(Boolean).some(value => String(value).toLocaleLowerCase('pt-BR').includes(normalizedProductSearch))).map(item => item.id) : [];
+  let productSearchSerialIds = [];
+  if (matchingProductIds.length) {
+    const { data } = await supabase.from('serial_items').select('id').in('product_id', matchingProductIds.slice(0, 200)).limit(500);
+    productSearchSerialIds = (data || []).map(item => item.id);
+  }
+  const searchSerialIds = [...new Set([...identifierSerialIds, ...productSearchSerialIds])];
+  const productSerialIds = await clientLoanMatchingSerialIds('', selectedProductId);
+  const safeSearch = search.replace(/[,%()]/g, ' ').trim();
+  const parentSearchFields = ['customer_name','customer_reference','asset_tag_original','equipment_name_original','model_original','brand_original','mac_original','serial_original','location_original','city'];
+  let query = supabase.from('client_loans').select('*', { count:'exact' });
+  if (status === 'ativo') query = query.or('record_status.eq.ativo,and(record_status.is.null,returned_at.is.null)');
+  else if (status === 'encerrado') query = query.or('record_status.eq.encerrado,returned_at.not.is.null');
+  else if (status === 'pendente_analise') query = query.eq('record_status', 'pendente_analise');
+  if (location) {
+    const safeLocation = location.replace(/[,"]/g, ' ').trim();
+    query = query.or(`city.eq."${safeLocation}",location_original.eq."${safeLocation}"`);
+  }
+  if (safeSearch) {
+    const clauses = parentSearchFields.map(field => `${field}.ilike.%${safeSearch}%`);
+    if (searchSerialIds.length) clauses.push(`serial_item_id.in.(${searchSerialIds.join(',')})`);
+    query = query.or(clauses.join(','));
+  }
+  if (selectedProductId) {
+    const selectedProduct = product(selectedProductId);
+    const clauses = selectedProduct?.name ? [`equipment_name_original.ilike.%${selectedProduct.name.replace(/[,()%]/g,' ')}%`] : [];
+    if (productSerialIds.length) clauses.push(`serial_item_id.in.(${productSerialIds.join(',')})`);
+    query = clauses.length ? query.or(clauses.join(',')) : query.eq('id', '00000000-0000-0000-0000-000000000000');
+  }
+  const from = (clientLoanPage - 1) * clientLoanPageSize;
+  const result = await query.order('issued_at', { ascending:false }).order('id', { ascending:false }).range(from, from + clientLoanPageSize - 1);
+  if (sequence !== clientLoanLoadSequence) return;
+  if (result.error) {
+    state.clientLoans = [];
+    state.clientLoansLoadError = result.error.message;
+    setModuleLoadError('clientLoans', 'Comodatos', result.error);
+  } else {
+    state.clientLoans = result.data || [];
+    clientLoanTotal = result.count || 0;
+    state.clientLoansLoadError = '';
+    setModuleLoadSuccess('clientLoans');
+  }
+  renderClientLoans();
+  renderClientLoanPagination();
+}
+
+async function loadClientLoanMetrics() {
+  const count = async filter => {
+    let query = supabase.from('client_loans').select('id', { count:'exact', head:true });
+    if (filter === 'active') query = query.or('record_status.eq.ativo,and(record_status.is.null,returned_at.is.null)');
+    if (filter === 'returned') query = query.or('record_status.eq.encerrado,returned_at.not.is.null');
+    if (filter === 'pending') query = query.eq('record_status', 'pendente_analise');
+    const { count: total } = await query; return total || 0;
+  };
+  const [active, returned, pending] = await Promise.all([count('active'), count('returned'), count('pending')]);
+  clientLoanMetrics = { active, returned, pending };
+  renderClientLoans();
+}
+
+function renderClientLoanPagination() {
+  const pages = Math.max(1, Math.ceil(clientLoanTotal / clientLoanPageSize));
+  const from = clientLoanTotal ? (clientLoanPage - 1) * clientLoanPageSize + 1 : 0;
+  const to = Math.min(clientLoanPage * clientLoanPageSize, clientLoanTotal);
+  $('#client-loan-pagination-summary').textContent = `${from.toLocaleString('pt-BR')}–${to.toLocaleString('pt-BR')} de ${clientLoanTotal.toLocaleString('pt-BR')} registros`;
+  $('#client-loan-page-label').textContent = `Página ${clientLoanPage} de ${pages}`;
+  $('#client-loan-prev').disabled = clientLoanPage <= 1;
+  $('#client-loan-next').disabled = clientLoanPage >= pages;
+}
+
+async function openClientLoanReadView(id, historyOnly = false) {
+  const { data: loan, error } = await supabase.from('client_loans').select('*').eq('id', id).maybeSingle();
+  if (error || !loan) return alert(error?.message || 'Comodato não encontrado.');
+  const serialItem = loan.serial_item_id ? state.serialItems.find(item => item.id === loan.serial_item_id) : null;
+  const itemProduct = serialItem && product(serialItem.product_id);
+  $('#client-loan-read-title').textContent = historyOnly ? 'Histórico do comodato' : 'Detalhes do comodato';
+  $('#client-loan-read-details').innerHTML = `<dl><div><dt>Equipamento</dt><dd>${esc(itemProduct?.name || loan.equipment_name_original || '—')}</dd></div><div><dt>Modelo</dt><dd>${esc(itemProduct?.model || loan.model_original || '—')}</dd></div><div><dt>Patrimônio</dt><dd>${esc(serialItem?.asset_tag || loan.asset_tag_original || '—')}</dd></div><div><dt>MAC</dt><dd>${esc(serialItem?.mac_address || loan.mac_original || '—')}</dd></div><div><dt>Serial</dt><dd>${esc(serialItem?.serial_number || loan.serial_original || '—')}</dd></div><div><dt>Cliente atual</dt><dd>${esc(loan.customer_name || '—')}</dd></div><div><dt>Localização</dt><dd>${esc(loan.city || loan.location_original || '—')}</dd></div><div><dt>Instalação</dt><dd>${date(loan.installed_at || loan.issued_at)}</dd></div><div><dt>Status</dt><dd>${esc(loan.record_status || (loan.returned_at ? 'encerrado' : 'ativo'))}</dd></div></dl>`;
+  const history = $('#client-loan-read-history');
+  history.innerHTML = '<p class="muted">Carregando histórico...</p>';
+  $('#client-loan-read-dialog').showModal();
+  if (!loan.serial_item_id) return history.innerHTML = '<p class="empty">Este registro não possui histórico de unidade associado.</p>';
+  const { data: events, error: historyError } = await supabase.from('serial_movements').select('*').eq('serial_item_id', loan.serial_item_id).order('created_at', { ascending:false }).limit(100);
+  history.innerHTML = historyError ? '<p class="empty">Não foi possível carregar o histórico.</p>' : (events || []).map(event => `<article><time>${date(event.created_at)}</time><b>${esc(serialActionName(event.action))}</b>${event.note ? `<p>${esc(event.note)}</p>` : ''}</article>`).join('') || '<p class="empty">Nenhum evento registrado para este equipamento.</p>';
+  if (historyOnly) history.scrollIntoView({ block:'start' });
 }
 
 const toolLabel = item => {
@@ -2565,7 +2691,7 @@ async function load() {
     selectAllPages('serial_items', [{ column:'created_at' }, { column:'id' }]),
     selectAllPages('serial_movements', [{ column:'created_at' }, { column:'id' }]),
     selectAllPages('tool_loans', [{ column:'issued_at' }, { column:'id' }]),
-    selectAllPages('client_loans', [{ column:'issued_at' }, { column:'id' }]),
+    Promise.resolve({ data:[], error:null }),
     selectAllPages('receipts', [{ column:'received_at' }, { column:'id' }]),
     selectAllPages('receipt_items', [{ column:'created_at' }, { column:'id' }]),
     selectAllPages('inventory_sessions', [{ column:'started_at' }, { column:'id' }]),
@@ -2590,14 +2716,9 @@ async function load() {
   state.serialItems = serialItems.data;
   state.serialMovements = serialMovements.data;
   state.toolLoans = toolLoans.data;
-  if (clientLoans.error) {
-    setModuleLoadError('clientLoans', 'Comodatos', clientLoans.error);
-    state.clientLoansLoadError = clientLoans.error.message;
-  } else {
-    state.clientLoans = clientLoans.data;
-    state.clientLoansLoadError = '';
-    setModuleLoadSuccess('clientLoans');
-  }
+  state.clientLoans = [];
+  state.clientLoansLoadError = '';
+  state.loadStatus.clientLoans = 'idle';
   state.receipts = receipts.data;
   state.receiptItems = receiptItems.data;
   state.inventorySessions = inventorySessions.data;
@@ -2739,6 +2860,11 @@ function view(id, options = {}) {
   document.querySelectorAll('.nav-link').forEach(button => button.classList.toggle('active', button.dataset.view === id));
   document.querySelector('main').classList.toggle('dashboard-mode', id === 'dashboard');
   $('#page-title').textContent = ({ dashboard:'Visão geral', products:'Produtos', epis:'Controle de EPIs', movement:'Movimentações', receipts:'Recebimentos', serials:'Serial / MAC', laboratory:'Oficina', loans:'Empréstimos', 'client-loans':'Comodatos', 'vehicle-kits':'Kits dos Veículos', inventory:'Conferência de estoque', registry:'Cadastros', users:'Usuários', statement:'Extrato financeiro' })[id];
+  if (id === 'client-loans') {
+    loadClientLoanLocations().then(renderClientLoans);
+    loadClientLoanMetrics();
+    loadClientLoansPage();
+  }
 }
 
 document.querySelector('main').classList.add('dashboard-mode');
@@ -3115,11 +3241,34 @@ $('#clear-loan-filters').onclick = () => { $('#loan-search').value = ''; $('#loa
 $('#loan-item').onchange = updateLoanItemDetails;
 $('#client-loan-search').oninput = renderClientLoans;
 const clientLoanListSearch = $('#client-loan-list-search');
-if (clientLoanListSearch) clientLoanListSearch.oninput = renderClientLoans;
+if (clientLoanListSearch) clientLoanListSearch.oninput = () => { clearTimeout(clientLoanSearchTimer); clientLoanSearchTimer = setTimeout(() => loadClientLoansPage({ resetPage:true }), 400); };
 const clientLoanStatusFilter = $('#client-loan-status-filter');
-if (clientLoanStatusFilter) clientLoanStatusFilter.onchange = renderClientLoans;
+if (clientLoanStatusFilter) clientLoanStatusFilter.onchange = () => { document.querySelectorAll('[data-client-loan-tab]').forEach(button => button.classList.toggle('active', button.dataset.clientLoanTab === clientLoanStatusFilter.value)); loadClientLoansPage({ resetPage:true }); };
 const clientLoanLocationFilter = $('#client-loan-location-filter');
-if (clientLoanLocationFilter) clientLoanLocationFilter.onchange = renderClientLoans;
+if (clientLoanLocationFilter) clientLoanLocationFilter.onchange = () => loadClientLoansPage({ resetPage:true });
+$('#client-loan-product-filter').onchange = () => loadClientLoansPage({ resetPage:true });
+$('#client-loan-clear-filters').onclick = () => {
+  $('#client-loan-list-search').value = '';
+  $('#client-loan-status-filter').value = '';
+  $('#client-loan-location-filter').value = '';
+  $('#client-loan-product-filter').value = '';
+  document.querySelectorAll('[data-client-loan-tab]').forEach(button => button.classList.toggle('active', button.dataset.clientLoanTab === ''));
+  loadClientLoansPage({ resetPage:true });
+};
+document.querySelectorAll('[data-client-loan-tab]').forEach(button => button.onclick = () => {
+  $('#client-loan-status-filter').value = button.dataset.clientLoanTab;
+  document.querySelectorAll('[data-client-loan-tab]').forEach(item => item.classList.toggle('active', item === button));
+  loadClientLoansPage({ resetPage:true });
+});
+document.querySelectorAll('[data-client-loan-card-filter]').forEach(card => card.onclick = () => {
+  const filter = card.dataset.clientLoanCardFilter;
+  if (!filter) return;
+  $('#client-loan-status-filter').value = filter;
+  document.querySelectorAll('[data-client-loan-tab]').forEach(item => item.classList.toggle('active', item.dataset.clientLoanTab === filter));
+  loadClientLoansPage({ resetPage:true });
+});
+$('#client-loan-prev').onclick = () => { if (clientLoanPage > 1) { clientLoanPage--; loadClientLoansPage(); } };
+$('#client-loan-next').onclick = () => { if (clientLoanPage * clientLoanPageSize < clientLoanTotal) { clientLoanPage++; loadClientLoansPage(); } };
 const clientLoanItem = $('#client-loan-item');
 if (clientLoanItem) clientLoanItem.onchange = renderClientLoanFormSummary;
 const clientLoanCustomerName = $('#client-loan-customer-name');
