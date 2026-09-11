@@ -1,5 +1,6 @@
 import { createClient } from '@supabase/supabase-js';
-import { readSheet as readXlsxSheet } from 'read-excel-file/browser';
+import { debounce, groupBy, createReadCache, renderWindowedBlocks, renderWindowedTable } from './read-performance.js';
+const readXlsxSheet = async (...args) => (await import('read-excel-file/browser')).readSheet(...args);
 
 const supabase = createClient(import.meta.env.VITE_SUPABASE_URL, import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY);
 let state = { products: [], movements: [], users: [], usersLoadNote: '', collaborators: [], vehicles: [], locations: [], suppliers: [], serialItems: [], serialMovements: [], toolLoans: [], clientLoans: [], clientLoansLoadError: '', receipts: [], receiptItems: [], inventorySessions: [], inventoryCounts: [], reminders: [], materialRequests: [], technicianPendencies: [], technicianPendingEvents: [], technicianPendingItems: [], technicianPendenciesLoadError: '', vehicleKits: [], vehicleKitRequirements: [], vehicleKitItems: [], vehicleKitEvents: [], vehicleKitsLoadError: '', loadStatus: { clientLoans:'idle', reminders:'idle', materialRequests:'idle', technicianPendencies:'idle' }, loadErrors: {}, productFilter: 'all', clientLoanImport: null };
@@ -15,9 +16,11 @@ let clientLoanPage = 1;
 const clientLoanPageSize = 50;
 let clientLoanTotal = 0;
 let clientLoanMetrics = { active:0, returned:0, pending:0 };
+let clientLoanAvailableTotal = null;
 let clientLoanLocations = [];
 let clientLoanLoadSequence = 0;
 let clientLoanSearchTimer = null;
+let clientLoanAbortController = null;
 let passwordRecoveryMode = false;
 const passwordRecoveryStorageKey = 'digitus-password-recovery';
 const $ = selector => document.querySelector(selector);
@@ -142,11 +145,20 @@ function openPasswordReset() {
   const dialog = $('#reset-password-dialog');
   if (!dialog.open) dialog.showModal();
 }
-const product = id => state.products.find(item => String(item.id) === String(id));
+let indexedProducts = null;
+let productsById = new Map();
+const product = id => {
+  if (indexedProducts !== state.products) {
+    indexedProducts = state.products;
+    productsById = new Map(state.products.map(item => [String(item.id), item]));
+  }
+  return productsById.get(String(id));
+};
 const activeProducts = () => state.products.filter(item => item.is_active !== false);
 const isEpiProduct = item => item?.category === 'EPI';
 const low = item => item.stock <= item.minimum;
-const date = value => new Date(value).toLocaleString('pt-BR', { dateStyle: 'short', timeStyle: 'short' });
+const displayDateFormatter = new Intl.DateTimeFormat('pt-BR', { dateStyle: 'short', timeStyle: 'short' });
+const date = value => { const parsed = new Date(value); return Number.isNaN(parsed.getTime()) ? 'Invalid Date' : displayDateFormatter.format(parsed); };
 const status = item => item.stock === 0 ? '<span class="badge out">Sem estoque</span>' : low(item) ? '<span class="badge low">Estoque baixo</span>' : '<span class="badge ok">Disponível</span>';
 const roleName = role => ({ admin: 'Administrador', operador: 'Operador', tecnico: 'Técnico' }[role] || 'Técnico');
 const holderTypeName = type => ({ tecnico: 'Técnico', veiculo: 'Veículo', cliente: 'Cliente', outro: 'Outro' }[type] || 'Outro');
@@ -157,14 +169,98 @@ const currency = value => Number(value || 0).toLocaleString('pt-BR', { style: 'c
 const dateOnly = value => value ? new Date(`${value}T00:00:00`).toLocaleDateString('pt-BR') : '—';
 const stockLabel = item => `${quantity(item.stock)} ${unitName(item.unit_of_measure)}`;
 const READ_PAGE_SIZE = 500;
+const lazyReads = createReadCache();
+const lazyTables = {
+  movements: ['movements', 'created_at'],
+  serialItems: ['serial_items', 'created_at'],
+  receiptItems: ['receipt_items', 'created_at'],
+  technicianPendingEvents: ['technician_pending_events', 'occurred_at'],
+  technicianPendingItems: ['technician_pending_items', 'created_at'],
+  serialMovements: ['serial_movements', 'created_at'],
+  receipts: ['receipts', 'received_at'],
+  inventorySessions: ['inventory_sessions', 'started_at'],
+  inventoryCounts: ['inventory_counts', 'created_at'],
+  vehicleKits: ['vehicle_tool_kits', 'created_at'],
+  vehicleKitRequirements: ['vehicle_tool_kit_requirements', 'id'],
+  vehicleKitItems: ['vehicle_tool_kit_items', 'added_at'],
+  vehicleKitEvents: ['vehicle_tool_kit_events', 'created_at']
+};
+const viewReads = {
+  movement: ['movements', 'serialItems', 'serialMovements', 'receipts', 'receiptItems', 'technicianPendingEvents', 'technicianPendingItems', 'vehicleKits', 'vehicleKitRequirements', 'vehicleKitItems'],
+  epis: ['movements'],
+  receipts: ['receipts', 'receiptItems', 'serialItems'],
+  statement: ['receipts', 'receiptItems', 'movements'],
+  serials: ['serialItems'],
+  laboratory: ['serialItems'],
+  loans: ['serialItems'],
+  'client-loans': [],
+  inventory: ['inventorySessions', 'inventoryCounts', 'serialItems'],
+  'vehicle-kits': ['serialItems', 'vehicleKits', 'vehicleKitRequirements', 'vehicleKitItems', 'vehicleKitEvents']
+};
+const mapMovement = item => ({ id:item.id, type:item.movement_type, productId:item.product_id, quantity:item.quantity, person:item.recipient, holderType:item.holder_type || 'cliente', workOrder:item.work_order, fieldUsage:item.field_usage || false, stockImpact:item.stock_impact, stockBefore:item.stock_before, stockAfter:item.stock_after, pendingId:item.pending_id, note:item.note, createdAt:item.created_at, date:date(item.created_at) });
+async function ensureReadData(keys) {
+  await Promise.all(keys.map(key => lazyReads.get(key, async () => {
+    const [table, timestamp] = lazyTables[key];
+    const orders = [{ column:timestamp }];
+    if (key === 'technicianPendingItems') orders.push({ column:'pending_id' }, { column:'serial_item_id' });
+    else if (timestamp !== 'id') orders.push({ column:'id' });
+    const result = await selectAllPages(table, orders);
+    if (result.error) throw result.error;
+    return result.data;
+  }, rows => { state[key] = key === 'movements' ? rows.map(mapMovement) : rows; })));
+}
+function renderActiveView() {
+  const id = document.querySelector('.view.active')?.id || 'dashboard';
+  if ((viewReads[id] || []).some(key => !lazyReads.has(key))) return;
+  const renderer = { products:renderProducts, epis:renderEpis, movement:renderMovement, users:renderUsers, registry:renderRegistry, receipts:renderReceipts, serials:renderSerials, laboratory:renderLaboratory, loans:renderLoans, 'client-loans':renderClientLoans, 'vehicle-kits':renderVehicleKits, inventory:renderInventory, statement:renderStatement }[id];
+  renderer?.();
+}
+let viewReadSequence = 0;
+let coreReadPromise = Promise.resolve();
+let loadInFlight = null;
+let reloadRequested = false;
+let coreLoadedAt = 0;
+async function prepareActiveView() {
+  const sequence = ++viewReadSequence;
+  const id = document.querySelector('.view.active')?.id || 'dashboard';
+  const section = document.getElementById(id);
+  let ready = false;
+  section?.setAttribute('aria-busy', 'true');
+  if (section) section.inert = true;
+  try {
+    try { await coreReadPromise; } catch (_) { coreLoadedAt = 0; }
+    if (sequence !== viewReadSequence) return;
+    // Revalidate operational data when returning after a pause; never refresh a
+    // form in the background while its user is entering unsaved values.
+    if (!loadInFlight && Date.now() - coreLoadedAt > 30000) {
+      coreReadPromise = loadSnapshot();
+      await coreReadPromise;
+      if (sequence !== viewReadSequence) return;
+    }
+    await ensureReadData(viewReads[id] || []);
+    if (id === 'users') await loadUsers();
+    if (sequence !== viewReadSequence) return;
+    renderActiveView();
+    if (id === 'client-loans') await Promise.all([loadClientLoanLocations().then(renderClientLoans), loadClientLoanMetrics(), loadClientLoansPage()]);
+    ready = true;
+  } catch (error) {
+    console.error('[Leitura da aba]', error);
+    if (sequence === viewReadSequence) alert('Não foi possível carregar esta tela. Tente abri-la novamente.');
+  } finally {
+    if (section && (sequence === viewReadSequence || !section.classList.contains('active'))) {
+      section.inert = section.classList.contains('active') && !ready;
+      section.removeAttribute('aria-busy');
+    }
+  }
+}
 
 // Busca blocos menores para não depender do limite máximo configurado no
 // PostgREST. A ordenação estável no banco impede saltos ou duplicações entre
 // páginas quando vários registros possuem o mesmo horário.
-async function selectAllPages(table, orders, columns = '*') {
+async function selectAllPages(table, orders, columns = '*', filter = query => query) {
   const rows = [];
   for (let from = 0; ; from += READ_PAGE_SIZE) {
-    let query = supabase.from(table).select(columns);
+    let query = filter(supabase.from(table).select(columns));
     orders.forEach(({ column, ascending = false }) => {
       query = query.order(column, { ascending });
     });
@@ -663,7 +759,8 @@ function matchesSerialSearch(item, query) {
   return productText.includes(search) || matchesSerialIdentifier(item, search);
 }
 
-function useScannedCode(rawCode) {
+async function useScannedCode(rawCode) {
+  try { await ensureReadData(['serialItems']); } catch (error) { scannerMessage('Não foi possível consultar os equipamentos. Tente novamente.'); return; }
   const code = String(rawCode || '').trim();
   const result = findScannedItem(code);
   if (!result) {
@@ -676,7 +773,7 @@ function useScannedCode(rawCode) {
     stopCodeScanner();
     $('#code-scanner-dialog').close();
     if (scannerTarget === 'movement') {
-      view('movement');
+      await view('movement');
       $('#movement-type').value = 'saida';
       $('#movement-holder-type').value = 'tecnico';
       $('#movement-product').value = result.item.product_id;
@@ -706,7 +803,7 @@ function useScannedCode(rawCode) {
   stopCodeScanner();
   $('#code-scanner-dialog').close();
   if (scannerTarget === 'movement') {
-    view('movement');
+    await view('movement');
     $('#movement-product').value = result.item.id;
     updateMovementMode();
     $('#movement-quantity').focus();
@@ -879,9 +976,10 @@ const serialActionName = action => ({ transferencia:'Transferência', instalacao
 const isLaboratorySerial = item => ['laboratorio', 'manutencao', 'defeito', 'aguardando_triagem'].includes(item.status);
 const loanTypeName = type => type === 'cautela' ? 'Empréstimo sem prazo' : 'Empréstimo temporário';
 const loanOverdue = loan => !loan.returned_at && loan.due_at && new Date() >= new Date(loan.due_at);
+const localDayFormatter = new Intl.DateTimeFormat('en-CA', { timeZone: 'America/Sao_Paulo', year: 'numeric', month: '2-digit', day: '2-digit' });
 const localDateKey = value => {
   const target = value ? new Date(value) : new Date();
-  return new Intl.DateTimeFormat('en-CA', { timeZone: 'America/Sao_Paulo', year: 'numeric', month: '2-digit', day: '2-digit' }).format(target);
+  return localDayFormatter.format(target);
 };
 const loanStatus = loan => {
   if (loan.returned_at) {
@@ -906,11 +1004,19 @@ const normalizeHistoryText = value => String(value ?? '').normalize('NFD').repla
 
 function receiptMovementLinks() {
   const byItem = new Map(), movementIds = new Set();
+  const receiptItemsById = groupBy(state.receiptItems, 'receipt_id');
+  const candidates = new Map();
+  for (const movement of state.movements) {
+    if (movement.type !== 'entrada') continue;
+    const key = JSON.stringify([String(movement.person || '').trim().toLocaleLowerCase('pt-BR'), movement.productId, Number(movement.quantity)]);
+    if (!candidates.has(key)) candidates.set(key, []);
+    candidates.get(key).push(movement);
+  }
   state.receipts.forEach(receipt => {
     const receiptTime = new Date(receipt.received_at || 0).getTime();
     const supplier = `Recebimento: ${String(receipt.supplier || '').trim()}`.toLocaleLowerCase('pt-BR');
-    state.receiptItems.filter(item => item.receipt_id === receipt.id).forEach(item => {
-      const match = state.movements
+    (receiptItemsById.get(receipt.id) || []).forEach(item => {
+      const match = (candidates.get(JSON.stringify([supplier, item.product_id, Number(item.quantity)])) || [])
         .filter(movement => !movementIds.has(movement.id)
           && movement.type === 'entrada'
           && String(movement.person || '').trim().toLocaleLowerCase('pt-BR') === supplier
@@ -945,13 +1051,27 @@ function historyEntryMatches(entry, filters) {
     && (!filters.to || day <= filters.to);
 }
 
+let historyCache = null;
+function historyEntries() {
+  const inputs = [state.products, state.movements, state.receipts, state.receiptItems, state.serialItems, state.serialMovements, state.technicianPendencies, state.technicianPendingEvents, state.technicianPendingItems, state.locations];
+  if (!historyCache || inputs.some((value, index) => historyCache.inputs[index] !== value)) {
+    historyCache = { inputs, entries:buildHistoryEntries() };
+  }
+  return historyCache.entries;
+}
+
 function buildHistoryEntries() {
   const links = receiptMovementLinks();
   const entries = [];
+  const receiptItemsById = groupBy(state.receiptItems, 'receipt_id');
+  const unitsByReceipt = groupBy(state.serialItems, 'receipt_id');
+  const unitsById = new Map(state.serialItems.map(item => [item.id, item]));
+  const pendingById = new Map(state.technicianPendencies.map(item => [item.id, item]));
+  const linksByPending = groupBy(state.technicianPendingItems, 'pending_id');
 
   state.receipts.forEach(receipt => {
-    const items = state.receiptItems.filter(item => item.receipt_id === receipt.id);
-    const units = state.serialItems.filter(item => item.receipt_id === receipt.id);
+    const items = receiptItemsById.get(receipt.id) || [];
+    const units = unitsByReceipt.get(receipt.id) || [];
     const movements = items.map(item => links.byItem.get(item.id)).filter(Boolean);
     const oneItem = items.length === 1 ? items[0] : null;
     const itemSummary = items.map(item => `${quantity(item.quantity)} ${unitName(item.unit_of_measure)} ${item.product_name || product(item.product_id)?.name || 'Produto'}`).join(', ');
@@ -1000,7 +1120,7 @@ function buildHistoryEntries() {
   });
 
   state.serialMovements.filter(item => !item.pending_id).forEach(item => {
-    const serialItem = state.serialItems.find(entry => entry.id === item.serial_item_id), itemProduct = serialItem && product(serialItem.product_id);
+    const serialItem = unitsById.get(item.serial_item_id), itemProduct = serialItem && product(serialItem.product_id);
     const from = state.locations.find(location => location.id === item.from_location_id)?.name || serialStatusName(item.previous_status);
     const to = state.locations.find(location => location.id === item.to_location_id)?.name || item.customer_name || item.recipient || serialStatusName(item.new_status);
     const impact = Number(item.stock_impact ?? (item.previous_status === 'disponivel' && item.new_status !== 'disponivel' ? -1 : item.previous_status !== 'disponivel' && item.new_status === 'disponivel' ? 1 : 0));
@@ -1032,10 +1152,10 @@ function buildHistoryEntries() {
   });
 
   state.technicianPendingEvents.forEach(event => {
-    const pending = state.technicianPendencies.find(item => item.id === event.pending_id);
+    const pending = pendingById.get(event.pending_id);
     if (!pending) return;
     const itemProduct = product(pending.product_id);
-    const linkedUnits = state.technicianPendingItems.filter(link => link.pending_id === pending.id).map(link => state.serialItems.find(item => item.id === link.serial_item_id)).filter(Boolean);
+    const linkedUnits = (linksByPending.get(pending.id) || []).map(link => unitsById.get(link.serial_item_id)).filter(Boolean);
     const eventType = event.event_type;
     const label = { retirada:'Retirada para técnico', transferencia:'Repasse para outro técnico', prorrogacao:'Prorrogação de prazo', devolucao:'Devolução ao almoxarifado', utilizacao:'Instalação / utilização' }[eventType] || eventType;
     const types = ({ retirada:['tecnico'], transferencia:['transferencia','tecnico'], prorrogacao:['prorrogacao','tecnico'], devolucao:['devolucao'], utilizacao:['instalacao'] })[eventType] || [];
@@ -1079,7 +1199,7 @@ function getFieldStockItems() {
 
 function render() {
   const availableProducts = activeProducts().filter(item => !isEpiProduct(item));
-  const exits = state.movements.filter(item => item.type === 'saida' && !item.fieldUsage).length;
+  const exits = state.dashboardExitCount ?? state.movements.filter(item => item.type === 'saida' && !item.fieldUsage).length;
   const openLoans = state.toolLoans.filter(item => !item.returned_at).length;
   const returns = state.toolLoans.filter(item => item.returned_at).length;
   const outOfStock = availableProducts.filter(item => Number(item.stock) === 0).length;
@@ -1095,7 +1215,8 @@ function render() {
   renderDashboardStockValue(activeProducts());
   renderDashboardOperations();
   renderNotifications();
-  renderProducts(); renderEpis(); renderMovement(); renderUsers(); renderRegistry(); renderReceipts(); renderSerials(); renderLaboratory(); renderLoans(); renderClientLoans(); renderVehicleKits(); renderInventory(); renderStatement();
+  renderRegistry();
+  renderActiveView();
   addPackageUnitOption();
 }
 
@@ -1204,15 +1325,17 @@ function renderProducts() {
       || statusFilter === 'out' && Number(item.stock) === 0;
     return matchesPreset && matchesCategory && matchesStatus && `${item.name} ${item.code} ${item.category}`.toLowerCase().includes(query);
   });
-  $('#products-table').innerHTML = products.map(item => {
+  renderWindowedTable($('#products-table'), products, item => {
     const image = productImageUrl(item);
     return `<tr><td><div class="product-name-cell">${image ? `<span class="product-thumbnail"><img src="${esc(image)}" alt="Foto de ${esc(item.name)}" /></span>` : ''}<div><b>${esc(item.name)}</b><small>${esc([item.brand, item.model].filter(Boolean).join(' · ') || (item.tracking_mode === 'serializado' ? 'Rastreável por serial/MAC' : 'Controle por quantidade'))}</small></div></div></td><td>${esc(item.code)}</td><td>${esc(item.category)}</td>${canViewCosts ? `<td><b>${currency(item.average_cost)}</b><small>por ${unitName(item.unit_of_measure)}</small></td>` : ''}<td><b>${stockLabel(item)}</b><small>mínimo: ${quantity(item.minimum)} ${unitName(item.unit_of_measure)}</small></td><td>${status(item)}</td><td><div class="table-actions">${canEdit ? `<button class="secondary-button" data-edit-product="${item.id}">Editar</button>` : ''}${canDelete ? `<button class="danger-button" data-delete-product="${item.id}">Apagar</button>` : ''}${!canEdit && !canDelete ? '—' : ''}</div></td></tr>`;
-  }).join('') || `<tr><td colspan="${canViewCosts ? 7 : 6}" class="empty">Nenhum produto encontrado.</td></tr>`;
+  }, `<tr><td colspan="${canViewCosts ? 7 : 6}" class="empty">Nenhum produto encontrado.</td></tr>`, () => {
   document.querySelectorAll('[data-edit-product]').forEach(button => button.onclick = () => openProductEditor(button.dataset.editProduct));
   document.querySelectorAll('[data-delete-product]').forEach(button => button.onclick = () => deleteProduct(button.dataset.deleteProduct));
+  });
 }
 
 function renderEpis() {
+  if (!lazyReads.has('movements')) return;
   const table = $('#epis-table');
   if (!table) return;
   const filter = $('#epi-status-filter').value;
@@ -1245,6 +1368,7 @@ function renderEpis() {
 }
 
 function renderMovement() {
+  if (viewReads.movement.some(key => !lazyReads.has(key))) return;
   const select = $('#movement-product'), selected = select.value;
   const canDelete = currentUser?.role === 'admin';
   const products = activeProducts();
@@ -1252,7 +1376,7 @@ function renderMovement() {
   select.value = selected || products[0]?.id || '';
   renderMovementSerialUnits();
   const filters = historyFilters();
-  const entries = buildHistoryEntries().filter(item => historyEntryMatches(item, filters));
+  const entries = historyEntries().filter(item => historyEntryMatches(item, filters));
   const totals = kind => entries.filter(item => item.metricKinds.includes(kind)).length;
   $('#history-entry-count').textContent = totals('entrada');
   $('#history-exit-count').textContent = totals('saida');
@@ -1266,9 +1390,23 @@ function renderMovement() {
     if (!grouped.has(key)) grouped.set(key, []);
     grouped.get(key).push(entry);
   });
-  $('#movement-history').innerHTML = [...grouped].map(([day, dayEntries]) => `<section class="history-day"><h3>${esc(historyDayLabel(day))}</h3><div>${dayEntries.map(entry => historyCardHtml(entry, canDelete)).join('')}</div></section>`).join('') || '<div class="history-empty"><span>⌕</span><b>Nenhuma movimentação encontrada</b><small>Ajuste os filtros ou o período para visualizar outros registros.</small></div>';
-  document.querySelectorAll('[data-delete-movement]').forEach(button => button.onclick = () => deleteMovement(button.dataset.deleteMovement));
-  document.querySelectorAll('[data-history-receipt]').forEach(button => button.onclick = () => openReceiptDetails(button.dataset.historyReceipt));
+  const blocks = [...grouped].flatMap(([day, dayEntries]) => {
+    const chunks = [];
+    for (let offset = 0; offset < dayEntries.length; offset += 20) {
+      const page = dayEntries.slice(offset, offset + 20);
+      const heading = offset === 0 ? `<h3>${esc(historyDayLabel(day))}</h3>` : '';
+      const spacing = offset ? ' style="margin-top:9px"' : '';
+      chunks.push({ height:page.length * 260 + (offset === 0 ? 45 : 0), html:() => `<section class="history-day"${spacing}>${heading}<div>${page.map(entry => historyCardHtml(entry, canDelete)).join('')}</div></section>` });
+    }
+    return chunks;
+  });
+  if (!blocks.length) blocks.push({ height:100, html:() => '<div class="history-empty"><span>⌕</span><b>Nenhuma movimentação encontrada</b><small>Ajuste os filtros ou o período para visualizar outros registros.</small></div>' });
+  renderWindowedBlocks($('#movement-history'), blocks);
+  $('#movement-history').onclick = event => {
+    const button = event.target.closest('button');
+    if (button?.dataset.deleteMovement) deleteMovement(button.dataset.deleteMovement);
+    else if (button?.dataset.historyReceipt) openReceiptDetails(button.dataset.historyReceipt);
+  };
 }
 
 function historyDayLabel(day) {
@@ -1296,7 +1434,8 @@ function updateTechnicianPendingAction() {
   $('#technician-pending-due-group').hidden = !['transferir','prorrogar'].includes(action);
 }
 
-function openTechnicianPending(id) {
+async function openTechnicianPending(id) {
+  try { await ensureReadData(['serialItems', 'technicianPendingEvents', 'technicianPendingItems']); } catch (error) { return alert('Não foi possível carregar os detalhes da pendência. Tente novamente.'); }
   const item = state.technicianPendencies.find(entry => entry.id === id);
   if (!item) return;
   const deadline = pendingDeadlineState(item);
@@ -1620,7 +1759,8 @@ function openXmlImportDialog() {
   $('#xml-import-dialog').showModal();
 }
 
-function openReceiptDetails(id, options = {}) {
+async function openReceiptDetails(id, options = {}) {
+  try { await ensureReadData(['receipts', 'receiptItems', 'serialItems', 'movements']); } catch (error) { return alert('Não foi possível carregar os detalhes do recebimento. Tente novamente.'); }
   const receipt = state.receipts.find(item => item.id === id);
   if (!receipt) return;
   const items = state.receiptItems.filter(item => item.receipt_id === id);
@@ -1678,14 +1818,14 @@ function renderReceipts() {
   const isCurrentMonth = value => { const parsed = new Date(value); return !Number.isNaN(parsed.getTime()) && parsed.getFullYear() === now.getFullYear() && parsed.getMonth() === now.getMonth(); };
   const receipts = [...state.receipts].sort((a,b) => new Date(b.received_at) - new Date(a.received_at));
   const monthReceipts = receipts.filter(receipt => isCurrentMonth(receipt.received_at));
-  const itemsByReceipt = new Map(receipts.map(receipt => [receipt.id, state.receiptItems.filter(item => item.receipt_id === receipt.id)]));
+  const itemsByReceipt = groupBy(state.receiptItems, 'receipt_id');
   const identifications = new Map(receipts.map(receipt => [receipt.id, receiptIdentification(receipt, itemsByReceipt.get(receipt.id) || [])]));
   $('.receipts-list-heading').hidden = !receipts.length;
   $('#receipts-month-count').textContent = monthReceipts.length;
   $('#receipts-units-count').textContent = quantity(monthReceipts.reduce((sum, receipt) => sum + (itemsByReceipt.get(receipt.id) || []).reduce((subtotal, item) => subtotal + Number(item.quantity || 0), 0), 0));
   $('#receipts-pending-count').textContent = quantity(receipts.reduce((sum, receipt) => sum + identifications.get(receipt.id).pending, 0));
   $('#receipts-finalized-count').textContent = monthReceipts.filter(receipt => identifications.get(receipt.id).kind !== 'pending').length;
-  table.innerHTML = receipts.map(receipt => {
+  const receiptHtml = receipt => {
     const items = itemsByReceipt.get(receipt.id) || [];
     const identification = identifications.get(receipt.id);
     const summary = items.length ? `${items.slice(0, 2).map(item => esc(item.product_name)).join(', ')}${items.length > 2 ? ` +${items.length - 2}` : ''}` : 'Sem materiais';
@@ -1696,11 +1836,22 @@ function renderReceipts() {
     const progress = identification.declared ? Math.min(100, (identification.identified / identification.declared) * 100) : 0;
     const identificationHtml = ['ready','pending'].includes(identification.kind) ? `<div class="receipt-identification-progress"><span>${esc(identificationLabel)}</span><i aria-hidden="true"><b style="width:${progress}%"></b></i></div>` : `<span class="receipt-identification ${identification.kind}">${esc(identificationLabel)}</span>`;
     return `<article class="receipt-list-row"><div data-label="Recebimento"><b>${esc(code)}</b><small>${items.length} ${items.length === 1 ? 'material' : 'materiais'}</small></div><div data-label="Fornecedor / NF"><b>${esc(receipt.supplier)}</b><small>${receipt.invoice_number ? `NF ${esc(receipt.invoice_number)}` : 'NF não informada'}</small></div><div data-label="Materiais"><span>${summary}</span></div><div data-label="Identificação">${identificationHtml}</div><div data-label="Recebido em"><time>${date(receipt.received_at)}</time></div><div data-label="Status"><span class="receipt-status ${identification.kind === 'pending' ? 'pending' : 'finalized'}"><i aria-hidden="true"></i>${esc(statusLabel)}</span></div><div data-label="Ações" class="receipt-row-actions"><button class="secondary-button" data-receipt-details="${receipt.id}" data-receipt-equipment="${identification.kind !== 'none'}" type="button">${mainAction}</button><button class="text-button" data-receipt-history="${receipt.id}" type="button">Histórico</button></div></article>`;
-  }).join('') || `<div class="receipts-empty"><span aria-hidden="true">↓</span><b>Nenhum recebimento registrado</b><p>Registre sua primeira entrada de materiais ou importe o XML de uma NF-e.</p>${canManage ? '<div><button class="primary" data-empty-new-receipt type="button">+ Novo recebimento</button><button class="secondary-button" data-empty-import-xml type="button">Importar XML da NF-e</button></div>' : ''}</div>`;
-  document.querySelectorAll('[data-receipt-details]').forEach(button => button.onclick = () => openReceiptDetails(button.dataset.receiptDetails, { equipment:button.dataset.receiptEquipment === 'true' }));
-  document.querySelectorAll('[data-receipt-history]').forEach(button => button.onclick = () => openReceiptInHistory(button.dataset.receiptHistory));
-  $('[data-empty-new-receipt]')?.addEventListener('click', openReceiptDialog);
-  $('[data-empty-import-xml]')?.addEventListener('click', openXmlImportDialog);
+  };
+  const blocks = [];
+  for (let offset = 0; offset < receipts.length; offset += 20) {
+    const rows = receipts.slice(offset, offset + 20);
+    blocks.push({ height:rows.length * 85, html:() => rows.map(receiptHtml).join('') });
+  }
+  if (!blocks.length) blocks.push({ height:100, html:() => `<div class="receipts-empty"><span aria-hidden="true">↓</span><b>Nenhum recebimento registrado</b><p>Registre sua primeira entrada de materiais ou importe o XML de uma NF-e.</p>${canManage ? '<div><button class="primary" data-empty-new-receipt type="button">+ Novo recebimento</button><button class="secondary-button" data-empty-import-xml type="button">Importar XML da NF-e</button></div>' : ''}</div>` });
+  renderWindowedBlocks(table, blocks);
+  table.onclick = event => {
+    const button = event.target.closest('button');
+    if (!button) return;
+    if (button.dataset.receiptDetails) openReceiptDetails(button.dataset.receiptDetails, { equipment:button.dataset.receiptEquipment === 'true' });
+    else if (button.dataset.receiptHistory) openReceiptInHistory(button.dataset.receiptHistory);
+    else if (button.hasAttribute('data-empty-new-receipt')) openReceiptDialog();
+    else if (button.hasAttribute('data-empty-import-xml')) openXmlImportDialog();
+  };
 }
 
 function financialEntries() {
@@ -1852,11 +2003,16 @@ function renderSerials() {
   const serials = state.serialItems.filter(item => {
     return matchesSerialSearch(item, search);
   });
-  table.innerHTML = serials.map(item => {
+  renderWindowedTable(table, serials, item => {
     const itemProduct = product(item.product_id), location = state.locations.find(entry => entry.id === item.current_location_id);
     const canManageSerial = ['admin', 'operador'].includes(currentUser?.role);
     return `<tr><td><b>${esc(itemProduct?.name || 'Item removido')}</b><small>${esc(itemProduct?.code || '—')}</small></td><td>${esc(item.serial_number || '—')}</td><td>${esc(item.mac_address || '—')}</td><td>${esc(item.asset_tag || '—')}</td><td>${esc(item.current_technician || location?.name || item.customer_name || '—')}</td><td><span class="badge ${serialStatusClass(item.status)}">${esc(serialStatusName(item.status))}</span></td><td><div class="table-actions">${item.status !== 'baixado' ? `<button class="secondary-button" data-move-serial="${item.id}">Mover</button>` : ''}${canManageSerial ? `<button class="secondary-button" data-edit-serial="${item.id}">Editar</button>` : ''}<button class="text-button" data-history-serial="${item.id}">Histórico</button><button class="danger-button" data-admin-only hidden data-delete-serial="${item.id}">Excluir</button></div></td></tr>`;
-  }).join('') || '<tr><td colspan="7" class="empty">Nenhuma unidade rastreável encontrada.</td></tr>';
+  }, '<tr><td colspan="7" class="empty">Nenhuma unidade rastreável encontrada.</td></tr>', () => {
+    document.querySelectorAll('[data-move-serial]').forEach(button => button.onclick = () => openSerialTransfer(button.dataset.moveSerial));
+    document.querySelectorAll('[data-history-serial]').forEach(button => button.onclick = () => openSerialHistory(button.dataset.historySerial));
+    document.querySelectorAll('[data-delete-serial]').forEach(button => button.onclick = () => deleteSerialItem(button.dataset.deleteSerial));
+    document.querySelectorAll('[data-edit-serial]').forEach(button => button.onclick = () => openSerialEdit(button.dataset.editSerial));
+  });
   const locations = state.locations.filter(item => item.active);
   $('#serial-location').innerHTML = '<option value="">Almoxarifado central</option>' + locations.map(item => `<option value="${item.id}">${esc(item.name)}</option>`).join('');
   document.querySelectorAll('[data-move-serial]').forEach(button => button.onclick = () => openSerialTransfer(button.dataset.moveSerial));
@@ -1951,13 +2107,18 @@ function updateSerialTransferForm() {
   $('#transfer-help').textContent = messages[action];
 }
 
-function openSerialHistory(id) {
+async function openSerialHistory(id) {
   const item = state.serialItems.find(entry => entry.id === id), itemProduct = item && product(item.product_id);
   if (!item) return;
+  const [historyResult, receiptResult] = await Promise.all([
+    selectAllPages('serial_movements', [{ column:'created_at' }, { column:'id' }], '*', query => query.eq('serial_item_id', id)),
+    item.receipt_id ? supabase.from('receipts').select('*').eq('id', item.receipt_id).maybeSingle() : Promise.resolve({ data:null, error:null })
+  ]);
+  if (historyResult.error || receiptResult.error) return alert('Não foi possível carregar o histórico da unidade. Tente novamente.');
   $('#delete-serial-history').dataset.serialItemId = id;
   $('#delete-serial-item').dataset.serialItemId = id;
-  const movements = state.serialMovements.filter(entry => entry.serial_item_id === id);
-  const originReceipt = item.receipt_id ? state.receipts.find(entry => entry.id === item.receipt_id) : null;
+  const movements = historyResult.data;
+  const originReceipt = receiptResult.data;
   const originButton = $('#serial-origin-receipt');
   originButton.hidden = !originReceipt;
   originButton.onclick = originReceipt ? () => { $('#serial-history-dialog').close(); openReceiptDetails(originReceipt.id); } : null;
@@ -2140,7 +2301,7 @@ function renderClientLoans() {
   const activeCount = $('#client-loan-active-count');
   const returnedCount = $('#client-loan-returned-count');
   if (openCount) openCount.textContent = clientLoanMetrics.active;
-  if (availableCount) availableCount.textContent = availableItems.length;
+  if (availableCount) availableCount.textContent = clientLoanAvailableTotal ?? availableItems.length;
   if (activeCount) activeCount.textContent = clientLoanMetrics.active;
   if (returnedCount) returnedCount.textContent = clientLoanMetrics.returned;
 
@@ -2197,7 +2358,7 @@ async function loadClientLoanLocations() {
   clientLoanLocations = [...new Set((data || []).flatMap(item => [item.city, item.location_original]).filter(Boolean))].sort((a,b) => a.localeCompare(b, 'pt-BR'));
 }
 
-async function clientLoanMatchingSerialIds(search, selectedProductId) {
+async function clientLoanMatchingSerialIds(search, selectedProductId, signal) {
   let query = supabase.from('serial_items').select('id').limit(500);
   if (selectedProductId) query = query.eq('product_id', selectedProductId);
   if (search) {
@@ -2205,11 +2366,15 @@ async function clientLoanMatchingSerialIds(search, selectedProductId) {
     query = query.or(`mac_address.ilike.%${term}%,serial_number.ilike.%${term}%,asset_tag.ilike.%${term}%`);
   }
   if (!search && !selectedProductId) return [];
-  const { data } = await query;
+  const { data } = await (signal ? query.abortSignal(signal) : query);
   return (data || []).map(item => item.id);
 }
 
 async function loadClientLoansPage({ resetPage = false } = {}) {
+  clearTimeout(clientLoanSearchTimer);
+  clientLoanAbortController?.abort();
+  clientLoanAbortController = new AbortController();
+  const signal = clientLoanAbortController.signal;
   const sequence = ++clientLoanLoadSequence;
   if (resetPage) clientLoanPage = 1;
   state.loadStatus.clientLoans = 'loading';
@@ -2218,16 +2383,18 @@ async function loadClientLoansPage({ resetPage = false } = {}) {
   const status = $('#client-loan-status-filter')?.value || '';
   const location = $('#client-loan-location-filter')?.value || '';
   const selectedProductId = $('#client-loan-product-filter')?.value || '';
-  const identifierSerialIds = await clientLoanMatchingSerialIds(search, '');
+  const identifierSerialIds = await clientLoanMatchingSerialIds(search, '', signal);
+  if (signal.aborted) return;
   const normalizedProductSearch = search.toLocaleLowerCase('pt-BR');
   const matchingProductIds = search ? state.products.filter(item => [item.name, item.model, item.brand].filter(Boolean).some(value => String(value).toLocaleLowerCase('pt-BR').includes(normalizedProductSearch))).map(item => item.id) : [];
   let productSearchSerialIds = [];
   if (matchingProductIds.length) {
-    const { data } = await supabase.from('serial_items').select('id').in('product_id', matchingProductIds.slice(0, 200)).limit(500);
+    const { data } = await supabase.from('serial_items').select('id').in('product_id', matchingProductIds.slice(0, 200)).limit(500).abortSignal(signal);
     productSearchSerialIds = (data || []).map(item => item.id);
   }
   const searchSerialIds = [...new Set([...identifierSerialIds, ...productSearchSerialIds])];
-  const productSerialIds = await clientLoanMatchingSerialIds('', selectedProductId);
+  const productSerialIds = await clientLoanMatchingSerialIds('', selectedProductId, signal);
+  if (signal.aborted) return;
   const safeSearch = search.replace(/[,%()]/g, ' ').trim();
   const parentSearchFields = ['customer_name','customer_reference','asset_tag_original','equipment_name_original','model_original','brand_original','mac_original','serial_original','location_original','city'];
   let query = supabase.from('client_loans').select('*', { count:'exact' });
@@ -2250,8 +2417,21 @@ async function loadClientLoansPage({ resetPage = false } = {}) {
     query = clauses.length ? query.or(clauses.join(',')) : query.eq('id', '00000000-0000-0000-0000-000000000000');
   }
   const from = (clientLoanPage - 1) * clientLoanPageSize;
-  const result = await query.order('issued_at', { ascending:false }).order('id', { ascending:false }).range(from, from + clientLoanPageSize - 1);
+  const result = await query.order('issued_at', { ascending:false }).order('id', { ascending:false }).range(from, from + clientLoanPageSize - 1).abortSignal(signal);
   if (sequence !== clientLoanLoadSequence) return;
+  if (!result.error) {
+    const unitIds = [...new Set((result.data || []).map(loan => loan.serial_item_id).filter(Boolean))];
+    if (unitIds.length) {
+      const units = await supabase.from('serial_items').select('*').in('id', unitIds).abortSignal(signal);
+      if (sequence !== clientLoanLoadSequence) return;
+      if (units.error) result.error = units.error;
+      else {
+        const indexed = new Map(state.serialItems.map(unit => [unit.id, unit]));
+        (units.data || []).forEach(unit => indexed.set(unit.id, unit));
+        state.serialItems = [...indexed.values()];
+      }
+    }
+  }
   if (result.error) {
     state.clientLoans = [];
     state.clientLoansLoadError = result.error.message;
@@ -2274,7 +2454,11 @@ async function loadClientLoanMetrics() {
     if (filter === 'pending') query = query.eq('record_status', 'pendente_analise');
     const { count: total } = await query; return total || 0;
   };
-  const [active, returned, pending] = await Promise.all([count('active'), count('returned'), count('pending')]);
+  const [active, returned, pending, available] = await Promise.all([
+    count('active'), count('returned'), count('pending'),
+    supabase.from('serial_items').select('id', { count:'exact', head:true }).in('status', ['disponivel','com_colaborador','com_veiculo'])
+  ]);
+  clientLoanAvailableTotal = available.error ? null : available.count;
   clientLoanMetrics = { active, returned, pending };
   renderClientLoans();
 }
@@ -2701,37 +2885,59 @@ async function loadUsers() {
 }
 
 async function load() {
+  if (loadInFlight) {
+    reloadRequested = true;
+    return loadInFlight;
+  }
+  loadInFlight = (async () => {
+    do {
+      reloadRequested = false;
+      coreReadPromise = loadSnapshot();
+      await coreReadPromise;
+    } while (reloadRequested);
+    await prepareActiveView();
+  })();
+  try { await loadInFlight; } finally { loadInFlight = null; }
+}
+
+async function loadSnapshot() {
+  lazyReads.invalidate();
+  clientLoanAbortController?.abort();
+  clientLoanLoadSequence++;
+  clientLoanLocations = [];
+  clientLoanAvailableTotal = null;
   ['clientLoans','reminders','materialRequests','technicianPendencies'].forEach(module => { state.loadStatus[module] = 'loading'; });
   renderDashboardOperations();
   renderClientLoans();
   const [products, movements, collaborators, vehicles, locations, suppliers, serialItems, serialMovements, toolLoans, clientLoans, receipts, receiptItems, inventorySessions, inventoryCounts, reminders, materialRequests, technicianPendencies, technicianPendingEvents, technicianPendingItems, vehicleKits, vehicleKitRequirements, vehicleKitItems, vehicleKitEvents] = await Promise.all([
     supabase.from('products').select('*').order('name'),
-    selectAllPages('movements', [{ column:'created_at' }, { column:'id' }]),
+    supabase.from('movements').select('id', { count:'exact', head:true }).eq('movement_type', 'saida').or('field_usage.eq.false,field_usage.is.null'),
     supabase.from('collaborators').select('*').order('name'),
     supabase.from('vehicles').select('*').order('name'),
     supabase.from('stock_locations').select('*').order('name'),
     supabase.from('suppliers').select('*').order('name'),
-    selectAllPages('serial_items', [{ column:'created_at' }, { column:'id' }]),
-    selectAllPages('serial_movements', [{ column:'created_at' }, { column:'id' }]),
+    Promise.resolve({ data:[], error:null }),
+    Promise.resolve({ data:[], error:null }),
     selectAllPages('tool_loans', [{ column:'issued_at' }, { column:'id' }]),
     Promise.resolve({ data:[], error:null }),
-    selectAllPages('receipts', [{ column:'received_at' }, { column:'id' }]),
-    selectAllPages('receipt_items', [{ column:'created_at' }, { column:'id' }]),
-    selectAllPages('inventory_sessions', [{ column:'started_at' }, { column:'id' }]),
-    selectAllPages('inventory_counts', [{ column:'created_at' }, { column:'id' }]),
+    Promise.resolve({ data:[], error:null }),
+    selectAllPages('receipt_items', [{ column:'created_at' }, { column:'id' }], '*', query => query.not('expiry_date', 'is', null)),
+    Promise.resolve({ data:[], error:null }),
+    Promise.resolve({ data:[], error:null }),
     selectAllPages('dashboard_reminders', [{ column:'due_date', ascending:true }, { column:'id', ascending:true }]),
     selectAllPages('material_requests', [{ column:'created_at' }, { column:'id' }]),
     selectAllPages('technician_pendencies', [{ column:'withdrawn_at' }, { column:'id' }]),
-    selectAllPages('technician_pending_events', [{ column:'occurred_at' }, { column:'id' }]),
-    selectAllPages('technician_pending_items', [{ column:'created_at' }, { column:'pending_id' }, { column:'serial_item_id' }]),
-    selectAllPages('vehicle_tool_kits', [{ column:'created_at' }, { column:'id' }]),
-    selectAllPages('vehicle_tool_kit_requirements', [{ column:'id', ascending:true }]),
-    selectAllPages('vehicle_tool_kit_items', [{ column:'added_at' }, { column:'id' }]),
-    selectAllPages('vehicle_tool_kit_events', [{ column:'created_at' }, { column:'id' }])
+    Promise.resolve({ data:[], error:null }),
+    Promise.resolve({ data:[], error:null }),
+    Promise.resolve({ data:[], error:null }),
+    Promise.resolve({ data:[], error:null }),
+    Promise.resolve({ data:[], error:null }),
+    Promise.resolve({ data:[], error:null })
   ]);
   if (products.error || movements.error || collaborators.error || vehicles.error || locations.error || suppliers.error || serialItems.error || serialMovements.error || toolLoans.error || receipts.error || receiptItems.error || inventorySessions.error || inventoryCounts.error) throw products.error || movements.error || collaborators.error || vehicles.error || locations.error || suppliers.error || serialItems.error || serialMovements.error || toolLoans.error || receipts.error || receiptItems.error || inventorySessions.error || inventoryCounts.error;
   state.products = products.data.map(item => ({ ...item, minimum: item.minimum_stock }));
-  state.movements = movements.data.map(item => ({ id:item.id, type:item.movement_type, productId:item.product_id, quantity:item.quantity, person:item.recipient, holderType:item.holder_type || 'cliente', workOrder:item.work_order, fieldUsage:item.field_usage || false, stockImpact:item.stock_impact, stockBefore:item.stock_before, stockAfter:item.stock_after, pendingId:item.pending_id, note:item.note, createdAt:item.created_at, date:date(item.created_at) }));
+  state.movements = [];
+  state.dashboardExitCount = movements.count;
   state.collaborators = collaborators.data;
   state.vehicles = vehicles.data;
   state.locations = locations.data;
@@ -2763,13 +2969,7 @@ async function load() {
   }
   const kitsError=vehicleKits.error||vehicleKitRequirements.error||vehicleKitItems.error||vehicleKitEvents.error;
   if(kitsError){state.vehicleKitsLoadError=kitsError.message;console.error('[Kits dos Veículos] Falha ao carregar.',kitsError);}else{state.vehicleKits=vehicleKits.data;state.vehicleKitRequirements=vehicleKitRequirements.data;state.vehicleKitItems=vehicleKitItems.data;state.vehicleKitEvents=vehicleKitEvents.data;state.vehicleKitsLoadError='';}
-  try {
-    await loadUsers();
-  } catch (error) {
-    console.warn('Não foi possível carregar a lista de usuários:', error.message);
-    state.users = [];
-    state.usersLoadNote = `Não foi possível carregar os usuários: ${error.message}`;
-  }
+  coreLoadedAt = Date.now();
   render();
 }
 
@@ -2883,11 +3083,7 @@ function view(id, options = {}) {
   document.querySelectorAll('.nav-link').forEach(button => button.classList.toggle('active', button.dataset.view === id));
   document.querySelector('main').classList.toggle('dashboard-mode', id === 'dashboard');
   $('#page-title').textContent = ({ dashboard:'Visão geral', products:'Produtos', epis:'Controle de EPIs', movement:'Movimentações', receipts:'Recebimentos', serials:'Serial / MAC', laboratory:'Oficina', loans:'Empréstimos', 'client-loans':'Comodatos', 'vehicle-kits':'Kits dos Veículos', inventory:'Conferência de estoque', registry:'Cadastros', users:'Usuários', statement:'Extrato financeiro' })[id];
-  if (id === 'client-loans') {
-    loadClientLoanLocations().then(renderClientLoans);
-    loadClientLoanMetrics();
-    loadClientLoansPage();
-  }
+  if (currentUser) return prepareActiveView();
 }
 
 document.querySelector('main').classList.add('dashboard-mode');
@@ -2956,10 +3152,10 @@ function openNewProductDialog(epiMode = false) {
   $('#product-dialog').showModal();
 }
 
-function openEpiDelivery(id) {
+async function openEpiDelivery(id) {
   const item = product(id);
   if (!item || !isEpiProduct(item)) return;
-  view('movement');
+  await view('movement');
   renderMovement();
   $('#movement-type').value = 'saida';
   $('#movement-holder-type').value = 'tecnico';
@@ -3066,7 +3262,8 @@ $('#add-loan').onclick = () => {
   updateLoanItemDetails();
   $('#loan-dialog').showModal();
 };
-$('#add-client-loan').onclick = () => {
+$('#add-client-loan').onclick = async () => {
+  try { await ensureReadData(['serialItems']); } catch (error) { return alert('Não foi possível carregar os equipamentos. Tente novamente.'); }
   if (state.clientLoansLoadError) return alert('Não foi possível carregar os comodatos. Tente novamente.');
   if (!state.serialItems.some(item => item.status === 'disponivel')) return alert('Cadastre uma ONU, roteador ou outra unidade rastreável disponível antes de registrar um comodato.');
   $('#client-loan-form').reset();
@@ -3095,7 +3292,7 @@ $('#save-inventory-counts').onclick = async () => {
   try { await saveInventoryCounts(); } catch (error) { alert(error.message); }
 };
 $('#finish-inventory').onclick = finishInventory;
-$('#inventory-details-search').oninput = renderInventoryDetailsItems;
+$('#inventory-details-search').oninput = debounce(renderInventoryDetailsItems);
 $('#inventory-details-filters').onclick = event => {
   const button = event.target.closest('[data-inventory-filter]');
   if (!button) return;
@@ -3138,6 +3335,10 @@ async function logout() {
   if (error) return alert(error.message);
   setAccountMenu(false);
   currentUser = null;
+  lazyReads.invalidate();
+  clientLoanAbortController?.abort();
+  clientLoanLoadSequence++;
+  viewReadSequence++;
   state = { products: [], movements: [], users: [], usersLoadNote: '', collaborators: [], vehicles: [], locations: [], suppliers: [], serialItems: [], serialMovements: [], toolLoans: [], clientLoans: [], clientLoansLoadError: '', receipts: [], receiptItems: [], inventorySessions: [], inventoryCounts: [], reminders: [], materialRequests: [], technicianPendencies: [], technicianPendingEvents: [], technicianPendingItems: [], technicianPendenciesLoadError: '', vehicleKits: [], vehicleKitRequirements: [], vehicleKitItems: [], vehicleKitEvents: [], vehicleKitsLoadError: '', loadStatus: { clientLoans:'idle', reminders:'idle', materialRequests:'idle', technicianPendencies:'idle' }, loadErrors: {}, productFilter: 'all', clientLoanImport: null };
   $('#login-form').reset();
   $('#auth-gate').hidden = false;
@@ -3214,9 +3415,8 @@ document.addEventListener('keydown', event => {
 });
 document.querySelectorAll('[data-close-dialog]').forEach(button => button.onclick = () => button.closest('dialog').close());
 setInterval(() => {
-  if (!currentUser || !state.technicianPendencies.length) return;
+  if (!currentUser || document.hidden || !state.technicianPendencies.length) return;
   renderDashboardOperations();
-  renderMovement();
 }, 60 * 1000);
 $('#product-dialog').addEventListener('close', () => setProductDialogEpiMode('new', false));
 $('#edit-product-dialog').addEventListener('close', () => setProductDialogEpiMode('edit', false));
@@ -3252,12 +3452,12 @@ $('#dashboard-returns-card').onclick = () => view('loans');
 $('#dashboard-minimum-card').onclick = () => { state.productFilter = 'all'; $('#product-status-filter').value = 'out'; view('products'); renderProducts(); };
 $('#dashboard-reorder-card').onclick = () => showProducts('low');
 $('#dashboard-value-card').onclick = () => { if (currentUser?.role === 'admin') view('statement'); };
-$('#product-search').oninput = () => { state.productFilter = 'all'; renderProducts(); };
+$('#product-search').oninput = debounce(() => { state.productFilter = 'all'; renderProducts(); });
 $('#product-category-filter').onchange = () => { state.productFilter = 'all'; renderProducts(); };
 $('#product-status-filter').onchange = () => { state.productFilter = 'all'; renderProducts(); };
 $('#epi-status-filter').onchange = renderEpis;
-$('#serial-search').oninput = renderSerials;
-$('#lab-search').oninput = renderLaboratory;
+$('#serial-search').oninput = debounce(renderSerials);
+$('#lab-search').oninput = debounce(renderLaboratory);
 document.querySelectorAll('#loan-search, #loan-status-filter, #loan-technician-filter, #loan-equipment-filter, #loan-period-from, #loan-period-to').forEach(input => input.addEventListener(input.tagName === 'INPUT' ? 'input' : 'change', renderLoans));
 document.querySelectorAll('[data-loan-card-filter]').forEach(button => button.onclick = () => { $('#loan-status-filter').value = button.dataset.loanCardFilter; renderLoans(); });
 $('#clear-loan-filters').onclick = () => { $('#loan-search').value = ''; $('#loan-status-filter').value = ''; $('#loan-technician-filter').value = ''; $('#loan-equipment-filter').value = ''; $('#loan-period-from').value = ''; $('#loan-period-to').value = ''; renderLoans(); };
@@ -3298,7 +3498,11 @@ const clientLoanCustomerName = $('#client-loan-customer-name');
 if (clientLoanCustomerName) clientLoanCustomerName.oninput = renderClientLoanFormSummary;
 const clientLoanReference = $('#client-loan-reference');
 if (clientLoanReference) clientLoanReference.oninput = renderClientLoanFormSummary;
-document.querySelectorAll('[data-history-filter]').forEach(element => { element.oninput = renderMovement; element.onchange = renderMovement; });
+const searchHistory = debounce(renderMovement);
+document.querySelectorAll('[data-history-filter]').forEach(element => {
+  element.oninput = searchHistory;
+  element.onchange = () => { searchHistory.cancel(); renderMovement(); };
+});
 document.querySelectorAll('[data-history-type-shortcut]').forEach(button => button.onclick = () => {
   $('#history-type').value = button.dataset.historyTypeShortcut;
   renderMovement();
@@ -3313,7 +3517,7 @@ document.querySelectorAll('[data-history-period]').forEach(button => button.oncl
   $('#history-to').value = localDateKey(today);
   renderMovement();
 });
-$('#vehicle-kit-search').oninput = renderVehicleKits;
+$('#vehicle-kit-search').oninput = debounce(renderVehicleKits);
 $('#edit-vehicle-kit').onclick = () => openVehicleKitEditor();
 $('#vehicle-kit-vehicle').onchange = event => openVehicleKitEditor(event.target.value);
 $('#vehicle-kit-action').onchange = updateVehicleKitAction;
