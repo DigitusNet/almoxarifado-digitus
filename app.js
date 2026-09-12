@@ -1,5 +1,5 @@
 import { createClient } from '@supabase/supabase-js';
-import { debounce, groupBy, createReadCache, renderWindowedBlocks, renderWindowedTable } from './read-performance.js';
+import { debounce, groupBy, createReadCache, InvalidatedReadError, renderWindowedBlocks, renderWindowedTable } from './read-performance.js';
 const readXlsxSheet = async (...args) => (await import('read-excel-file/browser')).readSheet(...args);
 
 const supabase = createClient(import.meta.env.VITE_SUPABASE_URL, import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY);
@@ -199,6 +199,9 @@ const viewReads = {
 };
 const mapMovement = item => ({ id:item.id, type:item.movement_type, productId:item.product_id, quantity:item.quantity, person:item.recipient, holderType:item.holder_type || 'cliente', workOrder:item.work_order, fieldUsage:item.field_usage || false, stockImpact:item.stock_impact, stockBefore:item.stock_before, stockAfter:item.stock_after, pendingId:item.pending_id, note:item.note, createdAt:item.created_at, date:date(item.created_at) });
 async function ensureReadData(keys) {
+  const user = currentUser;
+  for (let attempt = 0; attempt < 3; attempt++) {
+  try {
   await Promise.all(keys.map(key => lazyReads.get(key, async () => {
     const [table, timestamp] = lazyTables[key];
     const orders = [{ column:timestamp }];
@@ -208,6 +211,13 @@ async function ensureReadData(keys) {
     if (result.error) throw result.error;
     return result.data;
   }, rows => { state[key] = key === 'movements' ? rows.map(mapMovement) : rows; })));
+  if (keys.every(key => lazyReads.has(key))) return;
+  throw new InvalidatedReadError();
+  } catch (error) {
+    if (!(error instanceof InvalidatedReadError) || currentUser !== user || attempt === 2) throw error;
+    await coreReadPromise;
+  }
+  }
 }
 function renderActiveView() {
   const id = document.querySelector('.view.active')?.id || 'dashboard';
@@ -2700,6 +2710,8 @@ function updateInventoryMetrics() {
 function renderInventory() {
   const table = $('#inventory-counts-table');
   if (!table) return;
+  if (table._draftDirty) return;
+  table.oninput = () => { table._draftDirty = true; table._draftRevision = (table._draftRevision || 0) + 1; };
 
   const categorySelect = $('#inventory-category');
   const selectedCategory = categorySelect.value;
@@ -2708,6 +2720,7 @@ function renderInventory() {
   categorySelect.value = categories.includes(selectedCategory) ? selectedCategory : '';
 
   const session = activeInventory();
+  table._draftSession = session?.id;
   $('#inventory-empty').hidden = Boolean(session);
   $('#inventory-session').hidden = !session;
   $('#start-inventory').disabled = Boolean(session);
@@ -2828,6 +2841,9 @@ async function saveFinalizedInventoryEdit() {
 async function saveInventoryCounts(silent = false) {
   const session = activeInventory();
   if (!session) throw new Error('Não há conferência em aberto.');
+  const draftTable = $('#inventory-counts-table');
+  const draftRevision = draftTable._draftRevision;
+  if (draftTable._draftDirty && draftTable._draftSession !== session.id) throw new Error('A conferência aberta mudou. Seu rascunho foi preservado; reabra a conferência correta antes de salvar.');
   const counts = [...document.querySelectorAll('[data-inventory-count]')].filter(input => input.value !== '').map(input => ({
     product_id: input.dataset.inventoryCount,
     counted_stock: Number(input.value),
@@ -2836,6 +2852,7 @@ async function saveInventoryCounts(silent = false) {
   if (!counts.length) throw new Error('Informe pelo menos uma quantidade física antes de salvar.');
   const { error } = await supabase.rpc('save_inventory_counts', { p_inventory_id: session.id, p_counts: counts });
   if (error) throw error;
+  if (draftTable._draftRevision === draftRevision) draftTable._draftDirty = false;
   await load();
   if (!silent) alert('Contagens salvas. Você pode continuar a conferência depois.');
 }
@@ -2894,8 +2911,8 @@ async function load() {
       reloadRequested = false;
       coreReadPromise = loadSnapshot();
       await coreReadPromise;
+      await prepareActiveView();
     } while (reloadRequested);
-    await prepareActiveView();
   })();
   try { await loadInFlight; } finally { loadInFlight = null; }
 }
@@ -3335,6 +3352,7 @@ async function logout() {
   if (error) return alert(error.message);
   setAccountMenu(false);
   currentUser = null;
+  $('#inventory-counts-table')._draftDirty = false;
   lazyReads.invalidate();
   clientLoanAbortController?.abort();
   clientLoanLoadSequence++;

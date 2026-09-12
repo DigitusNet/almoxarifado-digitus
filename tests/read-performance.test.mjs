@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { execFileSync } from 'node:child_process';
 import vm from 'node:vm';
+import { parseAst } from 'rollup/parseAst';
 import { createReadCache, debounce, groupBy } from '../read-performance.js';
 
 test('concurrent reads share one request; invalidation discards late results', async () => {
@@ -15,7 +16,8 @@ test('concurrent reads share one request; invalidation discards late results', a
   assert.equal(calls, 1);
   cache.invalidate();
   finish([]);
-  await Promise.all([a, b]);
+  const cancelled = await Promise.allSettled([a, b]);
+  assert.ok(cancelled.every(result => result.status === 'rejected' && result.reason.name === 'InvalidatedReadError'));
   assert.equal(applied, 0);
   assert.equal(cache.has('history'), false);
   await cache.get('history', () => [], () => applied++);
@@ -68,10 +70,17 @@ test('receipt matching produces exactly the same links, including ambiguous cand
   console.log(`Receipt matching fixture: old=${(middle-before).toFixed(1)}ms new=${(end-middle).toFixed(1)}ms`);
 });
 
-test('business write handlers and SQL are unchanged', () => {
-  const diff = execFileSync('git', ['diff', 'beda936', '--unified=0', '--', 'app.js'], { encoding:'utf8' });
-  const changes = diff.split('\n').filter(line => /^[+-](?![+-])/.test(line));
-  assert.equal(changes.some(line => /supabase\.rpc\(|\.(insert|update|upsert|delete)\(/.test(line)), false);
+test('write calls and their arguments, and SQL, are unchanged', () => {
+  const calls = source => {
+    const result = [];
+    const visit = node => {
+      if (!node || typeof node !== 'object') return;
+      if (node.type === 'CallExpression' && node.callee.type === 'MemberExpression' && ['rpc','insert','update','upsert','delete','upload','remove'].includes(node.callee.property?.name)) result.push(source.slice(node.start,node.end).replace(/\r\n/g,'\n'));
+      Object.values(node).forEach(value => Array.isArray(value) ? value.forEach(visit) : value && typeof value === 'object' && visit(value));
+    };
+    visit(parseAst(source)); return result;
+  };
+  assert.deepEqual(calls(changed), calls(baseline));
   assert.equal(execFileSync('git', ['diff', 'beda936', '--name-only', '--', 'supabase'], { encoding:'utf8' }).trim(), '');
 });
 

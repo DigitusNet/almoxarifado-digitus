@@ -19,6 +19,10 @@ export function groupBy(rows, key) {
   return groups;
 }
 
+export class InvalidatedReadError extends Error {
+  constructor() { super('Leitura invalidada. Tente novamente.'); this.name = 'InvalidatedReadError'; }
+}
+
 export function createReadCache() {
   let generation = 0;
   const completed = new Set();
@@ -35,7 +39,7 @@ export function createReadCache() {
       if (pending.has(key)) return pending.get(key);
       const started = generation;
       const request = Promise.resolve().then(read).then(value => {
-        if (generation !== started) return;
+        if (generation !== started) throw new InvalidatedReadError();
         apply(value);
         completed.add(key);
       }).finally(() => {
