@@ -1,4 +1,5 @@
 import { createClient } from '@supabase/supabase-js';
+import { setupNfeBarcode } from './nfe-barcode.js';
 import { debounce, groupBy, createReadCache, InvalidatedReadError, renderWindowedBlocks, renderWindowedTable } from './read-performance.js';
 const readXlsxSheet = async (...args) => (await import('read-excel-file/browser')).readSheet(...args);
 
@@ -3261,6 +3262,7 @@ $('#scan-movement-code').onclick = () => openCodeScanner('movement');
 $('#scanner-use-camera').onclick = startCameraCodeScanner;
 $('#add-receipt').onclick = openReceiptDialog;
 $('#import-xml').onclick = openXmlImportDialog;
+const nfeBarcode = setupNfeBarcode({ client:supabase, openReceipt:openReceiptDialog });
 $('#add-receipt-line').onclick = () => addReceiptLine();
 $('#add-user').onclick = () => $('#user-dialog').showModal();
 $('#import-serials').onclick = openSerialImport;
@@ -3783,6 +3785,7 @@ $('#receipt-form').onsubmit = async event => {
   receiptSubmitting = true;
   if (submitButton) { submitButton.disabled = true; submitButton.textContent = 'Processando...'; }
   try {
+    await nfeBarcode.verifyReceipt();
     const lines = [...document.querySelectorAll('.receipt-line')].map(line => ({
       product_id: line.querySelector('[data-receipt-product]').value === '__new__' ? '' : line.querySelector('[data-receipt-product]').value,
       isNewProduct: line.querySelector('[data-receipt-product]').value === '__new__',
