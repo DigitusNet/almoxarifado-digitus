@@ -43,19 +43,19 @@ main.dashboard-mode #dashboard .dashboard-operations{display:grid;grid-template-
 main.dashboard-mode{background:#eef2f7}
 main.dashboard-mode>.topbar{padding-top:18px;padding-bottom:16px;border-bottom:0}
 main.dashboard-mode>.topbar h1{font-size:24px;letter-spacing:-.7px;color:#142e4c}
-#dashboard .cards{gap:0;padding:8px;background:linear-gradient(110deg,#112a47,#1e476c);border-radius:12px;box-shadow:0 8px 24px #102b4818;margin-bottom:12px}
-#dashboard .dashboard-summary-card{height:94px;padding:14px 18px;background:transparent;border:0;border-right:1px solid #ffffff20;border-radius:0;box-shadow:none;color:white;transition:background .15s}
-#dashboard .dashboard-summary-card:last-child{border-right:0}
-#dashboard .dashboard-summary-card:hover{background:#ffffff0d;box-shadow:none;transform:none}
-#dashboard .dashboard-summary-card span{font-size:13px;font-weight:500;line-height:1.5;color:#bfcee0}
+#dashboard .cards{gap:12px;padding:0;background:transparent;box-shadow:none;margin-bottom:14px}
+#dashboard .dashboard-summary-card{height:94px;padding:15px 18px;background:linear-gradient(145deg,#173d61,#112b49);border:1px solid #2b577b;border-radius:10px;box-shadow:0 5px 14px #17304c1c;color:white;transition:transform .16s,box-shadow .16s,border-color .16s}
+#dashboard .dashboard-summary-card:hover{background:linear-gradient(145deg,#1c476d,#143451);border-color:#4a789e;box-shadow:0 8px 19px #17304c26;transform:translateY(-2px)}
+#dashboard .dashboard-summary-card span{font-size:12px;font-weight:600;line-height:1.5;color:#c5d7e7}
 #dashboard .dashboard-summary-card strong{font-size:30px;font-weight:700;color:#fff;letter-spacing:-.7px;font-variant-numeric:tabular-nums;margin-top:5px}
-#dashboard .dashboard-summary-icon{width:21px;height:21px;right:14px;bottom:20px;color:#79aed6;opacity:.75}
-#dashboard .dashboard-summary-value{background:#ffffff09;border-radius:7px;border-right:0}
-#dashboard .dashboard-summary-value strong{font-size:23px;color:#bfe6ff}
+#dashboard .dashboard-summary-icon{width:21px;height:21px;right:15px;bottom:19px;color:#8fc4e9;opacity:.82}
+#dashboard .dashboard-summary-value{background:linear-gradient(145deg,#24587f,#173d61);border-color:#43779e}
+#dashboard .dashboard-summary-value strong{font-size:23px;color:#e4f4ff}
 #dashboard .dashboard-loan-alert{border:1px solid #d6e1ec;background:#f7f9fc;color:#4d6278;font-size:12px;box-shadow:none;padding:7px 12px}
 #dashboard .dashboard-loan-alert.success{background:#f7f9fc;color:#536c80}
 main.dashboard-mode #dashboard .dashboard-operations{gap:12px}
-#dashboard .dashboard-pending-panel{border:1px solid #d4dfeb;border-top:3px solid #204b72;border-radius:12px;box-shadow:0 4px 20px #17304c09;height:600px}
+#dashboard .dashboard-pending-panel{border:1px solid #d4dfeb;border-top:3px solid #204b72;border-radius:12px;box-shadow:0 4px 20px #17304c09;height:600px;min-height:0}
+#dashboard .dashboard-pending-panel .table-wrap{flex:none;min-height:0;overflow:hidden}
 #dashboard .dashboard-pending-panel .dashboard-operation-heading{flex:none;padding:16px 20px;background:#fff;min-height:86px}
 #dashboard .dashboard-command-title{display:flex;flex-direction:column;gap:6px}
 #dashboard .dashboard-eyebrow{font-size:10px;font-weight:700;letter-spacing:1.8px;color:#72869b}
@@ -71,7 +71,7 @@ main.dashboard-mode #dashboard .dashboard-operations{gap:12px}
 #dashboard .dashboard-pending-filters label{font-size:11px;color:#61778c}
 #dashboard .dashboard-pending-filters input,#dashboard .dashboard-pending-filters select{height:34px;border-color:#d8e1eb;font-size:13px;border-radius:5px}
 #dashboard .dashboard-pending-panel th{background:#edf2f7;color:#5d7187;padding:9px 14px;font-size:10px;letter-spacing:.65px}
-#dashboard .dashboard-pending-panel td{padding:5px 14px;height:36px;font-size:13px;color:#334c65;border-bottom:1px solid #edf1f5;font-variant-numeric:tabular-nums}
+#dashboard .dashboard-pending-panel td{padding:7px 14px;height:40px;font-size:13px;color:#334c65;border-bottom:1px solid #edf1f5;font-variant-numeric:tabular-nums}
 #dashboard .dashboard-pending-panel td:nth-child(1){font-weight:600;color:#213e5c}
 #dashboard .dashboard-pending-panel td:nth-child(3){text-align:center}
 #dashboard .dashboard-pending-panel th:nth-child(3){text-align:center}

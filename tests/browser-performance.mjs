@@ -83,11 +83,10 @@ try {
   if(process.env.DASHBOARD_TEST){
     const panel=page.locator('.dashboard-pending-panel');
     const height=(await panel.boundingBox()).height;
-    assert.equal(await page.locator('#dashboard-requests-table tr').count(),10);
+    assert.equal(await page.locator('#dashboard-requests-table tr').count(),8);
     assert.match(await page.locator('.dashboard-pagination').innerText(),/120 pendências/);
-    const first=await page.locator('#dashboard-requests-table').innerText();
     await page.getByRole('button',{name:'Próxima página de pendências',exact:true}).click();
-    assert.notEqual(await page.locator('#dashboard-requests-table').innerText(),first);
+    assert.match(await page.locator('.dashboard-pagination').innerText(),/Página 2 de 15/);
     assert.equal((await panel.boundingBox()).height,height);
     await page.locator('#dashboard-technician-filter').selectOption('Maria');
     assert.match(await page.locator('.dashboard-pagination').innerText(),/40 pendências/);

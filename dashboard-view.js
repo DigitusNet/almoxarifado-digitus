@@ -3,9 +3,9 @@ export function pendingPage(rows, { technician='', status='', search='', page=1 
   const normalized = text => String(text || '').normalize('NFD').replace(/[\u0300-\u036f]/g,'').toLocaleLowerCase('pt-BR');
   const filtered = rows.filter(row => (!technician || row.technician_name === technician) && (!status || deadline(row).key === status) && normalized(product(row.product_id)?.name).includes(normalized(search)))
     .sort((a,b) => (deadline(a).key !== 'overdue') - (deadline(b).key !== 'overdue') || (new Date(a.due_at).getTime() || Infinity) - (new Date(b.due_at).getTime() || Infinity) || String(a.id).localeCompare(String(b.id)));
-  const pages=Math.max(1,Math.ceil(filtered.length/10));
+  const pages=Math.max(1,Math.ceil(filtered.length/8));
   page=Math.max(1,Math.min(page,pages));
-  return { rows:filtered.slice((page-1)*10,page*10), total:filtered.length, pages, page };
+  return { rows:filtered.slice((page-1)*8,page*8), total:filtered.length, pages, page };
 }
 let controls, currentPage=1, context;
 export function renderPendingPanel(rows, loadStatus, helpers) {
