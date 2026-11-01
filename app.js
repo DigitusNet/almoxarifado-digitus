@@ -196,7 +196,6 @@ const viewReads = {
   loans: ['serialItems'],
   'client-loans': [],
   inventory: ['inventorySessions', 'inventoryCounts', 'serialItems'],
-  'vehicle-kits': ['serialItems', 'vehicleKits', 'vehicleKitRequirements', 'vehicleKitItems', 'vehicleKitEvents']
 };
 const mapMovement = item => ({ id:item.id, type:item.movement_type, productId:item.product_id, quantity:item.quantity, person:item.recipient, holderType:item.holder_type || 'cliente', workOrder:item.work_order, fieldUsage:item.field_usage || false, stockImpact:item.stock_impact, stockBefore:item.stock_before, stockAfter:item.stock_after, pendingId:item.pending_id, note:item.note, createdAt:item.created_at, date:date(item.created_at) });
 async function ensureReadData(keys) {
@@ -223,7 +222,7 @@ async function ensureReadData(keys) {
 function renderActiveView() {
   const id = document.querySelector('.view.active')?.id || 'dashboard';
   if ((viewReads[id] || []).some(key => !lazyReads.has(key))) return;
-  const renderer = { products:renderProducts, epis:renderEpis, movement:renderMovement, users:renderUsers, registry:renderRegistry, receipts:renderReceipts, serials:renderSerials, laboratory:renderLaboratory, loans:renderLoans, 'client-loans':renderClientLoans, 'vehicle-kits':renderVehicleKits, inventory:renderInventory, statement:renderStatement }[id];
+  const renderer = { products:renderProducts, epis:renderEpis, movement:renderMovement, users:renderUsers, registry:renderRegistry, receipts:renderReceipts, serials:renderSerials, laboratory:renderLaboratory, loans:renderLoans, 'client-loans':renderClientLoans, inventory:renderInventory, statement:renderStatement }[id];
   renderer?.();
 }
 let viewReadSequence = 0;
@@ -2517,35 +2516,6 @@ const toolLabel = item => {
   return `${p?.name || 'Ferramenta'} nº ${item?.tool_number || item?.asset_tag || item?.serial_number || 'sem identificação'}`;
 };
 function activeVehicleKitItems(kitId) { return state.vehicleKitItems.filter(item => item.kit_id === kitId && !item.removed_at); }
-function renderVehicleKits() {
-  const grid = $('#vehicle-kits-grid'); if (!grid) return;
-  const canManage = ['admin','operador'].includes(currentUser?.role);
-  if (state.vehicleKitsLoadError) { grid.innerHTML='<p class="empty">Não foi possível carregar os kits dos veículos. Execute o SQL desta atualização.</p>'; return; }
-  const q = $('#vehicle-kit-search')?.value.trim().toLocaleLowerCase('pt-BR') || '';
-  grid.innerHTML = state.vehicles.filter(v => v.active).map(vehicle => {
-    const kit=state.vehicleKits.find(k=>k.vehicle_id===vehicle.id), items=kit?activeVehicleKitItems(kit.id):[];
-    const requirements=kit?state.vehicleKitRequirements.filter(r=>r.kit_id===kit.id):[];
-    const required=requirements.reduce((n,r)=>n+Number(r.required_quantity),0), complete=required>0&&requirements.every(r=>items.filter(x=>state.serialItems.find(s=>s.id===x.serial_item_id)?.product_id===r.product_id).length>=Number(r.required_quantity));
-    const matches=!q||vehicle.name.toLocaleLowerCase('pt-BR').includes(q)||items.some(x=>toolLabel(state.serialItems.find(s=>s.id===x.serial_item_id)).toLocaleLowerCase('pt-BR').includes(q));
-    if(!matches)return '';
-    const missing=requirements.flatMap(r=>{const have=items.filter(x=>state.serialItems.find(s=>s.id===x.serial_item_id)?.product_id===r.product_id).length;return Array(Math.max(0,r.required_quantity-have)).fill(product(r.product_id)?.name||'Ferramenta');});
-    return `<article class="vehicle-kit-card"><header><div><h2>${esc(vehicle.name)}</h2><small>${esc(kit?.name||'Kit ainda não montado')}</small></div><span class="badge ${complete?'ok':'low'}">${complete?'✓ Kit completo':'⚠ Kit incompleto'}</span></header><strong>${items.length}/${required||items.length} ferramentas</strong><div class="vehicle-kit-items">${items.map(link=>{const s=state.serialItems.find(x=>x.id===link.serial_item_id);return `<div><span>✓ ${esc(toolLabel(s))}</span>${canManage?`<button class="text-button" data-kit-tool-action="${s?.id}">Mover</button>`:''}</div>`;}).join('')||'<p class="muted">Nenhuma ferramenta vinculada.</p>'}</div>${missing.length?`<small class="kit-missing">Faltando: ${esc(missing.join(', '))}</small>`:''}<footer>${canManage?`<button class="secondary-button" data-edit-kit="${vehicle.id}">Editar Kit</button>`:''}${kit?`<button class="secondary-button" data-kit-history="${kit.id}">Histórico</button>`:''}</footer></article>`;
-  }).join('')||'<p class="empty">Nenhum veículo ou ferramenta corresponde à pesquisa.</p>';
-  document.querySelectorAll('[data-edit-kit]').forEach(b=>b.onclick=()=>openVehicleKitEditor(b.dataset.editKit));
-  document.querySelectorAll('[data-kit-tool-action]').forEach(b=>b.onclick=()=>openVehicleKitAction(b.dataset.kitToolAction));
-  document.querySelectorAll('[data-kit-history]').forEach(b=>b.onclick=()=>openVehicleKitHistory(b.dataset.kitHistory));
-}
-function openVehicleKitEditor(vehicleId='') {
-  const vehicles=state.vehicles.filter(v=>v.active); $('#vehicle-kit-vehicle').innerHTML=vehicles.map(v=>`<option value="${v.id}">${esc(v.name)}</option>`).join(''); $('#vehicle-kit-vehicle').value=vehicleId||vehicles[0]?.id||'';
-  const kit=state.vehicleKits.find(k=>k.vehicle_id===$('#vehicle-kit-vehicle').value), selected=new Set(kit?activeVehicleKitItems(kit.id).map(x=>x.serial_item_id):[]);
-  $('#vehicle-kit-name').value=kit?.name||`Kit ${state.vehicles.find(v=>v.id===$('#vehicle-kit-vehicle').value)?.name||''}`; $('#vehicle-kit-note').value='';
-  const tools=state.serialItems.filter(s=>product(s.product_id)?.category==='Ferramentas'&&(s.status==='disponivel'||selected.has(s.id)));
-  $('#vehicle-kit-tool-list').innerHTML=tools.map(s=>`<label class="vehicle-kit-option"><input type="checkbox" data-kit-unit value="${s.id}" ${selected.has(s.id)?'checked disabled':''}/><span>${esc(toolLabel(s))}${selected.has(s.id)?' · já no veículo':''}</span></label>`).join('')||'<p class="empty">Cadastre ferramentas individuais disponíveis em Serial / MAC.</p>';
-  $('#vehicle-kit-dialog').showModal();
-}
-function openVehicleKitAction(serialId){const s=state.serialItems.find(x=>x.id===serialId);$('#vehicle-kit-action-item').value=serialId;$('#vehicle-kit-action-description').textContent=toolLabel(s);$('#vehicle-kit-target').innerHTML=state.vehicles.filter(v=>v.active).map(v=>`<option value="${v.id}">${esc(v.name)}</option>`).join('');$('#vehicle-kit-replacement').innerHTML=state.serialItems.filter(x=>x.status==='disponivel'&&x.product_id===s.product_id&&x.id!==s.id).map(x=>`<option value="${x.id}">${esc(toolLabel(x))}</option>`).join('');$('#vehicle-kit-action').value='almoxarifado';updateVehicleKitAction();$('#vehicle-kit-action-dialog').showModal();}
-function updateVehicleKitAction(){const a=$('#vehicle-kit-action').value;$('#vehicle-kit-target-group').hidden=a!=='transferir';$('#vehicle-kit-replacement-group').hidden=a!=='substituir';}
-function openVehicleKitHistory(kitId){const kit=state.vehicleKits.find(k=>k.id===kitId),vehicle=state.vehicles.find(v=>v.id===kit?.vehicle_id);$('#vehicle-kit-history-title').textContent=`Histórico — ${vehicle?.name||'Veículo'}`;$('#vehicle-kit-history').innerHTML=state.vehicleKitEvents.filter(e=>e.kit_id===kitId).sort((a,b)=>new Date(b.created_at)-new Date(a.created_at)).map(e=>`<div class="serial-history-item"><b>${esc({adicionado:'Adicionada',removido:'Removida',transferido:'Transferida',manutencao:'Enviada à manutenção',baixa:'Baixada',substituido:'Substituída'}[e.event_type]||e.event_type)} — ${esc(toolLabel(state.serialItems.find(s=>s.id===e.serial_item_id)))}</b><small>${date(e.created_at)}${e.note?' · '+esc(e.note):''}</small></div>`).join('')||'<p class="empty">Nenhum evento registrado.</p>';$('#vehicle-kit-history-dialog').showModal();}
 
 async function deleteClientLoan(id) {
   if (currentUser?.role !== 'admin') return alert('Apenas administradores podem excluir comodatos.');
@@ -3100,7 +3070,7 @@ function view(id, options = {}) {
   document.querySelectorAll('.view').forEach(element => element.classList.toggle('active', element.id === id));
   document.querySelectorAll('.nav-link').forEach(button => button.classList.toggle('active', button.dataset.view === id));
   document.querySelector('main').classList.toggle('dashboard-mode', id === 'dashboard');
-  $('#page-title').textContent = ({ dashboard:'Visão geral', products:'Produtos', epis:'Controle de EPIs', movement:'Movimentações', receipts:'Recebimentos', serials:'Serial / MAC', laboratory:'Oficina', loans:'Empréstimos', 'client-loans':'Comodatos', 'vehicle-kits':'Kits dos Veículos', inventory:'Conferência de estoque', registry:'Cadastros', users:'Usuários', statement:'Extrato financeiro' })[id];
+  $('#page-title').textContent = ({ dashboard:'Visão geral', products:'Produtos', epis:'Controle de EPIs', movement:'Movimentações', receipts:'Recebimentos', serials:'Serial / MAC', laboratory:'Oficina', loans:'Empréstimos', 'client-loans':'Comodatos', inventory:'Conferência de estoque', registry:'Cadastros', users:'Usuários', statement:'Extrato financeiro' })[id];
   if (currentUser) return prepareActiveView();
 }
 
@@ -3537,10 +3507,6 @@ document.querySelectorAll('[data-history-period]').forEach(button => button.oncl
   $('#history-to').value = localDateKey(today);
   renderMovement();
 });
-$('#vehicle-kit-search').oninput = debounce(renderVehicleKits);
-$('#edit-vehicle-kit').onclick = () => openVehicleKitEditor();
-$('#vehicle-kit-vehicle').onchange = event => openVehicleKitEditor(event.target.value);
-$('#vehicle-kit-action').onchange = updateVehicleKitAction;
 $('#clear-history-filters').onclick = () => { document.querySelectorAll('[data-history-filter]').forEach(element => { element.value = ''; }); renderMovement(); };
 document.querySelectorAll('[data-statement-filter]').forEach(element => { element.oninput = renderStatement; element.onchange = renderStatement; });
 $('#clear-statement-filters').onclick = () => { document.querySelectorAll('[data-statement-filter]').forEach(element => { element.value = ''; }); renderStatement(); };
@@ -4117,8 +4083,6 @@ $('#client-loan-form').onsubmit = async event => {
   }
 };
 
-$('#vehicle-kit-form').onsubmit=async event=>{event.preventDefault();const ids=[...document.querySelectorAll('[data-kit-unit]:checked')].map(x=>x.value),counts=new Map();ids.forEach(id=>{const s=state.serialItems.find(x=>x.id===id);if(s)counts.set(s.product_id,(counts.get(s.product_id)||0)+1);});const requirements=[...counts].map(([product_id,quantity])=>({product_id,quantity}));const {error}=await supabase.rpc('save_vehicle_tool_kit',{p_vehicle_id:$('#vehicle-kit-vehicle').value,p_name:$('#vehicle-kit-name').value.trim(),p_requirements:requirements,p_serial_item_ids:ids,p_note:$('#vehicle-kit-note').value.trim()||null});if(error)return alert(error.message);$('#vehicle-kit-dialog').close();await load();view('vehicle-kits');};
-$('#vehicle-kit-action-form').onsubmit=async event=>{event.preventDefault();const action=$('#vehicle-kit-action').value;if(!confirm('Confirmar esta movimentação da ferramenta?'))return;const {error}=await supabase.rpc('move_vehicle_tool',{p_serial_item_id:$('#vehicle-kit-action-item').value,p_action:action,p_target_vehicle_id:action==='transferir'?$('#vehicle-kit-target').value:null,p_replacement_id:action==='substituir'?$('#vehicle-kit-replacement').value:null,p_note:$('#vehicle-kit-action-note').value.trim()||null});if(error)return alert(error.message);$('#vehicle-kit-action-dialog').close();await load();view('vehicle-kits');};
 
 $('#client-loan-import-form').onsubmit = async event => {
   event.preventDefault();
