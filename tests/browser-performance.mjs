@@ -17,6 +17,11 @@ const fixtures = {
 };
 fixtures.receipts=Array.from({length:300},(_,i)=>({id:'r'+i,supplier:'Fornecedor local',received_at:'2025-01-01T10:00:00Z',invoice_number:'TESTE'+i}));
 fixtures.receipt_items=fixtures.receipts.map((receipt,i)=>({id:'ri'+i,receipt_id:receipt.id,product_id:'p2',product_name:'Conector de teste',quantity:2,unit_of_measure:'unidade',created_at:receipt.received_at}));
+if(process.env.DASHBOARD_TEST){
+  fixtures.profiles[0].id='local-test';
+  fixtures.profiles[0].role=process.env.DASHBOARD_ROLE || 'admin';
+  fixtures.technician_pendencies=Array.from({length:120},(_,i)=>({id:'pending'+i,product_id:i%2?'p1':'p2',technician_name:i%3?'João':'Maria',quantity:1,resolution:'aberta',withdrawn_at:new Date(Date.now()-86400000).toISOString(),due_at:new Date(Date.now()+((i%3)-1)*172800000+(i%3===1?3600000:0)).toISOString()}));
+}
 const mock = `
 const fixtures=${JSON.stringify(fixtures)};
 window.__reads=[];
@@ -75,6 +80,38 @@ try {
   await page.goto(`http://127.0.0.1:${server.address().port}/`);
   await page.waitForFunction(()=>document.querySelector('#dashboard-items-count').textContent==='2'&&!document.querySelector('#dashboard').inert);
   const boot=await page.evaluate(()=>window.__reads);
+  if(process.env.DASHBOARD_TEST){
+    const panel=page.locator('.dashboard-pending-panel');
+    const height=(await panel.boundingBox()).height;
+    assert.equal(await page.locator('#dashboard-requests-table tr').count(),10);
+    assert.match(await page.locator('.dashboard-pagination').innerText(),/120 pendências/);
+    const first=await page.locator('#dashboard-requests-table').innerText();
+    await page.getByRole('button',{name:'Próxima página de pendências',exact:true}).click();
+    assert.notEqual(await page.locator('#dashboard-requests-table').innerText(),first);
+    assert.equal((await panel.boundingBox()).height,height);
+    await page.locator('#dashboard-technician-filter').selectOption('Maria');
+    assert.match(await page.locator('.dashboard-pagination').innerText(),/40 pendências/);
+    await page.locator('#dashboard-status-filter').selectOption('ok');
+    assert.match(await page.locator('.dashboard-pagination').innerText(),/0 pendências/);
+    await page.locator('#dashboard-technician-filter').selectOption('');
+    for(const status of ['overdue','warning','ok']){
+      await page.locator('#dashboard-status-filter').selectOption(status);
+      assert.match(await page.locator('.dashboard-pagination').innerText(),/40 pendências/);
+    }
+    await page.locator('#dashboard-status-filter').selectOption('');
+    await page.locator('#dashboard-material-filter').fill('Roteador');
+    assert.match(await page.locator('.dashboard-pagination').innerText(),/60 pendências/);
+    await page.locator('#dashboard-material-filter').fill('inexistente');
+    assert.match(await page.locator('.dashboard-pagination').innerText(),/0 pendências/);
+    assert.equal((await panel.boundingBox()).height,height);
+    await page.locator('#dashboard-material-filter').fill('');
+    assert.equal(await page.locator('#dashboard-value-card').isVisible(),fixtures.profiles[0].role==='admin');
+    assert.equal(await page.locator('#dashboard-reminders-table').isVisible(),false);
+    await page.screenshot({path:resolve(root,'dashboard-preview.png'),fullPage:true});
+    await page.setViewportSize({width:390,height:844});
+    assert.equal((await panel.boundingBox()).height,height);
+    await page.setViewportSize({width:1440,height:900});
+  }
   assert.equal(boot.filter(read=>read.table==='movements'&&!read.head).length,0);
   for(const table of ['serial_items','serial_movements','receipts','inventory_counts','vehicle_tool_kit_events','client_loans']) assert.equal(boot.some(read=>read.table===table),false,table+' loaded at boot');
   assert.equal(await page.locator('#movement-history .history-card').count(),0);
