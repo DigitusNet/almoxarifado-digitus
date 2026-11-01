@@ -53,3 +53,12 @@ export function renderPendingPanel(rows, loadStatus, helpers) {
   footer.querySelector('span').textContent=['loading','error'].includes(loadStatus)?'Aguardando dados':`${result.total} pendências · Página ${result.page} de ${result.pages}`;
   const buttons=footer.querySelectorAll('button');buttons[0].disabled=result.page===1||loadStatus!=='success';buttons[1].disabled=result.page===result.pages||loadStatus!=='success';
 }
+
+// Returns to the beginning of the existing, filtered list without selecting a record.
+export function focusPendingPanel() {
+  if (!context || !controls) return;
+  currentPage = 1;
+  renderPendingPanel(context.rows, context.loadStatus, context.helpers);
+  const panel = document.querySelector('.dashboard-pending-panel');
+  panel?.querySelector('.dashboard-operation-heading')?.scrollIntoView({ behavior:'smooth', block:'start' });
+}

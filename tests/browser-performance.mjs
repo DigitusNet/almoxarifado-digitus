@@ -87,6 +87,9 @@ try {
     assert.match(await page.locator('.dashboard-pagination').innerText(),/120 pendências/);
     await page.getByRole('button',{name:'Próxima página de pendências',exact:true}).click();
     assert.match(await page.locator('.dashboard-pagination').innerText(),/Página 2 de 15/);
+    await page.locator('#dashboard-loan-alert').click();
+    await page.waitForFunction(()=>document.querySelector('.dashboard-pagination').textContent.includes('Página 1 de 15'));
+    assert.equal(await page.locator('#technician-pending-dialog').evaluate(dialog=>dialog.open),false);
     assert.equal((await panel.boundingBox()).height,height);
     await page.locator('#dashboard-technician-filter').selectOption('Maria');
     assert.match(await page.locator('.dashboard-pagination').innerText(),/40 pendências/);

@@ -1,5 +1,5 @@
 import { createClient } from '@supabase/supabase-js';
-import { renderPendingPanel } from './dashboard-view.js';
+import { renderPendingPanel, focusPendingPanel } from './dashboard-view.js';
 import { setupNfeBarcode } from './nfe-barcode.js';
 import { debounce, groupBy, createReadCache, InvalidatedReadError, renderWindowedBlocks, renderWindowedTable } from './read-performance.js';
 const readXlsxSheet = async (...args) => (await import('read-excel-file/browser')).readSheet(...args);
@@ -1256,7 +1256,7 @@ function renderDashboardOperations() {
     $('#loan-status-filter').value = 'atrasado';
     renderLoans();
   });
-  $('#dashboard-loan-alert').onclick = () => overduePendencies[0] && openTechnicianPending(overduePendencies[0].id);
+  $('#dashboard-loan-alert').onclick = () => focusPendingPanel();
   $('#dashboard-expiry-action').onclick = () => view('receipts');
   document.querySelectorAll('[data-dashboard-expiry]').forEach(button => button.onclick = () => {
     view('receipts');
