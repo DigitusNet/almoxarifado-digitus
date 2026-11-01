@@ -1,4 +1,5 @@
 /* Scoped exclusively to the initial dashboard. */
+/* All structural selectors below are restricted to dashboard-mode or #dashboard. */
 #dashboard .cards{display:grid;grid-template-columns:repeat(6,minmax(0,1fr));gap:10px;margin:0 0 12px}
 #dashboard .dashboard-summary-card{position:relative;display:flex;flex-direction:column;align-items:flex-start;justify-content:center;min-width:0;height:88px;padding:13px 16px;background:#fff;color:#21465d;border:1px solid #dae5ed;border-radius:10px;box-shadow:0 2px 5px #153b5510;text-align:left}
 #dashboard .dashboard-summary-card:hover{border-color:#29668a;background:#f7fbfe;transform:translateY(-1px)}
@@ -37,3 +38,56 @@ main.dashboard-mode #dashboard .dashboard-operations{display:grid;grid-template-
 #dashboard .dashboard-operation-panel .empty{padding:24px 12px;font-size:13px}
 @media(max-width:1000px){#dashboard .cards{grid-template-columns:repeat(3,minmax(0,1fr))}#dashboard .dashboard-summary-value{grid-column:span 3}}
 @media(max-width:600px){#dashboard .cards{grid-template-columns:repeat(2,minmax(0,1fr))}#dashboard .dashboard-summary-value{grid-column:span 2}main.dashboard-mode #dashboard .dashboard-operations{grid-template-columns:1fr}#dashboard .dashboard-pending-filters{grid-template-columns:1fr 1fr}#dashboard .dashboard-pending-filters label:last-child{grid-column:1/-1}#dashboard .dashboard-pagination{flex-wrap:wrap}#dashboard .dashboard-pending-panel{height:600px}#dashboard .dashboard-summary-card{padding:12px;height:80px}}
+
+/* Navy command centre: metrics ribbon, operational workspace, compact exceptions. */
+main.dashboard-mode{background:#eef2f7}
+main.dashboard-mode>.topbar{padding-top:18px;padding-bottom:16px;border-bottom:0}
+main.dashboard-mode>.topbar h1{font-size:24px;letter-spacing:-.7px;color:#142e4c}
+#dashboard .cards{gap:0;padding:8px;background:linear-gradient(110deg,#112a47,#1e476c);border-radius:12px;box-shadow:0 8px 24px #102b4818;margin-bottom:12px}
+#dashboard .dashboard-summary-card{height:94px;padding:14px 18px;background:transparent;border:0;border-right:1px solid #ffffff20;border-radius:0;box-shadow:none;color:white;transition:background .15s}
+#dashboard .dashboard-summary-card:last-child{border-right:0}
+#dashboard .dashboard-summary-card:hover{background:#ffffff0d;box-shadow:none;transform:none}
+#dashboard .dashboard-summary-card span{font-size:13px;font-weight:500;line-height:1.5;color:#bfcee0}
+#dashboard .dashboard-summary-card strong{font-size:30px;font-weight:700;color:#fff;letter-spacing:-.7px;font-variant-numeric:tabular-nums;margin-top:5px}
+#dashboard .dashboard-summary-icon{width:21px;height:21px;right:14px;bottom:20px;color:#79aed6;opacity:.75}
+#dashboard .dashboard-summary-value{background:#ffffff09;border-radius:7px;border-right:0}
+#dashboard .dashboard-summary-value strong{font-size:23px;color:#bfe6ff}
+#dashboard .dashboard-loan-alert{border:1px solid #d6e1ec;background:#f7f9fc;color:#4d6278;font-size:12px;box-shadow:none;padding:7px 12px}
+#dashboard .dashboard-loan-alert.success{background:#f7f9fc;color:#536c80}
+main.dashboard-mode #dashboard .dashboard-operations{gap:12px}
+#dashboard .dashboard-pending-panel{border:1px solid #d4dfeb;border-top:3px solid #204b72;border-radius:12px;box-shadow:0 4px 20px #17304c09;height:600px}
+#dashboard .dashboard-pending-panel .dashboard-operation-heading{flex:none;padding:16px 20px;background:#fff;min-height:86px}
+#dashboard .dashboard-command-title{display:flex;flex-direction:column;gap:6px}
+#dashboard .dashboard-eyebrow{font-size:10px;font-weight:700;letter-spacing:1.8px;color:#72869b}
+#dashboard .dashboard-command-title h2{font-size:19px;letter-spacing:-.45px;color:#142e4c}
+#dashboard .dashboard-command-title h2 b{border-radius:6px;background:#eaf0f7;color:#204b72;font-variant-numeric:tabular-nums;min-width:32px;padding:0 6px}
+#dashboard .dashboard-deadline-summary{display:flex;gap:24px;align-items:center}
+#dashboard .dashboard-deadline-summary>div{display:grid;grid-template-columns:7px auto;column-gap:8px;align-items:center}
+#dashboard .dashboard-deadline-summary strong{font-size:22px;line-height:1.2;font-variant-numeric:tabular-nums;color:#253c54}
+#dashboard .dashboard-deadline-summary div>span:last-child{grid-column:2;font-size:11px;color:#667d93;margin-top:3px}
+#dashboard .deadline-dot{width:6px;height:6px;border-radius:50%;background:#b46a2a}
+#dashboard .deadline-dot.overdue{background:#b94646}
+#dashboard .dashboard-pending-filters{grid-template-columns:1fr 1fr 1.5fr;background:#f5f7fa;padding:10px 20px;gap:16px;flex:none}
+#dashboard .dashboard-pending-filters label{font-size:11px;color:#61778c}
+#dashboard .dashboard-pending-filters input,#dashboard .dashboard-pending-filters select{height:34px;border-color:#d8e1eb;font-size:13px;border-radius:5px}
+#dashboard .dashboard-pending-panel th{background:#edf2f7;color:#5d7187;padding:9px 14px;font-size:10px;letter-spacing:.65px}
+#dashboard .dashboard-pending-panel td{padding:5px 14px;height:36px;font-size:13px;color:#334c65;border-bottom:1px solid #edf1f5;font-variant-numeric:tabular-nums}
+#dashboard .dashboard-pending-panel td:nth-child(1){font-weight:600;color:#213e5c}
+#dashboard .dashboard-pending-panel td:nth-child(3){text-align:center}
+#dashboard .dashboard-pending-panel th:nth-child(3){text-align:center}
+#dashboard .dashboard-pending-panel tbody tr{background:white}
+#dashboard .dashboard-pending-panel tbody tr:nth-child(even){background:#f9fbfd}
+#dashboard .dashboard-pending-panel tbody tr:hover{background:#eff5fb}
+#dashboard .deadline-overdue td:first-child{border-left:2px solid #ba6262}
+#dashboard .pending-status{font-size:11px;font-weight:600;border:0;background:transparent!important}
+#dashboard .dashboard-pending-panel td .secondary-button{min-height:24px;padding:3px 10px;font-size:11px;border-color:#d0deeb;color:#285679;border-radius:5px;background:#f4f8fc}
+#dashboard .dashboard-pagination{flex:none;padding:10px 20px;font-size:12px;background:#f9fbfd}
+#dashboard .dashboard-pagination button{border-radius:5px;border-color:#d6e1ec;background:white;color:#285679}
+#dashboard .dashboard-operation-panel:not(.dashboard-pending-panel){border-radius:9px;background:#f8fafd;box-shadow:none}
+#dashboard .dashboard-operation-panel:not(.dashboard-pending-panel) .dashboard-operation-heading{min-height:44px;padding:10px 16px;background:transparent}
+#dashboard .dashboard-operation-panel:not(.dashboard-pending-panel) h2{font-size:13px;color:#3e566e}
+#dashboard .dashboard-secondary-empty .table-wrap thead{display:none}
+#dashboard .dashboard-secondary-empty .empty{padding:10px 16px 14px;text-align:left;font-size:12px;color:#7c8d9e}
+#dashboard .dashboard-secondary-empty .dashboard-operation-heading{border-bottom:0;padding-bottom:0!important}
+@media(max-width:1000px){#dashboard .dashboard-summary-card:nth-child(3n){border-right:0}#dashboard .dashboard-summary-value{height:65px}#dashboard .dashboard-deadline-summary{gap:14px}}
+@media(max-width:600px){#dashboard .dashboard-summary-card{height:86px;padding:12px 14px}#dashboard .dashboard-summary-card span{font-size:12px}#dashboard .dashboard-summary-card:nth-child(3n){border-right:1px solid #ffffff20}#dashboard .dashboard-summary-card:nth-child(2n){border-right:0}#dashboard .dashboard-pending-panel .dashboard-operation-heading{align-items:flex-start;flex-direction:column;gap:12px;padding:14px}#dashboard .dashboard-command-title h2{font-size:17px}#dashboard .dashboard-deadline-summary{width:100%;gap:28px}#dashboard .dashboard-deadline-summary strong{font-size:18px}#dashboard .dashboard-pending-filters{grid-template-columns:1fr 1fr;padding:10px 14px;gap:10px}#dashboard .dashboard-pending-filters label:last-child{grid-column:1/-1}#dashboard .dashboard-pagination{padding:10px 14px}}

@@ -15,6 +15,14 @@ export function renderPendingPanel(rows, loadStatus, helpers) {
   if(!controls){
     panel.classList.add('dashboard-pending-panel');
     panel.parentElement.prepend(panel);
+    const heading=panel.querySelector('.dashboard-operation-heading');
+    const title=document.createElement('div');title.className='dashboard-command-title';
+    title.innerHTML='<span class="dashboard-eyebrow">CONTROLE OPERACIONAL</span>';
+    title.append(heading.querySelector('h2'));heading.replaceChildren(title);
+    const summary=document.createElement('div');summary.className='dashboard-deadline-summary';
+    summary.setAttribute('aria-label','Resumo de prazos de todas as pendências');
+    summary.innerHTML='<div><span class="deadline-dot overdue"></span><strong data-deadline-total="overdue">—</strong><span>Atrasadas</span></div><div><span class="deadline-dot warning"></span><strong data-deadline-total="warning">—</strong><span>Vencem em breve</span></div>';
+    heading.append(summary);
     document.getElementById('dashboard-reminders-table').closest('section').hidden=true;
     controls=document.createElement('div'); controls.className='dashboard-pending-filters';
     controls.innerHTML='<label>Técnico<select id="dashboard-technician-filter"><option value="">Todos os técnicos</option></select></label><label>Status<select id="dashboard-status-filter"><option value="">Todos os status</option><option value="overdue">Atrasado</option><option value="warning">Vence em breve</option><option value="ok">No prazo</option></select></label><label>Material<input id="dashboard-material-filter" type="search" placeholder="Pesquisar material" /></label>';
@@ -28,6 +36,11 @@ export function renderPendingPanel(rows, loadStatus, helpers) {
     buttons[0].onclick=()=>{currentPage--;refresh();};buttons[1].onclick=()=>{currentPage++;refresh();};
   }
   const {product,deadline,esc,date,quantity,open}=helpers;
+  for(const key of ['overdue','warning']) panel.querySelector(`[data-deadline-total="${key}"]`).textContent=loadStatus==='success'?rows.filter(row=>deadline(row).key===key).length:'—';
+  for(const id of ['dashboard-overdue-loans-table','dashboard-expiring-table']){
+    const table=document.getElementById(id);
+    table.closest('section').classList.toggle('dashboard-secondary-empty',Boolean(table.querySelector('td.empty')));
+  }
   const technician=controls.querySelector('select'), selected=technician.value;
   const options=[...new Set(rows.map(row=>row.technician_name).filter(Boolean))].sort((a,b)=>a.localeCompare(b,'pt-BR'));
   const optionsHtml='<option value="">Todos os técnicos</option>'+options.map(name=>`<option value="${esc(name)}">${esc(name)}</option>`).join('');
