@@ -87,6 +87,7 @@ try {
     assert.match(await page.locator('.dashboard-pagination').innerText(),/120 pendências/);
     await page.getByRole('button',{name:'Próxima página de pendências',exact:true}).click();
     assert.match(await page.locator('.dashboard-pagination').innerText(),/Página 2 de 15/);
+    assert.equal(await panel.evaluate(element=>getComputedStyle(element).getPropertyValue('--pending-visible-rows').trim()),'8');
     await page.locator('#dashboard-loan-alert').click();
     await page.waitForFunction(()=>document.querySelector('.dashboard-pagination').textContent.includes('Página 1 de 15'));
     assert.equal(await page.locator('#technician-pending-dialog').evaluate(dialog=>dialog.open),false);
@@ -105,7 +106,7 @@ try {
     assert.match(await page.locator('.dashboard-pagination').innerText(),/60 pendências/);
     await page.locator('#dashboard-material-filter').fill('inexistente');
     assert.match(await page.locator('.dashboard-pagination').innerText(),/0 pendências/);
-    assert.equal((await panel.boundingBox()).height,height);
+    assert.ok((await panel.boundingBox()).height<height);
     await page.locator('#dashboard-material-filter').fill('');
     assert.equal(await page.locator('#dashboard-value-card').isVisible(),fixtures.profiles[0].role==='admin');
     assert.equal(await page.locator('#dashboard-reminders-table').isVisible(),false);

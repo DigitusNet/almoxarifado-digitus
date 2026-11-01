@@ -60,7 +60,7 @@ main.dashboard-mode>.topbar h1{font-size:24px;letter-spacing:-.7px;color:#142e4c
 #dashboard .dashboard-loan-alert{border:1px solid #dce5ee;border-left:3px solid #c68a47;background:#fbfcfe;color:#526a80;font-size:12px;box-shadow:none;padding:6px 11px}
 #dashboard .dashboard-loan-alert.success{border-left-color:#62a981;background:#fbfcfe;color:#667c90}
 main.dashboard-mode #dashboard .dashboard-operations{gap:12px}
-#dashboard .dashboard-pending-panel{border:1px solid #d4dfeb;border-top:3px solid #204b72;border-radius:12px;box-shadow:0 4px 20px #17304c09;height:600px;min-height:0}
+#dashboard .dashboard-pending-panel{border:1px solid #d4dfeb;border-top:3px solid #204b72;border-radius:12px;box-shadow:0 4px 20px #17304c09;height:calc(232px + (var(--pending-visible-rows, 1) * 36px));min-height:268px;max-height:520px}
 #dashboard .dashboard-pending-panel .table-wrap{flex:none;min-height:0;overflow:hidden}
 #dashboard .dashboard-pending-panel .dashboard-operation-heading{flex:none;padding:14px 20px;background:#fff;min-height:80px}
 #dashboard .dashboard-command-title{display:flex;flex-direction:column;gap:6px}

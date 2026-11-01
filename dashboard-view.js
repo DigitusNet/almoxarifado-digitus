@@ -47,6 +47,9 @@ export function renderPendingPanel(rows, loadStatus, helpers) {
   if(technician.innerHTML!==optionsHtml){technician.innerHTML=optionsHtml;technician.value=options.includes(selected)?selected:'';}
   const result=pendingPage(rows,{technician:technician.value,status:controls.querySelectorAll('select')[1].value,search:controls.querySelector('input').value,page:currentPage},product,deadline);
   currentPage=result.page;
+  // The panel follows the rendered page (up to eight rows), never the total dataset.
+  const visibleRows = loadStatus === 'success' ? Math.max(1, result.rows.length) : 1;
+  panel.style.setProperty('--pending-visible-rows', visibleRows);
   body.innerHTML=loadStatus==='loading'?'<tr><td colspan="7" class="empty">Carregando pendências…</td></tr>':loadStatus==='error'?'<tr><td colspan="7" class="empty">Não foi possível carregar as pendências.</td></tr>':result.rows.map(item=>{const state=deadline(item);return `<tr class="deadline-${state.key}"><td>${esc(item.technician_name)}</td><td>${esc(product(item.product_id)?.name||'Material')}</td><td>${quantity(item.quantity)}</td><td>${date(item.withdrawn_at)}</td><td>${date(item.due_at)}</td><td><span class="pending-status ${state.key}">${state.label}</span></td><td><button type="button" class="secondary-button" data-view-pending="${esc(item.id)}">Ver</button></td></tr>`;}).join('')||'<tr><td colspan="7" class="empty">Nenhuma pendência para os filtros selecionados.</td></tr>';
   body.querySelectorAll('[data-view-pending]').forEach(button=>button.onclick=()=>open(button.dataset.viewPending));
   const footer=panel.querySelector('.dashboard-pagination');
