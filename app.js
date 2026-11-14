@@ -1050,7 +1050,8 @@ function historyFilters() {
     type: $('#history-type').value,
     destination: $('#history-holder').value,
     from: $('#history-from').value,
-    to: $('#history-to').value
+    to: $('#history-to').value,
+    order: $('#history-order')?.value || 'newest'
   };
 }
 
@@ -1064,6 +1065,9 @@ function historyEntryMatches(entry, filters) {
 }
 
 let historyCache = null;
+let movementHistoryPage = 1;
+let movementHistoryFilterSignature = '';
+const movementHistoryExpanded = new Set();
 function historyEntries() {
   const inputs = [state.products, state.movements, state.receipts, state.receiptItems, state.serialItems, state.serialMovements, state.technicianPendencies, state.technicianPendingEvents, state.technicianPendingItems, state.locations];
   if (!historyCache || inputs.some((value, index) => historyCache.inputs[index] !== value)) {
@@ -1388,7 +1392,19 @@ function renderMovement() {
   select.value = selected || products[0]?.id || '';
   renderMovementSerialUnits();
   const filters = historyFilters();
+  const filterSignature = JSON.stringify(filters);
+  if (filterSignature !== movementHistoryFilterSignature) {
+    movementHistoryPage = 1;
+    movementHistoryFilterSignature = filterSignature;
+  }
   const entries = historyEntries().filter(item => historyEntryMatches(item, filters));
+  const collator = new Intl.Collator('pt-BR', { numeric:true, sensitivity:'base' });
+  entries.sort((left, right) => {
+    if (filters.order === 'oldest') return new Date(left.at || 0) - new Date(right.at || 0) || String(left.id).localeCompare(String(right.id));
+    if (filters.order === 'product') return historyEntryProduct(left).localeCompare(historyEntryProduct(right), 'pt-BR') || new Date(right.at || 0) - new Date(left.at || 0);
+    if (filters.order === 'type') return collator.compare(left.label, right.label) || new Date(right.at || 0) - new Date(left.at || 0);
+    return new Date(right.at || 0) - new Date(left.at || 0) || String(right.id).localeCompare(String(left.id));
+  });
   const totals = kind => entries.filter(item => item.metricKinds.includes(kind)).length;
   $('#history-entry-count').textContent = totals('entrada');
   $('#history-exit-count').textContent = totals('saida');
@@ -1396,29 +1412,47 @@ function renderMovement() {
   $('#history-installation-count').textContent = totals('instalacao');
   document.querySelectorAll('[data-history-type-shortcut]').forEach(button => button.classList.toggle('active', button.dataset.historyTypeShortcut === $('#history-type').value));
 
-  const grouped = new Map();
-  entries.forEach(entry => {
-    const key = localDateKey(entry.at);
-    if (!grouped.has(key)) grouped.set(key, []);
-    grouped.get(key).push(entry);
-  });
-  const blocks = [...grouped].flatMap(([day, dayEntries]) => {
-    const chunks = [];
-    for (let offset = 0; offset < dayEntries.length; offset += 20) {
-      const page = dayEntries.slice(offset, offset + 20);
-      const heading = offset === 0 ? `<h3>${esc(historyDayLabel(day))}</h3>` : '';
-      const spacing = offset ? ' style="margin-top:9px"' : '';
-      chunks.push({ height:page.length * 260 + (offset === 0 ? 45 : 0), html:() => `<section class="history-day"${spacing}>${heading}<div>${page.map(entry => historyCardHtml(entry, canDelete)).join('')}</div></section>` });
-    }
-    return chunks;
-  });
-  if (!blocks.length) blocks.push({ height:100, html:() => '<div class="history-empty"><span>⌕</span><b>Nenhuma movimentação encontrada</b><small>Ajuste os filtros ou o período para visualizar outros registros.</small></div>' });
-  renderWindowedBlocks($('#movement-history'), blocks);
+  const pageSize = Number($('#history-page-size').value || 25);
+  const pageCount = Math.max(1, Math.ceil(entries.length / pageSize));
+  movementHistoryPage = Math.min(Math.max(1, movementHistoryPage), pageCount);
+  const from = (movementHistoryPage - 1) * pageSize;
+  const pageEntries = entries.slice(from, from + pageSize);
+  $('#movement-history').innerHTML = pageEntries.map(entry => historyTableRowHtml(entry, canDelete)).join('') || '<tr><td colspan="8" class="empty">Nenhuma movimentação encontrada. Ajuste os filtros ou o período.</td></tr>';
+  $('#history-page-summary').textContent = entries.length ? `${from + 1}–${Math.min(from + pageSize, entries.length)} de ${entries.length} movimentações` : '0–0 de 0 movimentações';
+  $('#history-page-label').textContent = `Página ${movementHistoryPage} de ${pageCount}`;
+  $('#history-prev-page').disabled = movementHistoryPage <= 1;
+  $('#history-next-page').disabled = movementHistoryPage >= pageCount;
   $('#movement-history').onclick = event => {
     const button = event.target.closest('button');
-    if (button?.dataset.deleteMovement) deleteMovement(button.dataset.deleteMovement);
+    if (button?.dataset.historyExpand) {
+      const id = button.dataset.historyExpand;
+      movementHistoryExpanded.has(id) ? movementHistoryExpanded.delete(id) : movementHistoryExpanded.add(id);
+      renderMovement();
+    } else if (button?.dataset.deleteMovement) deleteMovement(button.dataset.deleteMovement);
     else if (button?.dataset.historyReceipt) openReceiptDetails(button.dataset.historyReceipt);
   };
+}
+
+function historyEntryProduct(entry) {
+  const separator = String(entry.title || '').indexOf(' — ');
+  return separator >= 0 ? String(entry.title).slice(separator + 3) : String(entry.title || '');
+}
+
+function historyFactValue(entry, labels) {
+  return entry.facts.find(fact => labels.includes(fact.label))?.value || '';
+}
+
+function historyTableRowHtml(entry, canDelete) {
+  const productName = historyEntryProduct(entry);
+  const quantityLabel = String(entry.title || '').includes(' — ') ? String(entry.title).split(' — ')[0] : '—';
+  const movement = historyFactValue(entry, ['Movimentação']);
+  const customer = historyFactValue(entry, ['Cliente']);
+  const originDestination = movement || customer || historyFactValue(entry, ['Fornecedor']) || '—';
+  const responsible = historyFactValue(entry, ['Técnico', 'Novo técnico', 'Técnico anterior', 'Responsável', 'Fornecedor']) || '—';
+  const reference = [historyFactValue(entry, ['Patrimônio']), historyFactValue(entry, ['OS']) || historyFactValue(entry, ['Nota fiscal'])].filter(Boolean).join(' · ') || '—';
+  const expanded = movementHistoryExpanded.has(entry.id);
+  const detailFacts = [...entry.facts, { label:'Variação do estoque', value:entry.stockText }, { label:'Data e horário', value:date(entry.at) }];
+  return `<tr class="movement-history-row ${esc(entry.variant)}" data-history-entry="${esc(entry.id)}"><td><time datetime="${esc(entry.at || '')}">${date(entry.at)}</time></td><td><span class="movement-type ${esc(entry.variant)}"><i aria-hidden="true">${entry.icon}</i>${esc(entry.label)}</span></td><td><b>${esc(productName)}</b>${entry.subtitle ? `<small>${esc(entry.subtitle)}</small>` : ''}</td><td>${esc(quantityLabel)}</td><td>${esc(originDestination)}</td><td>${esc(responsible)}</td><td>${esc(reference)}</td><td><div class="movement-row-actions"><button class="text-button" data-history-expand="${esc(entry.id)}" type="button" aria-expanded="${expanded}">${expanded ? 'Ocultar' : 'Detalhes'}</button>${entry.receiptId ? `<button class="secondary-button" data-history-receipt="${entry.receiptId}" type="button">Recebimento</button>` : ''}${canDelete && entry.deleteMovementId ? `<button class="danger-button" data-delete-movement="${entry.deleteMovementId}" type="button">Apagar</button>` : ''}</div></td></tr>${expanded ? `<tr class="movement-detail-row"><td colspan="8"><div class="movement-detail-grid">${detailFacts.map(historyFactHtml).join('')}</div></td></tr>` : ''}`;
 }
 
 function historyDayLabel(day) {
@@ -1806,6 +1840,11 @@ function openReceiptInHistory(id) {
   $('#history-holder').value = '';
   $('#history-from').value = '';
   $('#history-to').value = '';
+  $('#history-order').value = 'newest';
+  const receiptFilters = historyFilters();
+  const receiptIndex = historyEntries().filter(item => historyEntryMatches(item, receiptFilters)).findIndex(item => item.id === `receipt-${id}`);
+  if (receiptIndex >= 0) movementHistoryPage = Math.floor(receiptIndex / Number($('#history-page-size').value || 25)) + 1;
+  movementHistoryFilterSignature = JSON.stringify(receiptFilters);
   renderMovement();
   requestAnimationFrame(() => document.querySelector(`[data-history-entry="receipt-${CSS.escape(String(id))}"]`)?.scrollIntoView({ behavior:'smooth', block:'center' }));
 }
@@ -3546,6 +3585,9 @@ document.querySelectorAll('[data-history-period]').forEach(button => button.oncl
   renderMovement();
 });
 $('#clear-history-filters').onclick = () => { document.querySelectorAll('[data-history-filter]').forEach(element => { element.value = ''; }); renderMovement(); };
+$('#history-page-size').onchange = () => { movementHistoryPage = 1; renderMovement(); };
+$('#history-prev-page').onclick = () => { if (movementHistoryPage > 1) { movementHistoryPage--; renderMovement(); } };
+$('#history-next-page').onclick = () => { movementHistoryPage++; renderMovement(); };
 document.querySelectorAll('[data-statement-filter]').forEach(element => { element.oninput = renderStatement; element.onchange = renderStatement; });
 $('#clear-statement-filters').onclick = () => { document.querySelectorAll('[data-statement-filter]').forEach(element => { element.value = ''; }); renderStatement(); };
 function updateMovementRecipientPlaceholder() {

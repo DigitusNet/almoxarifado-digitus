@@ -117,7 +117,7 @@ try {
   }
   assert.equal(boot.filter(read=>read.table==='movements'&&!read.head).length,0);
   for(const table of ['serial_items','serial_movements','receipts','inventory_counts','vehicle_tool_kit_events','client_loans']) assert.equal(boot.some(read=>read.table===table),false,table+' loaded at boot');
-  assert.equal(await page.locator('#movement-history .history-card').count(),0);
+  assert.equal(await page.locator('#movement-history .movement-history-row').count(),0);
   await page.locator('[data-view="client-loans"]:visible').first().click();
   await page.waitForFunction(()=>document.querySelector('#client-loan-page-label').textContent.includes('137'));
   assert.equal(await page.locator('#client-loans-table tr').count(),50);
@@ -129,13 +129,19 @@ try {
   const unitPages=await page.evaluate(()=>window.__reads.filter(read=>read.table==='serial_items'&&!read.head));
   assert.deepEqual(unitPages.map(read=>read.returned),[50,50]);
   await page.locator('[data-view="movement"]:visible').first().click();
-  await page.waitForFunction(()=>document.querySelector('#movement-history .history-card'));
+  await page.waitForFunction(()=>document.querySelector('#movement-history .movement-history-row'));
   await page.evaluate(()=>{window.scrollTo(0,0);document.querySelector('main').scrollTop=0;});
   await page.waitForFunction(()=>document.querySelector('[data-history-entry="movement-m005999"]'));
-  const cards=await page.locator('#movement-history .history-card').count();
-  assert.ok(cards<=80, 'too many history cards: '+cards);
+  const cards=await page.locator('#movement-history .movement-history-row').count();
+  assert.ok(cards<=25, 'too many history rows: '+cards);
   const first=await page.locator('[data-history-entry]').first().getAttribute('data-history-entry');
   assert.equal(first,'movement-m005999');
+  await page.locator('[data-history-expand]').first().click();
+  await page.waitForFunction(()=>document.querySelector('#movement-history .movement-detail-row'));
+  await page.locator('#history-next-page').click();
+  await page.waitForFunction(()=>document.querySelector('#history-page-label').textContent.includes('Página 2 de'));
+  await page.locator('#history-prev-page').click();
+  await page.waitForFunction(()=>document.querySelector('#history-page-label').textContent.includes('Página 1 de'));
   await page.locator('#history-search').fill('Fornecedor local');
   await page.waitForFunction(()=>document.querySelector('[data-history-entry^="receipt-"]'));
   assert.equal(await page.locator('[data-history-entry^="movement-"]').count(),0);
