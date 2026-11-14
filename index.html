@@ -17,6 +17,7 @@
     <link rel="stylesheet" href="erp-theme.css?v=20260824-1" />
     <link rel="stylesheet" href="dashboard-view.css" />
     <link rel="stylesheet" href="movement-view.css" />
+    <link rel="stylesheet" href="serial-catalog.css" />
   </head>
   <body>
     <div class="app-shell">
@@ -149,8 +150,9 @@
         <section id="serials" class="view" hidden>
           <div class="toolbar toolbar-actions-only"><div class="toolbar-actions"><button class="secondary-button" id="import-serials" data-admin-only hidden>↑ Importar unidades</button><button class="primary" id="add-serial" data-manager-only hidden>+ Cadastrar unidade</button></div></div>
           <div class="registry-intro"><b>Use esta tela para os itens marcados como “Por serial / MAC”.</b> Cada ONU, roteador, switch, ferramenta ou patrimônio terá seu próprio registro e status.</div>
-          <div class="toolbar serial-toolbar"><label class="search"><span>⌕</span><input id="serial-search" placeholder="Buscar por item, serial, MAC ou patrimônio" /></label></div>
-          <section class="panel table-panel"><div class="table-wrap"><table><thead><tr><th>Item</th><th>Serial</th><th>MAC</th><th>Patrimônio</th><th>Local / cliente</th><th>Status</th><th>Ações</th></tr></thead><tbody id="serials-table"></tbody></table></div></section>
+          <section class="serial-catalog-summary" aria-label="Resumo das unidades rastreáveis"><article><span>Total de unidades</span><strong id="serial-total-count">0</strong></article><article class="in-stock"><span>Em estoque</span><strong id="serial-stock-count">0</strong></article><article class="with-technician"><span>Com técnico</span><strong id="serial-technician-count">0</strong></article><article class="installed"><span>Instaladas</span><strong id="serial-installed-count">0</strong></article></section>
+          <div class="toolbar serial-toolbar serial-catalog-toolbar"><label class="search"><span>⌕</span><input id="serial-search" placeholder="Item, serial, MAC, patrimônio, local ou cliente" /></label><select id="serial-status-filter" aria-label="Filtrar unidades por status"><option value="">Todos os status</option></select><select id="serial-order" aria-label="Ordenar unidades"><option value="product-asc">Nome do equipamento (A–Z)</option><option value="product-desc">Nome do equipamento (Z–A)</option><option value="asset-asc">Patrimônio (crescente)</option><option value="asset-desc">Patrimônio (decrescente)</option><option value="created-desc">Data de cadastro (mais recentes)</option><option value="created-asc">Data de cadastro (mais antigos)</option></select></div>
+          <section class="panel table-panel serial-catalog-panel"><div class="table-wrap"><table><thead><tr><th>Item</th><th>Serial</th><th>MAC</th><th>Patrimônio</th><th>Local / cliente</th><th>Status</th><th>Ações</th></tr></thead><tbody id="serials-table"></tbody></table></div></section>
         </section>
 
         <section id="laboratory" class="view" hidden>

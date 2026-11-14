@@ -766,7 +766,8 @@ function matchesSerialSearch(item, query) {
   const search = String(query || '').trim().toLocaleLowerCase('pt-BR');
   if (!search) return true;
   const itemProduct = product(item.product_id);
-  const productText = `${itemProduct?.name || ''} ${itemProduct?.code || ''} ${item.customer_name || ''}`.toLocaleLowerCase('pt-BR');
+  const locationName = state.locations.find(location => location.id === item.current_location_id)?.name || '';
+  const productText = `${itemProduct?.name || ''} ${itemProduct?.code || ''} ${item.customer_name || ''} ${item.current_technician || ''} ${locationName}`.toLocaleLowerCase('pt-BR');
   return productText.includes(search) || matchesSerialIdentifier(item, search);
 }
 
@@ -2010,14 +2011,48 @@ function renderSerials() {
   const serialProducts = activeProducts().filter(item => item.tracking_mode === 'serializado');
   select.innerHTML = serialProducts.map(item => `<option value="${item.id}">${esc(item.name)} (${esc(item.code)})</option>`).join('');
   select.value = serialProducts.some(item => item.id === selected) ? selected : serialProducts[0]?.id || '';
-  const search = $('#serial-search').value;
-  const serials = state.serialItems.filter(item => {
-    return matchesSerialSearch(item, search);
-  });
-  renderWindowedTable(table, serials, item => {
+  const statusFilter = $('#serial-status-filter'), orderSelect = $('#serial-order');
+  const selectedStatus = statusFilter.value;
+  const availableStatuses = [...new Set(state.serialItems.map(item => item.status).filter(Boolean))]
+    .sort((a, b) => serialStatusName(a).localeCompare(serialStatusName(b), 'pt-BR'));
+  statusFilter.innerHTML = '<option value="">Todos os status</option>' + availableStatuses.map(value => `<option value="${esc(value)}">${esc(serialStatusName(value))}</option>`).join('');
+  statusFilter.value = availableStatuses.includes(selectedStatus) ? selectedStatus : '';
+
+  $('#serial-total-count').textContent = quantity(state.serialItems.length);
+  $('#serial-stock-count').textContent = quantity(state.serialItems.filter(item => item.status === 'disponivel').length);
+  $('#serial-technician-count').textContent = quantity(state.serialItems.filter(item => item.status === 'com_colaborador').length);
+  $('#serial-installed-count').textContent = quantity(state.serialItems.filter(item => item.status === 'instalado_cliente').length);
+
+  const collator = new Intl.Collator('pt-BR', { numeric:true, sensitivity:'base' });
+  const text = value => String(value || '');
+  const compareText = (left, right) => collator.compare(text(left), text(right));
+  const compareAsset = (left, right) => {
+    const leftValue = text(left.asset_tag), rightValue = text(right.asset_tag);
+    if (!leftValue && !rightValue) return compareText(left.serial_number, right.serial_number);
+    if (!leftValue) return 1;
+    if (!rightValue) return -1;
+    return compareText(leftValue, rightValue) || compareText(left.serial_number, right.serial_number);
+  };
+  const productName = item => product(item.product_id)?.name || 'Item removido';
+  const productOrder = (left, right) => compareText(productName(left), productName(right));
+  const order = orderSelect.value || 'product-asc';
+  const serials = state.serialItems
+    .filter(item => matchesSerialSearch(item, $('#serial-search').value) && (!statusFilter.value || item.status === statusFilter.value))
+    .sort((left, right) => {
+      if (order === 'product-desc') return -productOrder(left, right) || compareAsset(left, right);
+      if (order === 'asset-asc') return compareAsset(left, right) || productOrder(left, right);
+      if (order === 'asset-desc') return -compareAsset(left, right) || productOrder(left, right);
+      if (order === 'created-desc') return new Date(right.created_at || 0) - new Date(left.created_at || 0) || productOrder(left, right);
+      if (order === 'created-asc') return new Date(left.created_at || 0) - new Date(right.created_at || 0) || productOrder(left, right);
+      return productOrder(left, right) || compareAsset(left, right);
+    })
+    .map((item, index, rows) => ({ item, showGroup: index === 0 || productName(item) !== productName(rows[index - 1]) }));
+  renderWindowedTable(table, serials, row => {
+    const item = row.item;
     const itemProduct = product(item.product_id), location = state.locations.find(entry => entry.id === item.current_location_id);
     const canManageSerial = ['admin', 'operador'].includes(currentUser?.role);
-    return `<tr><td><b>${esc(itemProduct?.name || 'Item removido')}</b><small>${esc(itemProduct?.code || '—')}</small></td><td>${esc(item.serial_number || '—')}</td><td>${esc(item.mac_address || '—')}</td><td>${esc(item.asset_tag || '—')}</td><td>${esc(item.current_technician || location?.name || item.customer_name || '—')}</td><td><span class="badge ${serialStatusClass(item.status)}">${esc(serialStatusName(item.status))}</span></td><td><div class="table-actions">${item.status !== 'baixado' ? `<button class="secondary-button" data-move-serial="${item.id}">Mover</button>` : ''}${canManageSerial ? `<button class="secondary-button" data-edit-serial="${item.id}">Editar</button>` : ''}<button class="text-button" data-history-serial="${item.id}">Histórico</button><button class="danger-button" data-admin-only hidden data-delete-serial="${item.id}">Excluir</button></div></td></tr>`;
+    const group = row.showGroup ? `<tr class="serial-model-group"><td colspan="7"><span>Modelo</span><b>${esc(itemProduct?.name || 'Item removido')}</b><small>${esc(itemProduct?.code || 'Sem código')}</small></td></tr>` : '';
+    return `${group}<tr><td><b>${esc(itemProduct?.name || 'Item removido')}</b><small>${esc(itemProduct?.code || '—')}</small></td><td>${esc(item.serial_number || '—')}</td><td>${esc(item.mac_address || '—')}</td><td>${esc(item.asset_tag || '—')}</td><td>${esc(item.current_technician || location?.name || item.customer_name || '—')}</td><td><span class="badge ${serialStatusClass(item.status)}">${esc(serialStatusName(item.status))}</span></td><td><div class="table-actions">${item.status !== 'baixado' ? `<button class="secondary-button" data-move-serial="${item.id}">Mover</button>` : ''}${canManageSerial ? `<button class="secondary-button" data-edit-serial="${item.id}">Editar</button>` : ''}<button class="text-button" data-history-serial="${item.id}">Histórico</button><button class="danger-button" data-admin-only hidden data-delete-serial="${item.id}">Excluir</button></div></td></tr>`;
   }, '<tr><td colspan="7" class="empty">Nenhuma unidade rastreável encontrada.</td></tr>', () => {
     document.querySelectorAll('[data-move-serial]').forEach(button => button.onclick = () => openSerialTransfer(button.dataset.moveSerial));
     document.querySelectorAll('[data-history-serial]').forEach(button => button.onclick = () => openSerialHistory(button.dataset.historySerial));
@@ -3448,6 +3483,8 @@ $('#product-category-filter').onchange = () => { state.productFilter = 'all'; re
 $('#product-status-filter').onchange = () => { state.productFilter = 'all'; renderProducts(); };
 $('#epi-status-filter').onchange = renderEpis;
 $('#serial-search').oninput = debounce(renderSerials);
+$('#serial-status-filter').onchange = renderSerials;
+$('#serial-order').onchange = renderSerials;
 $('#lab-search').oninput = debounce(renderLaboratory);
 document.querySelectorAll('#loan-search, #loan-status-filter, #loan-technician-filter, #loan-equipment-filter, #loan-period-from, #loan-period-to').forEach(input => input.addEventListener(input.tagName === 'INPUT' ? 'input' : 'change', renderLoans));
 document.querySelectorAll('[data-loan-card-filter]').forEach(button => button.onclick = () => { $('#loan-status-filter').value = button.dataset.loanCardFilter; renderLoans(); });

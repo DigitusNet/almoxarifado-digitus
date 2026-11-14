@@ -1,0 +1,28 @@
+/* Catálogo Serial / MAC: apenas apresentação da listagem existente. */
+#serials .serial-catalog-summary{display:grid;grid-template-columns:repeat(4,minmax(150px,1fr));gap:12px;margin:16px 0}
+#serials .serial-catalog-summary article{position:relative;min-height:84px;padding:15px 17px;border:1px solid #d5e3ea;border-radius:7px;background:linear-gradient(135deg,#fff,#f4f9fb);box-shadow:0 3px 10px #16314a0d;overflow:hidden}
+#serials .serial-catalog-summary article:before{content:'';position:absolute;inset:0 auto 0 0;width:4px;background:#29668a}
+#serials .serial-catalog-summary article.in-stock:before{background:#329465}
+#serials .serial-catalog-summary article.with-technician:before{background:#d87733}
+#serials .serial-catalog-summary article.installed:before{background:#5c78ac}
+#serials .serial-catalog-summary span{display:block;color:#617b8f;font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.04em}
+#serials .serial-catalog-summary strong{display:block;margin-top:7px;color:#183c57;font:800 28px/1 'DM Sans',sans-serif}
+#serials .serial-catalog-toolbar{display:flex;gap:10px;flex-wrap:wrap;padding:12px 14px;border:1px solid #dce8ee;border-radius:7px;background:#f8fbfc}
+#serials .serial-catalog-toolbar .search{flex:1 1 320px;background:#fff}
+#serials .serial-catalog-toolbar select{flex:0 1 240px;min-width:190px;background:#fff}
+#serials .serial-catalog-panel{overflow:hidden;border-color:#d7e4ea}
+#serials .serial-catalog-panel .table-wrap{max-height:min(66vh,720px);overflow:auto}
+#serials .serial-catalog-panel thead th{position:sticky;top:0;z-index:2;background:#eaf2f6;box-shadow:0 1px 0 #cfdde5;white-space:nowrap}
+#serials .serial-catalog-panel td{vertical-align:middle}
+#serials .serial-catalog-panel td:first-child b{color:#163c57}
+#serials .serial-catalog-panel td small{display:block;margin-top:3px;color:#7690a3;font-size:10px}
+#serials .serial-catalog-panel .serial-model-group td{padding:8px 16px;border-top:1px solid #cddfe8;border-bottom:1px solid #dce8ee;background:#f3f8fa;color:#234d69}
+#serials .serial-catalog-panel .serial-model-group:first-child td{border-top:0}
+#serials .serial-catalog-panel .serial-model-group span{margin-right:8px;color:#7190a4;font-size:9px;font-weight:800;letter-spacing:.1em;text-transform:uppercase}
+#serials .serial-catalog-panel .serial-model-group b{font-size:12px}
+#serials .serial-catalog-panel .serial-model-group small{margin-left:7px;color:#7893a6;font-size:10px}
+#serials .serial-catalog-panel .badge{min-width:104px;text-align:center}
+#serials .serial-catalog-panel .table-actions{gap:5px;white-space:nowrap}
+#serials .serial-catalog-panel .table-actions button{padding:6px 8px;font-size:11px}
+@media(max-width:900px){#serials .serial-catalog-summary{grid-template-columns:repeat(2,minmax(0,1fr))}#serials .serial-catalog-toolbar select{flex:1 1 220px}#serials .serial-catalog-panel .table-wrap{max-height:62vh}}
+@media(max-width:520px){#serials .serial-catalog-summary{gap:8px}#serials .serial-catalog-summary article{min-height:70px;padding:12px 13px}#serials .serial-catalog-summary strong{font-size:24px}#serials .serial-catalog-toolbar{padding:9px}#serials .serial-catalog-toolbar select{min-width:0;width:100%}}
