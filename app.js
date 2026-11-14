@@ -786,7 +786,8 @@ async function useScannedCode(rawCode) {
     $('#code-scanner-dialog').close();
     if (scannerTarget === 'movement') {
       await view('movement');
-      $('#movement-type').value = 'saida';
+      const registeringUsage = $('#movement-type').value === 'uso_os';
+      $('#movement-type').value = registeringUsage ? 'uso_os' : 'saida';
       $('#movement-holder-type').value = 'tecnico';
       $('#movement-product').value = result.item.product_id;
       $('#movement-quantity').value = 1;
@@ -796,6 +797,11 @@ async function useScannedCode(rawCode) {
         firstUnit.querySelector('[data-unit-mac]').value = result.item.mac_address || '';
         firstUnit.querySelector('[data-unit-serial]').value = result.item.serial_number || '';
         firstUnit.querySelector('[data-unit-asset]').value = result.item.asset_tag || '';
+      }
+      if (registeringUsage) {
+        const pendingIds = state.technicianPendingItems.filter(link => link.serial_item_id === result.item.id).map(link => link.pending_id);
+        const pending = state.technicianPendencies.find(item => item.resolution === 'aberta' && pendingIds.includes(item.id));
+        if (pending) $('#movement-person').value = pending.technician_name;
       }
       $('#movement-person').focus();
       return;
@@ -982,9 +988,9 @@ function expiryNotifications() {
   return [...epiNotifications, ...materialNotifications]
     .sort((a, b) => new Date(`${a.expiry}T00:00:00`) - new Date(`${b.expiry}T00:00:00`));
 }
-const serialStatusName = status => ({ disponivel:'Em estoque', com_colaborador:'Com técnico', com_veiculo:'Com veículo', instalado_cliente:'Instalado no cliente', emprestado:'Emprestado', aguardando_triagem:'Aguardando triagem', laboratorio:'Oficina', manutencao:'Em manutenção', defeito:'Defeito', baixado:'Baixado' })[status] || status;
-const serialStatusClass = status => ({ disponivel:'ok', com_colaborador:'saida', com_veiculo:'saida', instalado_cliente:'saida', emprestado:'saida', aguardando_triagem:'low', laboratorio:'low', manutencao:'low', defeito:'out', baixado:'out' })[status] || 'low';
-const serialActionName = action => ({ transferencia:'Transferência', instalacao:'Instalação em cliente', laboratorio:'Envio à oficina', retorno:'Retorno ao almoxarifado', baixa:'Baixa / sucata', emprestimo_cliente:'Comodato a cliente', devolucao_cliente:'Devolução de comodato' })[action] || action;
+const serialStatusName = status => ({ disponivel:'Em estoque', com_colaborador:'Com técnico', com_veiculo:'Com veículo', instalacao_termo_pendente:'Instalação registrada / termo pendente', instalado_cliente:'Instalado / termo recebido', emprestado:'Emprestado', aguardando_triagem:'Aguardando triagem', laboratorio:'Oficina', manutencao:'Em manutenção', defeito:'Defeito', baixado:'Baixado' })[status] || status;
+const serialStatusClass = status => ({ disponivel:'ok', com_colaborador:'saida', com_veiculo:'saida', instalacao_termo_pendente:'low', instalado_cliente:'saida', emprestado:'saida', aguardando_triagem:'low', laboratorio:'low', manutencao:'low', defeito:'out', baixado:'out' })[status] || 'low';
+const serialActionName = action => ({ transferencia:'Transferência', instalacao:'Instalação registrada / termo pendente', termo_recebido:'Termo de instalação recebido', laboratorio:'Envio à oficina', retorno:'Retorno ao almoxarifado', baixa:'Baixa / sucata', emprestimo_cliente:'Comodato a cliente', devolucao_cliente:'Devolução de comodato' })[action] || action;
 const isLaboratorySerial = item => ['laboratorio', 'manutencao', 'defeito', 'aguardando_triagem'].includes(item.status);
 const loanTypeName = type => type === 'cautela' ? 'Empréstimo sem prazo' : 'Empréstimo temporário';
 const loanOverdue = loan => !loan.returned_at && loan.due_at && new Date() >= new Date(loan.due_at);
@@ -1173,14 +1179,14 @@ function buildHistoryEntries() {
     const itemProduct = product(pending.product_id);
     const linkedUnits = (linksByPending.get(pending.id) || []).map(link => unitsById.get(link.serial_item_id)).filter(Boolean);
     const eventType = event.event_type;
-    const label = { retirada:'Retirada para técnico', transferencia:'Repasse para outro técnico', prorrogacao:'Prorrogação de prazo', devolucao:'Devolução ao almoxarifado', utilizacao:'Instalação / utilização' }[eventType] || eventType;
-    const types = ({ retirada:['tecnico'], transferencia:['transferencia','tecnico'], prorrogacao:['prorrogacao','tecnico'], devolucao:['devolucao'], utilizacao:['instalacao'] })[eventType] || [];
-    const destinations = ({ retirada:['tecnico'], transferencia:['tecnico'], prorrogacao:['tecnico'], devolucao:['almoxarifado'], utilizacao:['instalacao','cliente'] })[eventType] || ['outro'];
+    const label = { retirada:'Retirada para técnico', transferencia:'Repasse para outro técnico', prorrogacao:'Prorrogação de prazo', devolucao:'Devolução ao almoxarifado', utilizacao:'Instalação registrada / termo pendente', termo_recebido:'Termo de instalação recebido' }[eventType] || eventType;
+    const types = ({ retirada:['tecnico'], transferencia:['transferencia','tecnico'], prorrogacao:['prorrogacao','tecnico'], devolucao:['devolucao'], utilizacao:['instalacao'], termo_recebido:['instalacao'] })[eventType] || [];
+    const destinations = ({ retirada:['tecnico'], transferencia:['tecnico'], prorrogacao:['tecnico'], devolucao:['almoxarifado'], utilizacao:['instalacao','cliente'], termo_recebido:['cliente'] })[eventType] || ['outro'];
     const stockText = eventType === 'retirada' ? `Estoque: -${quantity(pending.quantity)}` : eventType === 'devolucao' ? `Estoque: +${quantity(pending.quantity)}` : 'Estoque: sem alteração';
     entries.push({
       id:`pending-${event.id}`, at:event.occurred_at || event.created_at,
-      variant:eventType === 'utilizacao' ? 'installation' : eventType === 'devolucao' ? 'return' : ['retirada','transferencia'].includes(eventType) ? 'technician' : 'admin',
-      icon:eventType === 'utilizacao' ? '✓' : eventType === 'devolucao' ? '↓' : eventType === 'retirada' ? '↑' : '⇄', label,
+      variant:['utilizacao','termo_recebido'].includes(eventType) ? 'installation' : eventType === 'devolucao' ? 'return' : ['retirada','transferencia'].includes(eventType) ? 'technician' : 'admin',
+      icon:['utilizacao','termo_recebido'].includes(eventType) ? '✓' : eventType === 'devolucao' ? '↓' : eventType === 'retirada' ? '↑' : '⇄', label,
       title:`${quantity(pending.quantity)} ${unitName(itemProduct?.unit_of_measure)} — ${itemProduct?.name || 'Material'}`,
       facts:[
         event.from_technician && { label:eventType === 'transferencia' ? 'Técnico anterior' : 'Técnico', value:event.from_technician },
@@ -1488,7 +1494,8 @@ function historyCardHtml(entry, canDelete) {
 
 function updateTechnicianPendingAction() {
   const action = $('#technician-pending-action').value;
-  $('#technician-pending-install-group').hidden = action !== 'utilizado';
+  $('#technician-pending-install-group').hidden = action !== 'registrar_instalacao';
+  $('#technician-pending-term-group').hidden = action !== 'receber_termo';
   $('#technician-pending-technician-group').hidden = action !== 'transferir';
   $('#technician-pending-due-group').hidden = !['transferir','prorrogar'].includes(action);
 }
@@ -1499,18 +1506,26 @@ async function openTechnicianPending(id) {
   if (!item) return;
   const deadline = pendingDeadlineState(item);
   $('#technician-pending-id').value = item.id;
-  $('#technician-pending-action').value = 'utilizado';
+  const installationRegistered = Boolean(item.installed_at);
+  const action = $('#technician-pending-action');
+  [...action.options].forEach(option => {
+    option.disabled = installationRegistered && ['registrar_instalacao','devolvido','transferir','prorrogar'].includes(option.value);
+  });
+  action.value = installationRegistered ? 'receber_termo' : 'registrar_instalacao';
   $('#technician-pending-technician').value = '';
   $('#technician-pending-due').value = localDateTimeInputValue(item.due_at);
   $('#technician-pending-note').value = '';
-  $('#technician-pending-customer').value = '';
-  $('#technician-pending-work-order').value = item.work_order || '';
-  $('#technician-pending-installed-at').value = localDateTimeInputValue(new Date());
+  $('#technician-pending-customer').value = item.installation_customer || '';
+  $('#technician-pending-work-order').value = item.installation_work_order || item.work_order || '';
+  $('#technician-pending-installed-at').value = localDateTimeInputValue(item.installed_at || new Date());
+  $('#technician-pending-term-received-by').value = currentUser?.name || '';
+  $('#technician-pending-term-received-at').value = localDateTimeInputValue(new Date());
   const linkedUnits = state.technicianPendingItems.filter(link => link.pending_id === item.id).map(link => state.serialItems.find(unit => unit.id === link.serial_item_id)).filter(Boolean);
   const identifiers = linkedUnits.map((unit, index) => `<span><b>Unidade ${index + 1}:</b> MAC ${esc(unit.mac_address || '—')} · Serial ${esc(unit.serial_number || '—')} · Patrimônio ${esc(unit.asset_tag || '—')}</span>`).join('');
-  $('#technician-pending-details').innerHTML = `<b>${esc(product(item.product_id)?.name || 'Material')}</b><span>Quantidade: ${quantity(item.quantity)} · Técnico atual: ${esc(item.technician_name)}</span><span>Retirada: ${date(item.withdrawn_at)} · Prazo: ${date(item.due_at)}</span><span class="pending-status ${deadline.key}">${deadline.label}</span><span>OS: ${esc(item.work_order || '—')}</span>${identifiers}${item.note ? `<span>Observação: ${esc(item.note)}</span>` : ''}`;
+  const installationInfo = installationRegistered ? `<span><b>Instalação registrada:</b> ${date(item.installed_at)} · Cliente: ${esc(item.installation_customer || '—')} · OS: ${esc(item.installation_work_order || item.work_order || '—')}</span><span class="pending-status warning">🟡 Termo pendente de recebimento</span>` : '';
+  $('#technician-pending-details').innerHTML = `<b>${esc(product(item.product_id)?.name || 'Material')}</b><span>Quantidade: ${quantity(item.quantity)} · Técnico responsável: ${esc(item.technician_name)}</span><span>Retirada: ${date(item.withdrawn_at)} · Prazo: ${date(item.due_at)}</span><span class="pending-status ${deadline.key}">${deadline.label}</span><span>OS da retirada: ${esc(item.work_order || '—')}</span>${installationInfo}${identifiers}${item.note ? `<span>Observação: ${esc(item.note)}</span>` : ''}`;
   const events = state.technicianPendingEvents.filter(entry => entry.pending_id === item.id).sort((a,b) => new Date(b.occurred_at || b.created_at)-new Date(a.occurred_at || a.created_at));
-  $('#technician-pending-events').innerHTML = events.map(event => `<div class="serial-history-item"><b>${esc({retirada:'Retirada',transferencia:'Repasse',prorrogacao:'Prorrogação',devolucao:'Devolução',utilizacao:'Instalação / utilização'}[event.event_type] || event.event_type)}</b><small>${date(event.occurred_at || event.created_at)}${event.from_technician ? ` · De: ${esc(event.from_technician)}` : ''}${event.to_technician ? ` · Para: ${esc(event.to_technician)}` : ''}${event.customer_name ? ` · Cliente: ${esc(event.customer_name)}` : ''}${event.work_order ? ` · OS: ${esc(event.work_order)}` : ''}${event.previous_due_at ? ` · Prazo anterior: ${date(event.previous_due_at)}` : ''}${event.new_due_at ? ` · Novo prazo: ${date(event.new_due_at)}` : ''}${event.note ? ` · ${esc(event.note)}` : ''}</small></div>`).join('') || '<p class="empty">Nenhum evento registrado.</p>';
+  $('#technician-pending-events').innerHTML = events.map(event => `<div class="serial-history-item"><b>${esc({retirada:'Retirada',transferencia:'Repasse',prorrogacao:'Prorrogação',devolucao:'Devolução',utilizacao:'Instalação registrada / termo pendente',termo_recebido:'Termo de instalação recebido'}[event.event_type] || event.event_type)}</b><small>${date(event.occurred_at || event.created_at)}${event.from_technician ? ` · De: ${esc(event.from_technician)}` : ''}${event.to_technician ? ` · Para: ${esc(event.to_technician)}` : ''}${event.customer_name ? ` · Cliente: ${esc(event.customer_name)}` : ''}${event.work_order ? ` · OS: ${esc(event.work_order)}` : ''}${event.previous_due_at ? ` · Prazo anterior: ${date(event.previous_due_at)}` : ''}${event.new_due_at ? ` · Novo prazo: ${date(event.new_due_at)}` : ''}${event.note ? ` · ${esc(event.note)}` : ''}</small></div>`).join('') || '<p class="empty">Nenhum evento registrado.</p>';
   updateTechnicianPendingAction();
   $('#technician-pending-dialog').showModal();
 }
@@ -1525,21 +1540,37 @@ async function submitTechnicianPending(event) {
   const hasIdentifiedUnits = state.technicianPendingItems.some(link => link.pending_id === pendingId);
   if (action === 'transferir' && !$('#technician-pending-technician').value.trim()) return alert('Informe o novo técnico.');
   if (needsDue && !$('#technician-pending-due').value) return alert('Informe o novo prazo.');
-  if (action === 'utilizado' && hasIdentifiedUnits && !$('#technician-pending-customer').value.trim()) return alert('Informe o nome do cliente para instalar este equipamento.');
-  const label = {utilizado:'marcar como utilizado/instalado',devolvido:'devolver ao almoxarifado',transferir:'repassar para outro técnico',prorrogar:'prorrogar o prazo'}[action];
+  if (action === 'registrar_instalacao' && hasIdentifiedUnits && !$('#technician-pending-customer').value.trim()) return alert('Informe o nome do cliente para registrar a instalação.');
+  if (action === 'receber_termo' && !$('#technician-pending-term-received-by').value.trim()) return alert('Informe quem recebeu o termo.');
+  const label = {registrar_instalacao:'registrar a instalação e manter o termo pendente',receber_termo:'confirmar o recebimento do termo',devolvido:'devolver ao almoxarifado',transferir:'repassar para outro técnico',prorrogar:'prorrogar o prazo'}[action];
   if (!confirm(`Confirma que deseja ${label}?`)) return;
   if (submitButton) { submitButton.disabled = true; submitButton.textContent = 'Processando…'; }
   try {
-    const { error } = await supabase.rpc('resolve_integrated_technician_pending', {
-      p_pending_id: pendingId,
-      p_action: action,
-      p_technician: $('#technician-pending-technician').value.trim() || null,
-      p_due_at: needsDue ? new Date($('#technician-pending-due').value).toISOString() : null,
-      p_customer_name: action === 'utilizado' ? $('#technician-pending-customer').value.trim() || null : null,
-      p_work_order: action === 'utilizado' ? $('#technician-pending-work-order').value.trim() || null : null,
-      p_occurred_at: action === 'utilizado' && $('#technician-pending-installed-at').value ? new Date($('#technician-pending-installed-at').value).toISOString() : new Date().toISOString(),
-      p_note: $('#technician-pending-note').value.trim() || null
-    });
+    const installedAt = $('#technician-pending-installed-at').value;
+    const receivedAt = $('#technician-pending-term-received-at').value;
+    const result = action === 'registrar_instalacao'
+      ? await supabase.rpc('register_integrated_pending_installation', {
+        p_operation_id: crypto.randomUUID(), p_pending_id: pendingId,
+        p_customer_name: $('#technician-pending-customer').value.trim(),
+        p_work_order: $('#technician-pending-work-order').value.trim() || null,
+        p_installed_at: installedAt ? new Date(installedAt).toISOString() : new Date().toISOString(),
+        p_note: $('#technician-pending-note').value.trim() || null
+      })
+      : action === 'receber_termo'
+        ? await supabase.rpc('confirm_integrated_pending_term', {
+          p_pending_id: pendingId,
+          p_received_by: $('#technician-pending-term-received-by').value.trim(),
+          p_received_at: receivedAt ? new Date(receivedAt).toISOString() : new Date().toISOString(),
+          p_note: $('#technician-pending-note').value.trim() || null
+        })
+        : await supabase.rpc('resolve_integrated_technician_pending', {
+          p_pending_id: pendingId, p_action: action,
+          p_technician: $('#technician-pending-technician').value.trim() || null,
+          p_due_at: needsDue ? new Date($('#technician-pending-due').value).toISOString() : null,
+          p_customer_name: null, p_work_order: null, p_occurred_at: new Date().toISOString(),
+          p_note: $('#technician-pending-note').value.trim() || null
+        });
+    const { error } = result;
     if (error) return alert(error.message);
     $('#technician-pending-dialog').close();
     await load();
@@ -3638,8 +3669,10 @@ function renderMovementSerialUnits() {
   const container = $('#movement-serial-units');
   const selectedProduct = product($('#movement-product').value);
   const holderType = $('#movement-holder-type').value;
-  const serialized = $('#movement-type').value === 'saida' && selectedProduct?.tracking_mode === 'serializado'
-    && (holderType === 'tecnico' || (holderType === 'veiculo' && selectedProduct?.category === 'Ferramentas'));
+  const operation = $('#movement-type').value;
+  const usageInstallation = operation === 'uso_os' && selectedProduct?.tracking_mode === 'serializado';
+  const serialized = usageInstallation || (operation === 'saida' && selectedProduct?.tracking_mode === 'serializado'
+    && (holderType === 'tecnico' || (holderType === 'veiculo' && selectedProduct?.category === 'Ferramentas')));
   container.hidden = !serialized;
   if (!serialized) { updateMovementDeadlineVisibility(false); return; }
   const rawQuantity = Number($('#movement-quantity').value);
@@ -3647,7 +3680,7 @@ function renderMovementSerialUnits() {
   const previous = movementUnitValues();
   container.innerHTML = count ? Array.from({ length: count }, (_, index) => {
     const saved = previous[index] || {};
-    return `<section class="movement-unit-row"><h4>Unidade ${index + 1}</h4><div class="movement-unit-fields"><label>MAC <input data-unit-mac value="${esc(saved.mac || '')}" placeholder="MAC exato" /></label><label>Serial <input data-unit-serial value="${esc(saved.serial_number || '')}" placeholder="Serial exato" /></label><label>Patrimônio <input data-unit-asset value="${esc(saved.asset_tag || '')}" placeholder="Patrimônio exato" /></label>${holderType==='veiculo'&&selectedProduct.category==='Ferramentas'?`<label>Número da ferramenta <input data-unit-tool-number inputmode="numeric" value="${esc(saved.tool_number || '')}" placeholder="Número exato" /></label>`:''}</div><small>Informe pelo menos um identificador desta unidade.</small></section>`;
+    return `<section class="movement-unit-row"><h4>${usageInstallation ? 'Equipamento instalado' : `Unidade ${index + 1}`}</h4><div class="movement-unit-fields"><label>MAC <input data-unit-mac value="${esc(saved.mac || '')}" placeholder="MAC exato" /></label><label>Serial <input data-unit-serial value="${esc(saved.serial_number || '')}" placeholder="Serial exato" /></label><label>Patrimônio <input data-unit-asset value="${esc(saved.asset_tag || '')}" placeholder="Patrimônio exato" /></label>${holderType==='veiculo'&&selectedProduct.category==='Ferramentas'?`<label>Número da ferramenta <input data-unit-tool-number inputmode="numeric" value="${esc(saved.tool_number || '')}" placeholder="Número exato" /></label>`:''}</div><small>${usageInstallation ? 'Leia ou informe o patrimônio, MAC ou serial do equipamento instalado.' : 'Informe pelo menos um identificador desta unidade.'}</small></section>`;
   }).join('') : '<p class="form-error">Para produtos individualizados, informe uma quantidade inteira.</p>';
   updateMovementDeadlineVisibility(false);
 }
@@ -3657,6 +3690,7 @@ function updateMovementMode() {
   const isEntry = operation === 'entrada';
   const technicianExit = operation === 'saida' && $('#movement-holder-type').value === 'tecnico';
   const holder = $('#movement-holder-type'), workOrder = $('#movement-work-order'), quantityInput = $('#movement-quantity');
+  const serializedUsage = isFieldUsage && product($('#movement-product').value)?.tracking_mode === 'serializado';
   if (isFieldUsage) holder.value = 'tecnico';
   holder.disabled = isFieldUsage || isEntry;
   $('#movement-holder-field').hidden = isFieldUsage || isEntry;
@@ -3666,14 +3700,21 @@ function updateMovementMode() {
   $('#movement-person-label').textContent = isEntry ? 'Origem / fornecedor *' : isFieldUsage ? 'Técnico responsável *' : technicianExit ? 'Técnico destinatário *' : 'Responsável / destino *';
   $('#movement-os-label').textContent = isEntry ? 'Número da nota fiscal' : isFieldUsage ? 'Número da OS *' : 'Número da OS';
   $('#movement-work-order').placeholder = isEntry ? 'Opcional — Ex.: NF 12345' : isFieldUsage ? 'Obrigatório — Ex.: OS-1024' : 'Opcional — Ex.: OS-1024';
+  $('#movement-installation-fields').hidden = !isFieldUsage;
+  $('#movement-installation-customer').required = serializedUsage;
+  if (isFieldUsage && !$('#movement-installation-at').value) $('#movement-installation-at').value = localDateTimeInputValue(new Date());
   $('#movement-mode-help').textContent = isEntry
     ? 'Informe a origem da entrada. O número da nota fiscal pode ser registrado no campo ao lado.'
     : isFieldUsage
-      ? 'O uso em OS registra uma saída para o técnico informado e exige o número da OS.'
+      ? serializedUsage
+        ? 'Leia o patrimônio, MAC ou serial da unidade instalada. A instalação ficará registrada, mas a pendência só será encerrada quando o termo físico for recebido.'
+        : 'O uso em OS registra a utilização pelo técnico informado e exige o número da OS.'
       : 'Escolha o destino para adaptar o responsável e os controles aplicáveis.';
   const serializedExit = technicianExit && product($('#movement-product').value)?.tracking_mode === 'serializado';
-  quantityInput.step = serializedExit ? '1' : '0.001';
-  quantityInput.min = serializedExit ? '1' : '0.001';
+  const serializedOperation = serializedExit || serializedUsage;
+  quantityInput.step = serializedOperation ? '1' : '0.001';
+  quantityInput.min = serializedOperation ? '1' : '0.001';
+  if (serializedUsage) quantityInput.value = 1;
   renderMovementSerialUnits();
   updateMovementRecipientPlaceholder();
 }
@@ -3792,12 +3833,15 @@ $('#movement-form').onsubmit = async event => {
   const holderType = $('#movement-holder-type').value;
   const serializedTechnicianExit = operation === 'saida' && holderType === 'tecnico' && selectedProduct.tracking_mode === 'serializado';
   const serializedVehicleToolExit = operation === 'saida' && holderType === 'veiculo' && selectedProduct.tracking_mode === 'serializado' && selectedProduct.category === 'Ferramentas';
-  if (serializedTechnicianExit || serializedVehicleToolExit) {
+  const serializedUsageInstallation = fieldUsage && selectedProduct.tracking_mode === 'serializado';
+  if (serializedTechnicianExit || serializedVehicleToolExit || serializedUsageInstallation) {
     if (!Number.isInteger(itemQuantity) || units.length !== itemQuantity) return alert('Informe uma quantidade inteira e os identificadores de cada unidade.');
     if (units.some(unit => !movementUnitIsIdentified(unit))) return alert('Informe MAC, serial ou patrimônio para cada unidade.');
   }
+  if (serializedUsageInstallation && itemQuantity !== 1) return alert('Registre uma unidade identificada por vez no Uso em OS.');
   const timedTechnicianExit = serializedTechnicianExit && units.some(movementUnitIsIdentified);
   if (timedTechnicianExit && state.technicianPendenciesLoadError) return alert('Não foi possível carregar as pendências dos técnicos. Tente novamente.');
+  if (serializedUsageInstallation && state.technicianPendenciesLoadError) return alert('Não foi possível carregar as pendências dos técnicos. Tente novamente.');
   const withdrawnAt = timedTechnicianExit ? new Date($('#movement-withdrawn-at').value) : null;
   const dueAt = timedTechnicianExit ? new Date($('#movement-due-at').value) : null;
   if (timedTechnicianExit && (!Number.isFinite(withdrawnAt.getTime()) || !Number.isFinite(dueAt.getTime()) || dueAt <= withdrawnAt)) return alert('Informe um prazo limite posterior à retirada.');
@@ -3830,6 +3874,29 @@ $('#movement-form').onsubmit = async event => {
       result = await supabase.rpc('save_vehicle_tool_kit', { p_vehicle_id:vehicle.id, p_name:kit?.name || `Kit ${vehicle.name}`, p_requirements:[...counts].map(([product_id,quantity])=>({product_id,quantity})), p_serial_item_ids:allIds, p_note:$('#movement-note').value || null });
     } else if (timedTechnicianExit) {
       result = await supabase.rpc('record_integrated_technician_movement', { p_product_id:selectedProduct.id, p_quantity:itemQuantity, p_technician:$('#movement-person').value.trim(), p_withdrawn_at:withdrawnAt.toISOString(), p_due_at:dueAt.toISOString(), p_work_order:workOrder || null, p_note:$('#movement-note').value || null, p_units:units });
+    } else if (serializedUsageInstallation) {
+      const unit = units[0];
+      const matchingUnits = state.serialItems.filter(item => item.product_id === selectedProduct.id
+        && (!unit.mac || String(item.mac_address || '').trim().toLocaleLowerCase('pt-BR') === unit.mac.trim().toLocaleLowerCase('pt-BR'))
+        && (!unit.serial_number || String(item.serial_number || '').trim().toLocaleLowerCase('pt-BR') === unit.serial_number.trim().toLocaleLowerCase('pt-BR'))
+        && (!unit.asset_tag || String(item.asset_tag || '').trim().toLocaleLowerCase('pt-BR') === unit.asset_tag.trim().toLocaleLowerCase('pt-BR')));
+      if (matchingUnits.length !== 1) return alert('Não foi possível localizar uma única unidade com os identificadores informados. Confira o patrimônio, MAC ou serial.');
+      const serialItemId = matchingUnits[0].id;
+      const pendingIds = state.technicianPendingItems.filter(link => link.serial_item_id === serialItemId).map(link => link.pending_id);
+      const pending = state.technicianPendencies.find(item => item.resolution === 'aberta'
+        && pendingIds.includes(item.id)
+        && item.product_id === selectedProduct.id
+        && item.technician_name.trim().toLocaleLowerCase('pt-BR') === $('#movement-person').value.trim().toLocaleLowerCase('pt-BR'));
+      if (!pending) return alert('Não existe uma pendência aberta desta unidade para o técnico informado. A instalação não foi registrada.');
+      const customer = $('#movement-installation-customer').value.trim();
+      if (!customer) return alert('Informe o cliente da instalação.');
+      const installedAt = new Date($('#movement-installation-at').value);
+      if (!Number.isFinite(installedAt.getTime())) return alert('Informe a data e hora da instalação.');
+      movementOperationId ||= crypto.randomUUID();
+      result = await supabase.rpc('register_integrated_pending_installation', {
+        p_operation_id: movementOperationId, p_pending_id: pending.id, p_customer_name: customer,
+        p_work_order: workOrder || null, p_installed_at: installedAt.toISOString(), p_note: $('#movement-note').value.trim() || null
+      });
     } else {
       movementOperationId ||= crypto.randomUUID();
       const movementData = { p_operation_id:movementOperationId, p_product_id:selectedProduct.id, p_type:type, p_quantity:itemQuantity, p_recipient:$('#movement-person').value.trim(), p_note:$('#movement-note').value || null, p_holder_type:$('#movement-holder-type').value, p_work_order:workOrder || null, p_field_usage:fieldUsage };
