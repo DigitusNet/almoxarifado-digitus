@@ -1,0 +1,73 @@
+/* Movimento: visual shell only. No form, filter, timeline or data behavior is changed. */
+body:has(#movement.active){background:#081729}
+body:has(#movement.active) .app-shell{background:radial-gradient(circle at 76% 4%,#123d622e,transparent 36%),linear-gradient(135deg,#07172a 0%,#0b2035 55%,#0b2940 100%)}
+body:has(#movement.active) .sidebar{background:#061423;border-right-color:#24455f}
+body:has(#movement.active) main{background:transparent}
+body:has(#movement.active) .topbar{border-bottom-color:#24455f;background:#081a2e}
+body:has(#movement.active) .topbar h1{color:#f0f8ff}
+body:has(#movement.active) .nav-link{border-color:#31536c;background:#0d263c;color:#c9dced}
+body:has(#movement.active) .nav-link:hover{background:#153a59;border-color:#428bc3;color:#fff}
+body:has(#movement.active) .nav-link.active{border-color:#199eff;background:#0879c7;color:#fff;box-shadow:0 6px 15px #0787df38}
+
+#movement .movement-layout{gap:18px;align-items:start}
+#movement .form-panel{position:sticky;top:18px;overflow:hidden;padding:0;border:1px solid #25506c;border-radius:12px;background:linear-gradient(155deg,#102f49,#0b2035);box-shadow:0 16px 34px #020a1366}
+#movement .form-panel>h2{margin:0;padding:18px 20px 15px;border-bottom:1px solid #2a526d;color:#f2f9ff;font:700 17px/1.3 'Space Grotesk',sans-serif;letter-spacing:-.2px}
+#movement .form-panel>h2::before{content:'↔';display:inline-grid;place-items:center;width:28px;height:28px;margin-right:10px;border-radius:7px;background:#087fd0;color:#dff4ff;font:700 18px/1 sans-serif;vertical-align:middle}
+#movement #movement-form{display:grid;gap:13px;padding:18px}
+#movement #movement-form label{gap:6px;color:#a9c1d3;font-size:11px;font-weight:700;letter-spacing:.025em}
+#movement #movement-form input,#movement #movement-form select,#movement #movement-form textarea{border-color:#315774;background:#0a1c2e;color:#edf7ff;box-shadow:inset 0 1px #ffffff08}
+#movement #movement-form input::placeholder,#movement #movement-form textarea::placeholder{color:#7994a9}
+#movement #movement-form input:focus,#movement #movement-form select:focus,#movement #movement-form textarea:focus{border-color:#29a8ff;box-shadow:0 0 0 3px #169fe521}
+#movement #movement-form select{background-color:#0a1c2e}
+#movement .movement-product-field{gap:8px}
+#movement #scan-movement-code{align-self:end;min-height:39px;border-color:#3b83ae;background:#103650;color:#bde9ff;font-size:11px;white-space:nowrap}
+#movement #scan-movement-code:hover{background:#164a6b;border-color:#5bb8f1}
+#movement #movement-form .primary.full{margin-top:2px;min-height:44px;border:1px solid #31b5ff;background:linear-gradient(135deg,#078fdc,#0574c1);box-shadow:0 8px 18px #0274c340;color:#fff;font-weight:800}
+#movement #movement-form .primary.full:hover{background:linear-gradient(135deg,#16a4f0,#0780cc);transform:translateY(-1px)}
+#movement .movement-deadline-section{border-color:#32617e;background:#0c2840}
+#movement .movement-deadline-section h3{color:#d8edfb}
+#movement .deadline-shortcuts button{border-color:#356887;background:#103852;color:#b9def3}
+#movement .deadline-shortcuts button:hover{background:#175277;border-color:#55b5ed}
+
+#movement .history-panel{border:1px solid #274b65;border-radius:12px;background:#0b2035;box-shadow:0 18px 36px #020a1352}
+#movement .history-heading{padding:22px 24px 19px;border-bottom-color:#274a63;background:linear-gradient(100deg,#0e2b46,#0b2035)}
+#movement .history-heading .eyebrow{color:#53b7f4;font-weight:800;letter-spacing:.13em}
+#movement .history-heading h2{color:#f2f8fc;font-size:22px;letter-spacing:-.45px}
+#movement .history-heading .muted{color:#9db8cb}
+#movement .history-heading .secondary-button{border-color:#3c7193;background:#11364f;color:#cbeeff}
+#movement .history-heading .secondary-button:hover{border-color:#5ab7ee;background:#164b6c}
+#movement .history-metrics{gap:10px;padding:16px 22px;background:#0b2035}
+#movement .history-metrics article{position:relative;overflow:hidden;padding:14px 15px;border-color:#294d67;background:#102a42;box-shadow:none}
+#movement .history-metrics article::before{content:'';position:absolute;inset:0 auto 0 0;width:3px;background:#42b8f4}
+#movement .history-metrics article:nth-child(2)::before{background:#2689df}
+#movement .history-metrics article:nth-child(3)::before{background:#a477df}
+#movement .history-metrics article:nth-child(4)::before{background:#ee9b4f}
+#movement .history-metrics span,#movement .history-metrics small{color:#8eacc1}
+#movement .history-metrics strong{color:#f0f8ff;font-size:26px}
+#movement .history-type-shortcuts{padding:0 22px 13px;background:#0b2035}
+#movement .history-type-shortcuts button,#movement .history-period-shortcuts button{border-color:#325b77;background:#102d45;color:#acc8da}
+#movement .history-type-shortcuts button:hover,#movement .history-type-shortcuts button.active,#movement .history-period-shortcuts button:hover{border-color:#22a8ff;background:#0c5e99;color:#fff}
+#movement .history-panel .history-filters{gap:10px;padding:15px 22px;border-color:#294b64;background:#0d253a}
+#movement .history-panel .history-filters label{color:#9fbdcf;font-size:11px;font-weight:700}
+#movement .history-panel .history-filters input,#movement .history-panel .history-filters select{border-color:#315a76;background:#091b2c;color:#e6f4fd}
+#movement .history-panel .history-filters input::placeholder{color:#7693a8}
+#movement .history-panel .history-filters .text-button{color:#63bff5}
+#movement .history-period-shortcuts{border-bottom-color:#294b64;background:#0d253a}
+#movement .history-period-shortcuts>span{color:#8facbf}
+#movement .history-timeline{padding:8px 22px 24px;background:#081b2e}
+#movement .history-day>h3{color:#79a2bc}
+#movement .history-card{border-color:#294d67;background:#10283f;box-shadow:0 5px 14px #020a1338;transition:transform .15s,border-color .15s,background .15s}
+#movement .history-card:hover{border-color:#477a9c;background:#122f49;transform:translateY(-1px)}
+#movement .history-card h4{color:#edf7ff}
+#movement .history-card header p,#movement .history-card time{color:#9ab6c9}
+#movement .history-card-facts,#movement .history-card-details dl{border-top-color:#274963}
+#movement .history-card dt{color:#82a6bd}
+#movement .history-card dd{color:#d5e8f4}
+#movement .history-card-footer{border-top-color:#274963}
+#movement .history-stock-impact{color:#aac8db}
+#movement .history-card-details summary{color:#69c6fa}
+#movement .history-empty{color:#91adbf}
+#movement .history-empty>b{color:#d4e6f2}
+
+@media(max-width:1030px){#movement .form-panel{position:static}}
+@media(max-width:540px){#movement .form-panel>h2{padding:15px 16px}#movement #movement-form{padding:15px}#movement .history-heading{padding:17px}#movement .history-heading h2{font-size:19px}#movement .history-metrics{padding:13px}#movement .history-panel .history-filters{padding:13px}#movement .history-timeline{padding:6px 12px 18px}}
