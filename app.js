@@ -2084,14 +2084,11 @@ function renderSerials() {
       if (order === 'created-desc') return new Date(right.created_at || 0) - new Date(left.created_at || 0) || productOrder(left, right);
       if (order === 'created-asc') return new Date(left.created_at || 0) - new Date(right.created_at || 0) || productOrder(left, right);
       return productOrder(left, right) || compareAsset(left, right);
-    })
-    .map((item, index, rows) => ({ item, showGroup: index === 0 || productName(item) !== productName(rows[index - 1]) }));
-  renderWindowedTable(table, serials, row => {
-    const item = row.item;
+    });
+  renderWindowedTable(table, serials, item => {
     const itemProduct = product(item.product_id), location = state.locations.find(entry => entry.id === item.current_location_id);
     const canManageSerial = ['admin', 'operador'].includes(currentUser?.role);
-    const group = row.showGroup ? `<tr class="serial-model-group"><td colspan="7"><span>Modelo</span><b>${esc(itemProduct?.name || 'Item removido')}</b><small>${esc(itemProduct?.code || 'Sem código')}</small></td></tr>` : '';
-    return `${group}<tr><td><b>${esc(itemProduct?.name || 'Item removido')}</b><small>${esc(itemProduct?.code || '—')}</small></td><td>${esc(item.serial_number || '—')}</td><td>${esc(item.mac_address || '—')}</td><td>${esc(item.asset_tag || '—')}</td><td>${esc(item.current_technician || location?.name || item.customer_name || '—')}</td><td><span class="badge ${serialStatusClass(item.status)}">${esc(serialStatusName(item.status))}</span></td><td><div class="table-actions">${item.status !== 'baixado' ? `<button class="secondary-button" data-move-serial="${item.id}">Mover</button>` : ''}${canManageSerial ? `<button class="secondary-button" data-edit-serial="${item.id}">Editar</button>` : ''}<button class="text-button" data-history-serial="${item.id}">Histórico</button><button class="danger-button" data-admin-only hidden data-delete-serial="${item.id}">Excluir</button></div></td></tr>`;
+    return `<tr><td><b>${esc(itemProduct?.name || 'Item removido')}</b><small>${esc(itemProduct?.code || '—')}</small></td><td>${esc(item.serial_number || '—')}</td><td>${esc(item.mac_address || '—')}</td><td>${esc(item.asset_tag || '—')}</td><td>${esc(item.current_technician || location?.name || item.customer_name || '—')}</td><td><span class="badge ${serialStatusClass(item.status)}">${esc(serialStatusName(item.status))}</span></td><td><div class="table-actions">${item.status !== 'baixado' ? `<button class="secondary-button" data-move-serial="${item.id}">Mover</button>` : ''}${canManageSerial ? `<button class="secondary-button" data-edit-serial="${item.id}">Editar</button>` : ''}<button class="text-button" data-history-serial="${item.id}">Histórico</button><button class="danger-button" data-admin-only hidden data-delete-serial="${item.id}">Excluir</button></div></td></tr>`;
   }, '<tr><td colspan="7" class="empty">Nenhuma unidade rastreável encontrada.</td></tr>', () => {
     document.querySelectorAll('[data-move-serial]').forEach(button => button.onclick = () => openSerialTransfer(button.dataset.moveSerial));
     document.querySelectorAll('[data-history-serial]').forEach(button => button.onclick = () => openSerialHistory(button.dataset.historySerial));
