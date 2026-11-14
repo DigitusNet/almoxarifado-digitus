@@ -4,11 +4,20 @@
 #movement .form-panel{position:sticky;top:82px;overflow:hidden;padding:0;border:1px solid #d5e3e9;border-radius:10px;background:#fff;box-shadow:0 8px 22px #173f5b12}
 #movement .form-panel>h2{display:flex;align-items:center;gap:10px;margin:0;padding:17px 19px;border-bottom:1px solid #e0e9ee;color:var(--movement-navy);font:700 17px/1.3 'DM Sans',sans-serif}
 #movement .form-panel>h2 span{display:grid;place-items:center;width:27px;height:27px;border-radius:6px;background:#e9f3f7;color:var(--movement-blue);font-size:16px}
-#movement #movement-form{display:grid;gap:13px;margin:0;padding:17px 19px 20px}
+#movement #movement-form{display:grid;gap:12px;margin:0;padding:17px 19px 20px}
 #movement #movement-form label{gap:5px;color:#49657b;font-size:11px;font-weight:800;letter-spacing:.01em}
 #movement #movement-form input,#movement #movement-form select,#movement #movement-form textarea{border-color:#cbdbe3;background:#fff;color:#1d3b54;font-size:13px}
 #movement #movement-form input:focus,#movement #movement-form select:focus,#movement #movement-form textarea:focus{border-color:#4d90b3;box-shadow:0 0 0 3px #29668a16}
 #movement .movement-product-field{gap:8px}
+#movement .movement-form-section{display:grid;gap:10px;padding:0 0 12px;border-bottom:1px solid #e7eef2}
+#movement .movement-section-title{color:#6b8496;font-size:9px;font-weight:800;letter-spacing:.11em;text-transform:uppercase}
+#movement .movement-product-search-label input{height:34px;padding:7px 9px;background:#f9fcfd}
+#movement .movement-product-field>label{min-width:0}
+#movement #movement-product{width:100%;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+#movement .movement-product-preview{display:grid;gap:2px;min-height:40px;padding:8px 10px;border:1px solid #d9e6ec;border-radius:5px;background:#f5f9fb;color:#648096}
+#movement .movement-product-preview b{overflow:hidden;color:#244964;font-size:11px;text-overflow:ellipsis;white-space:nowrap}
+#movement .movement-product-preview span{font-size:10px;line-height:1.3}
+#movement .movement-mode-help{margin:0;color:#758c9c;font-size:10px;line-height:1.4}
 #movement #scan-movement-code{align-self:end;min-height:39px;border-color:#a9c8d7;background:#f5fafc;color:#286185;font-size:11px;white-space:nowrap}
 #movement #scan-movement-code:hover{border-color:#29668a;background:#e8f2f6}
 #movement #movement-form .primary.full{min-height:43px;margin-top:3px;border-radius:6px;background:linear-gradient(110deg,#29668a,#367fa6);box-shadow:0 5px 12px #29668a2a;font-weight:800}

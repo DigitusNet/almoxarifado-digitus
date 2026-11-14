@@ -1383,13 +1383,26 @@ function renderEpis() {
   document.querySelectorAll('[data-delete-epi]').forEach(button => button.onclick = () => deleteProduct(button.dataset.deleteEpi));
 }
 
+function renderMovementProductOptions() {
+  const select = $('#movement-product');
+  if (!select) return;
+  const selected = select.value;
+  const products = activeProducts();
+  const query = normalizeHistoryText($('#movement-product-search')?.value || '');
+  const matching = products.filter(item => !query || normalizeHistoryText(`${item.name} ${item.code} ${item.brand || ''} ${item.model || ''}`).includes(query));
+  const selectedProduct = products.find(item => String(item.id) === String(selected));
+  const options = selectedProduct && !matching.some(item => String(item.id) === String(selectedProduct.id)) ? [selectedProduct, ...matching] : matching;
+  select.innerHTML = options.map(item => `<option value="${item.id}">${esc(item.name)} (${stockLabel(item)})</option>`).join('') || '<option value="" disabled>Nenhum produto encontrado</option>';
+  select.value = options.some(item => String(item.id) === String(selected)) ? selected : options[0]?.id || '';
+  const item = product(select.value);
+  const preview = $('#movement-product-preview');
+  if (preview) preview.innerHTML = item ? `<b>${esc(item.name)}</b><span>${esc(item.code || 'Sem código')} · ${esc(item.tracking_mode === 'serializado' ? 'Controle individual por Serial / MAC' : `Controle por quantidade · ${stockLabel(item)}`)}</span>` : 'Busque um produto para iniciar a movimentação.';
+}
+
 function renderMovement() {
   if (viewReads.movement.some(key => !lazyReads.has(key))) return;
-  const select = $('#movement-product'), selected = select.value;
   const canDelete = currentUser?.role === 'admin';
-  const products = activeProducts();
-  select.innerHTML = products.map(item => `<option value="${item.id}">${esc(item.name)} (${stockLabel(item)})</option>`).join('');
-  select.value = selected || products[0]?.id || '';
+  renderMovementProductOptions();
   renderMovementSerialUnits();
   const filters = historyFilters();
   const filterSignature = JSON.stringify(filters);
@@ -3628,7 +3641,7 @@ function renderMovementSerialUnits() {
   const serialized = $('#movement-type').value === 'saida' && selectedProduct?.tracking_mode === 'serializado'
     && (holderType === 'tecnico' || (holderType === 'veiculo' && selectedProduct?.category === 'Ferramentas'));
   container.hidden = !serialized;
-  if (!serialized) { container.innerHTML = ''; updateMovementDeadlineVisibility(true); return; }
+  if (!serialized) { updateMovementDeadlineVisibility(false); return; }
   const rawQuantity = Number($('#movement-quantity').value);
   const count = Number.isInteger(rawQuantity) && rawQuantity > 0 ? Math.min(rawQuantity, 100) : 0;
   const previous = movementUnitValues();
@@ -3636,18 +3649,28 @@ function renderMovementSerialUnits() {
     const saved = previous[index] || {};
     return `<section class="movement-unit-row"><h4>Unidade ${index + 1}</h4><div class="movement-unit-fields"><label>MAC <input data-unit-mac value="${esc(saved.mac || '')}" placeholder="MAC exato" /></label><label>Serial <input data-unit-serial value="${esc(saved.serial_number || '')}" placeholder="Serial exato" /></label><label>Patrimônio <input data-unit-asset value="${esc(saved.asset_tag || '')}" placeholder="Patrimônio exato" /></label>${holderType==='veiculo'&&selectedProduct.category==='Ferramentas'?`<label>Número da ferramenta <input data-unit-tool-number inputmode="numeric" value="${esc(saved.tool_number || '')}" placeholder="Número exato" /></label>`:''}</div><small>Informe pelo menos um identificador desta unidade.</small></section>`;
   }).join('') : '<p class="form-error">Para produtos individualizados, informe uma quantidade inteira.</p>';
-  updateMovementDeadlineVisibility(true);
+  updateMovementDeadlineVisibility(false);
 }
 function updateMovementMode() {
-  const isFieldUsage = $('#movement-type').value === 'uso_os';
-  const technicianExit = $('#movement-type').value === 'saida' && $('#movement-holder-type').value === 'tecnico';
+  const operation = $('#movement-type').value;
+  const isFieldUsage = operation === 'uso_os';
+  const isEntry = operation === 'entrada';
+  const technicianExit = operation === 'saida' && $('#movement-holder-type').value === 'tecnico';
   const holder = $('#movement-holder-type'), workOrder = $('#movement-work-order'), quantityInput = $('#movement-quantity');
   if (isFieldUsage) holder.value = 'tecnico';
-  holder.disabled = isFieldUsage;
+  holder.disabled = isFieldUsage || isEntry;
+  $('#movement-holder-field').hidden = isFieldUsage || isEntry;
   workOrder.required = isFieldUsage;
-  $('#movement-destination-label').textContent = isFieldUsage ? 'Destino (técnico)' : 'Destino';
-  $('#movement-person-label').textContent = isFieldUsage ? 'Técnico responsável' : 'Responsável / destino';
-  $('#movement-os-label').textContent = isFieldUsage ? 'Número da OS *' : 'Número da OS';
+  $('#movement-recipient-section-title').textContent = isEntry ? 'Origem e recebimento' : isFieldUsage ? 'Utilização em OS' : 'Responsável e destino';
+  $('#movement-destination-label').textContent = 'Destino';
+  $('#movement-person-label').textContent = isEntry ? 'Origem / fornecedor *' : isFieldUsage ? 'Técnico responsável *' : technicianExit ? 'Técnico destinatário *' : 'Responsável / destino *';
+  $('#movement-os-label').textContent = isEntry ? 'Número da nota fiscal' : isFieldUsage ? 'Número da OS *' : 'Número da OS';
+  $('#movement-work-order').placeholder = isEntry ? 'Opcional — Ex.: NF 12345' : isFieldUsage ? 'Obrigatório — Ex.: OS-1024' : 'Opcional — Ex.: OS-1024';
+  $('#movement-mode-help').textContent = isEntry
+    ? 'Informe a origem da entrada. O número da nota fiscal pode ser registrado no campo ao lado.'
+    : isFieldUsage
+      ? 'O uso em OS registra uma saída para o técnico informado e exige o número da OS.'
+      : 'Escolha o destino para adaptar o responsável e os controles aplicáveis.';
   const serializedExit = technicianExit && product($('#movement-product').value)?.tracking_mode === 'serializado';
   quantityInput.step = serializedExit ? '1' : '0.001';
   quantityInput.min = serializedExit ? '1' : '0.001';
@@ -3656,10 +3679,12 @@ function updateMovementMode() {
 }
 $('#movement-type').onchange = updateMovementMode;
 $('#movement-holder-type').onchange = updateMovementMode;
+$('#movement-product-search').oninput = debounce(() => renderMovementProductOptions(), 220);
 $('#movement-product').onchange = () => {
   $('#movement-serial-units').innerHTML = '';
   $('#movement-withdrawn-at').value = '';
   $('#movement-due-at').value = '';
+  renderMovementProductOptions();
   updateMovementMode();
 };
 $('#movement-quantity').oninput = renderMovementSerialUnits;

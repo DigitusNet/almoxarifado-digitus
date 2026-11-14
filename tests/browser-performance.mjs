@@ -130,6 +130,17 @@ try {
   assert.deepEqual(unitPages.map(read=>read.returned),[50,50]);
   await page.locator('[data-view="movement"]:visible').first().click();
   await page.waitForFunction(()=>document.querySelector('#movement-history .movement-history-row'));
+  await page.locator('#movement-type').selectOption('entrada');
+  await page.waitForFunction(()=>document.querySelector('#movement-holder-field').hidden);
+  assert.match(await page.locator('#movement-person-label').innerText(),/Origem/);
+  assert.match(await page.locator('#movement-os-label').innerText(),/nota fiscal/i);
+  await page.locator('#movement-type').selectOption('uso_os');
+  await page.waitForFunction(()=>document.querySelector('#movement-work-order').required);
+  assert.match(await page.locator('#movement-person-label').innerText(),/Técnico responsável/);
+  await page.locator('#movement-type').selectOption('saida');
+  await page.waitForFunction(()=>!document.querySelector('#movement-holder-field').hidden);
+  await page.locator('#movement-product-search').fill('roteador');
+  await page.waitForFunction(()=>document.querySelector('#movement-product-preview').textContent.includes('Roteador de teste'));
   await page.evaluate(()=>{window.scrollTo(0,0);document.querySelector('main').scrollTop=0;});
   await page.waitForFunction(()=>document.querySelector('[data-history-entry="movement-m005999"]'));
   const cards=await page.locator('#movement-history .movement-history-row').count();
