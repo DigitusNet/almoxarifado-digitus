@@ -3708,7 +3708,10 @@ document.querySelectorAll('[data-deadline-hours]').forEach(button => button.oncl
   const withdrawn = new Date($('#movement-withdrawn-at').value || Date.now());
   $('#movement-due-at').value = localDateTimeInputValue(new Date(withdrawn.getTime() + Number(button.dataset.deadlineHours) * 60 * 60 * 1000));
 });
-$('[data-deadline-custom]').onclick = () => $('#movement-due-at').focus();
+const deadlineCustomButton = $('[data-deadline-custom]');
+if (deadlineCustomButton) {
+  deadlineCustomButton.onclick = () => $('#movement-due-at').focus();
+}
 updateMovementMode();
 
 $('#serial-transfer-action').onchange = updateSerialTransferForm;
