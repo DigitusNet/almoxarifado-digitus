@@ -789,7 +789,7 @@ async function useScannedCode(rawCode) {
       const registeringUsage = $('#movement-type').value === 'uso_os';
       $('#movement-type').value = registeringUsage ? 'uso_os' : 'saida';
       $('#movement-holder-type').value = 'tecnico';
-      $('#movement-product').value = result.item.product_id;
+      renderMovementProductOptions(result.item.product_id);
       $('#movement-quantity').value = 1;
       updateMovementMode();
       const firstUnit = document.querySelector('.movement-unit-row');
@@ -822,7 +822,7 @@ async function useScannedCode(rawCode) {
   $('#code-scanner-dialog').close();
   if (scannerTarget === 'movement') {
     await view('movement');
-    $('#movement-product').value = result.item.id;
+    renderMovementProductOptions(result.item.id);
     updateMovementMode();
     $('#movement-quantity').focus();
     return;
@@ -1389,10 +1389,10 @@ function renderEpis() {
   document.querySelectorAll('[data-delete-epi]').forEach(button => button.onclick = () => deleteProduct(button.dataset.deleteEpi));
 }
 
-function renderMovementProductOptions() {
+function renderMovementProductOptions(selectedProductId) {
   const select = $('#movement-product');
   if (!select) return;
-  const selected = select.value;
+  const selected = selectedProductId ?? select.value;
   const products = activeProducts();
   const query = normalizeHistoryText($('#movement-product-search')?.value || '');
   const matching = products.filter(item => !query || normalizeHistoryText(`${item.name} ${item.code} ${item.brand || ''} ${item.model || ''}`).includes(query));
